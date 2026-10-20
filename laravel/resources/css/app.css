@@ -1,0 +1,92 @@
+@import 'tailwindcss';
+
+@source '../views/**/*.blade.php';
+@source '../js/**/*.{ts,tsx}';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: 'Noto Sans Thai', ui-sans-serif, system-ui, sans-serif;
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+}
+
+:root {
+  color-scheme: light;
+  --background: 156 25% 97%;
+  --foreground: 174 34% 13%;
+  --card: 0 0% 100%;
+  --card-foreground: 174 34% 13%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 174 34% 13%;
+  --primary: 175 63% 28%;
+  --primary-foreground: 150 20% 98%;
+  --secondary: 158 22% 91%;
+  --secondary-foreground: 174 34% 17%;
+  --muted: 156 18% 93%;
+  --muted-foreground: 169 13% 39%;
+  --accent: 158 25% 91%;
+  --accent-foreground: 175 58% 23%;
+  --destructive: 3 67% 47%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 159 18% 84%;
+  --input: 159 18% 78%;
+  --ring: 175 63% 34%;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: 174 32% 8%;
+  --foreground: 150 18% 94%;
+  --card: 174 27% 11%;
+  --card-foreground: 150 18% 94%;
+  --popover: 174 27% 11%;
+  --popover-foreground: 150 18% 94%;
+  --primary: 169 48% 55%;
+  --primary-foreground: 174 40% 10%;
+  --secondary: 172 20% 17%;
+  --secondary-foreground: 150 18% 92%;
+  --muted: 172 19% 15%;
+  --muted-foreground: 160 12% 68%;
+  --accent: 172 23% 17%;
+  --accent-foreground: 163 35% 85%;
+  --destructive: 3 58% 55%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 172 16% 22%;
+  --input: 172 15% 28%;
+  --ring: 169 48% 55%;
+}
+
+* { border-color: hsl(var(--border)); }
+html { scroll-behavior: smooth; }
+body { margin: 0; font-family: var(--font-sans); }
+button, input, select, textarea { font: inherit; }
+::selection { background: hsl(var(--primary) / .18); color: hsl(var(--foreground)); }
+
+.focus-ring { @apply outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background; }
+.surface-grid {
+  background-image: linear-gradient(hsl(var(--border) / .22) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border) / .22) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+}

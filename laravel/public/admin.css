@@ -1,0 +1,22 @@
+.admin-add, .admin-row {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
+    gap: 9px;
+    align-items: center;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--border);
+}
+.admin-add { background: var(--surface-soft); }
+.admin-list { max-height: 620px; overflow: auto; }
+.admin-row.short { grid-template-columns: 160px 1fr 120px auto; }
+.admin-row code { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.inline-delete { padding: 0 22px 12px; text-align: right; }
+.inline-delete .link-button { color: var(--danger); }
+@media (max-width: 980px) {
+    .admin-add, .admin-row, .admin-row.short { grid-template-columns: 1fr 1fr; }
+    .admin-add .button, .admin-row .button { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+    .admin-add, .admin-row, .admin-row.short { grid-template-columns: 1fr; padding: 14px 16px; }
+    .admin-add .button, .admin-row .button { grid-column: auto; }
+}

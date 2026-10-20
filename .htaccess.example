@@ -1,0 +1,9 @@
+# Optional local MAMP entry-point redirect. Start Laravel on port 8000 first.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP_HOST} ^(?:localhost|127\.0\.0\.1|\[::1\]):8888$ [NC]
+    RewriteRule ^(?:index\.php)?$ http://localhost:8000/ [R=302,L]
+    RewriteCond %{HTTP_HOST} ^(?:localhost|127\.0\.0\.1|\[::1\]):8888$ [NC]
+    RewriteRule ^login/?$ http://localhost:8000/login [R=302,L]
+</IfModule>
+# Configure API keys in the server environment; never commit them here.

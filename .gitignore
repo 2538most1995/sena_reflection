@@ -1,0 +1,50 @@
+# Dependencies and generated assets
+node_modules/
+vendor/
+/composer.phar
+laravel/public/build/
+laravel/public/hot
+laravel/public/storage
+
+# Local credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+/.htaccess
+/config/student_api.php
+**/auth.json
+*.pem
+*.key
+
+# User data, backups and browser/test artifacts
+/uploads/
+/backups/
+/output/
+/tmp/
+**/.playwright-cli/
+**/playwright-report/
+**/test-results/
+*.sqlite
+*.sqlite-*
+*.sql
+*.zip
+*.pdf
+*.log
+/scratch.php
+/test_print.*
+/test_rect.html
+laravel/storage/**
+!laravel/storage/**/
+!laravel/storage/**/.gitignore
+laravel/bootstrap/cache/*
+!laravel/bootstrap/cache/.gitignore
+
+# Local editor and OS files
+.DS_Store
+**/.DS_Store
+**/.phpunit.cache/
+**/.phpunit.result.cache
+.idea/
+.vscode/
+**/.codex/
+**/.cursor/
