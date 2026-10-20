@@ -1,0 +1,50 @@
+# Install ONLY at httpdocs/sena_reflection/.htaccess, not the domain root.
+# Requires Apache 2.4 with mod_rewrite and AllowOverride enabled.
+# Do not expose the old index.php through a web-accessible backup filename.
+DirectoryIndex index.php
+Options -Indexes
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+</IfModule>
+
+RewriteEngine On
+RewriteBase /sena_reflection/
+
+# Never serve hidden files, application source, dependencies or backups.
+# Internal asset mappings below terminate rewriting with END.
+RewriteRule (^|/)\. - [F,END]
+RewriteRule ^(?:laravel|vendor|node_modules|config|backups|docs|tools|tmp|output|tests|\.git)(?:/|$) - [F,END,NC]
+RewriteRule ^(?:config\.php|database\.[^/]+|composer\.(?:json|lock|phar)|package(?:-lock)?\.json|AGENTS\.md|CONTEXT\.md|README\.md|SKILL\.md)$ - [F,END,NC]
+RewriteRule \.(?:sql|sqlite|sqlite3|db|bak|old|orig|log|ini|env|zip|tar|gz|7z)$ - [F,END,NC]
+
+# Preserve authorization and CSRF headers for Laravel and legacy API routes.
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteCond %{HTTP:X-XSRF-TOKEN} .
+RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-TOKEN}]
+
+# Serve only known public file types. There is intentionally no generic
+# existing-file/existing-directory bypass: old API and print PHP files must
+# run through Laravel authentication and compatibility routes.
+RewriteCond %{DOCUMENT_ROOT}/sena_reflection/laravel/public/build/$1 -f
+RewriteRule ^build/(.+\.(?:css|js|mjs|woff2?|ttf|otf|png|jpe?g|gif|webp|avif|svg|ico))$ laravel/public/build/$1 [END,NC]
+RewriteRule ^build(?:/|$) - [F,END,NC]
+
+RewriteCond %{DOCUMENT_ROOT}/sena_reflection/laravel/storage/app/public/$1 -f
+RewriteRule ^storage/(.+\.(?:png|jpe?g|gif|webp|avif|ico))$ laravel/storage/app/public/$1 [END,NC]
+RewriteRule ^storage(?:/|$) - [F,END,NC]
+
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^(?:uploads/.+\.(?:png|jpe?g|gif|webp|avif|ico)|assets/.+\.(?:css|js|png|jpe?g|gif|webp|avif|svg|ico)|fonts/.+\.(?:woff2?|ttf|otf))$ - [END,NC]
+RewriteRule ^(?:uploads|assets|fonts)(?:/|$) - [F,END,NC]
+
+RewriteCond %{DOCUMENT_ROOT}/sena_reflection/laravel/public/$1 -f
+RewriteRule ^(favicon\.ico|robots\.txt)$ laravel/public/$1 [END,NC]
+
+RewriteRule ^index\.php$ - [END]
+RewriteRule ^ index.php [END]

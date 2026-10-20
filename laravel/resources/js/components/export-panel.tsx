@@ -1,3 +1,4 @@
+import { appFetch as fetch, appUrl } from '@/lib/app-url'
 import { useEffect, useState } from 'react'
 import { ArrowClockwise, DownloadSimple, FilePdf, FileZip, WarningCircle } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
@@ -47,7 +48,7 @@ export function ExportPanel({ filters }: { filters: Filters }) {
       <span className="grid size-8 place-items-center rounded-md bg-muted">{item.filters.scope === 'week' ? <FilePdf size={18} /> : <FileZip size={18} />}</span>
       <div className="min-w-0 flex-1"><p className="text-sm font-medium">{item.filters.scope === 'week' ? `PDF สัปดาห์ ${item.filters.week}` : 'ZIP บันทึกตามตัวกรอง'} <span className="text-xs text-muted-foreground">{item.completed}/{item.total} บันทึก</span></p>{item.error && <p className="text-xs text-destructive">{item.error}</p>}{item.status === 'queued' && <p className="text-xs text-muted-foreground">รอสร้างเอกสาร</p>}</div>
       <Badge variant={item.status === 'ready' ? 'success' : 'outline'}>{({ queued: 'รอคิว', processing: 'กำลังสร้าง', ready: 'พร้อมดาวน์โหลด', failed: 'ลองใหม่ได้' })[item.status]}</Badge>
-      {item.download_url && <Button asChild size="sm"><a href={item.download_url}><DownloadSimple size={16} />ดาวน์โหลด</a></Button>}
+      {item.download_url && <Button asChild size="sm"><a href={appUrl(item.download_url)}><DownloadSimple size={16} />ดาวน์โหลด</a></Button>}
       {item.status === 'failed' && <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => void submit(item.filters.scope === 'week' ? 'week' : 'all', item.id)}><ArrowClockwise size={16} />ลองใหม่</Button>}
     </div>)}</div>}
   </section>

@@ -2,15 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\DocumentRuntimeUnavailableException;
 use App\Models\RecordAttendance;
 use App\Models\RecordImage;
 use App\Models\RecordRevision;
-use App\Models\TeachingRecord;
 use App\Models\Tambon;
+use App\Models\TeachingRecord;
 use App\Models\WeeklySubmission;
+use App\Services\EducationLevelService;
+use App\Services\LegacyPrintService;
 use App\Services\RecordPdfService;
 use App\Services\RecordRevisionService;
-use App\Services\EducationLevelService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -41,11 +43,36 @@ class RecordController extends Controller
         $record->load(['tambonRelation:id,name', 'images']);
         $filename = sprintf('sena-record-week-%02d-%s.pdf', $record->week, $record->id);
 
-        return response($pdf->renderOne($record), 200, [
+        try {
+            $content = $pdf->renderOne($record);
+        } catch (DocumentRuntimeUnavailableException $exception) {
+            $accept = strtolower((string) $request->header('Accept', ''));
+            if (str_contains($accept, 'text/html') && ! $request->expectsJson()
+                && $request->prefers(['text/html', 'application/pdf', 'application/json']) === 'text/html') {
+                report($exception);
+
+                return redirect()->route('records.browser-print', $record);
+            }
+            throw $exception;
+        }
+
+        return response($content, 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="'.$filename.'"',
             'Cache-Control' => 'private, no-store',
             'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    public function browserPrint(Request $request, TeachingRecord $record, LegacyPrintService $print): Response
+    {
+        $this->authorizeScope($request, $record);
+
+        return response($print->browserPrintHtml($record, $request->user()), 200, [
+            'Content-Type' => 'text/html; charset=UTF-8',
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+            'X-Robots-Tag' => 'noindex, nofollow',
         ]);
     }
 

@@ -2,6 +2,12 @@
 
 return [
 
+    'documents' => [
+        'php_cli_binary' => env('PHP_CLI_BINARY'),
+        'chrome_binary' => env('SENA_CHROME_BIN'),
+        'python_binary' => env('SENA_PYTHON_BIN'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services

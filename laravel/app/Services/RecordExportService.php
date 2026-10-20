@@ -50,8 +50,9 @@ class RecordExportService
                     throw new RuntimeException('คัดลอกไฟล์ PDF ไม่สำเร็จ');
                 }
             } else {
-                $python = (new ExecutableFinder)->find('python3');
-                if (! $python) {
+                $python = trim((string) config('services.documents.python_binary', '')) ?: (new ExecutableFinder)->find('python3');
+                if (! $python || str_contains($python, "\0")
+                    || ! (str_starts_with($python, '/') || preg_match('~^[A-Za-z]:[\\\\/]~', $python))) {
                     throw new RuntimeException('ไม่พบตัวรวมไฟล์ PDF');
                 }
                 $script = "import sys\nfrom pypdf import PdfReader, PdfWriter\nw=PdfWriter()\nfor f in sys.argv[2:]:\n for p in PdfReader(f).pages: w.add_page(p)\nwith open(sys.argv[1], 'wb') as out: w.write(out)\n";

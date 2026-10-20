@@ -1,3 +1,4 @@
+import { appUrl } from '@/lib/app-url'
 import { Head, useForm } from '@inertiajs/react'
 import { ArrowRight, Eye, EyeSlash, LockKey, ShieldCheck, User } from '@phosphor-icons/react'
 import { FormEvent, useState } from 'react'
@@ -12,7 +13,7 @@ export default function Login() {
   const form = useForm({ username: '', password: '' })
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    form.post('/login', { onFinish: () => form.reset('password') })
+    form.post(appUrl('/login'), { onFinish: () => form.reset('password') })
   }
 
   return <>

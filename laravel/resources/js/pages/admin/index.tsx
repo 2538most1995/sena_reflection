@@ -1,4 +1,6 @@
-import { Head, router, useForm, usePage } from '@inertiajs/react'
+import { appFetch as fetch, appUrl } from '@/lib/app-url'
+import { appRouter as router } from '@/lib/app-router'
+import { Head, useForm, usePage } from '@inertiajs/react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowsOutCardinal, Buildings, CornersOut, FileText, FloppyDisk, ImageSquare, ListChecks, Minus, MouseSimple, Plus, Trash, UsersThree, WarningCircle } from '@phosphor-icons/react'
 import { FormEvent, useEffect, useRef, useState } from 'react'
@@ -18,13 +20,13 @@ type Props = { users: User[]; tambons: Tambon[]; settings: Record<string, string
 
 function NewUser({ tambons }: { tambons: Tambon[] }) {
   const form = useForm({ name: '', username: '', password: '', role: 'tambon', tambon: '' })
-  const submit = (event: FormEvent) => { event.preventDefault(); form.post('/admin/users', { preserveScroll: true, onSuccess: () => form.reset() }) }
+  const submit = (event: FormEvent) => { event.preventDefault(); form.post(appUrl('/admin/users'), { preserveScroll: true, onSuccess: () => form.reset() }) }
   return <form onSubmit={submit} className="grid gap-3 rounded-xl bg-muted/35 p-4 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_160px_1fr_auto]"><FormField label="ชื่อ-สกุล" error={form.errors.name}><Input value={form.data.name} onChange={(event) => form.setData('name', event.target.value)} required /></FormField><FormField label="ชื่อผู้ใช้" error={form.errors.username}><Input value={form.data.username} onChange={(event) => form.setData('username', event.target.value)} required /></FormField><FormField label="รหัสผ่าน" error={form.errors.password}><Input type="password" value={form.data.password} onChange={(event) => form.setData('password', event.target.value)} placeholder="อย่างน้อย 8 ตัว" required /></FormField><FormField label="สิทธิ์"><NativeSelect value={form.data.role} onChange={(event) => form.setData('role', event.target.value)}><option value="tambon">ระดับตำบล</option><option value="district">ระดับอำเภอ</option></NativeSelect></FormField><FormField label="ตำบล" error={form.errors.tambon}><NativeSelect value={form.data.tambon} onChange={(event) => form.setData('tambon', event.target.value)} disabled={form.data.role === 'district'}><option value="">เลือกตำบล</option>{tambons.map((tambon) => <option key={tambon.id} value={tambon.id}>{tambon.name}</option>)}</NativeSelect></FormField><div className="flex items-end"><Button type="submit" disabled={form.processing}><Plus size={17} />เพิ่มผู้ใช้</Button></div></form>
 }
 
 function UserRow({ user, tambons, self }: { user: User; tambons: Tambon[]; self: boolean }) {
   const form = useForm({ _method: 'put', name: user.name, username: user.username, password: '', role: user.role, tambon: user.tambon || '' })
-  const submit = (event: FormEvent) => { event.preventDefault(); form.post(`/admin/users/${user.id}`, { preserveScroll: true, onSuccess: () => form.reset('password') }) }
+  const submit = (event: FormEvent) => { event.preventDefault(); form.post(appUrl(`/admin/users/${user.id}`), { preserveScroll: true, onSuccess: () => form.reset('password') }) }
   const destroy = () => { if (window.confirm(`ยืนยันลบบัญชี ${user.name}`)) router.delete(`/admin/users/${user.id}`, { preserveScroll: true }) }
   return <form onSubmit={submit} className="grid gap-3 rounded-xl border p-4 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_160px_1fr_auto] xl:items-end"><FormField label="ชื่อ-สกุล"><Input value={form.data.name} onChange={(event) => form.setData('name', event.target.value)} required /></FormField><FormField label="ชื่อผู้ใช้"><Input value={form.data.username} onChange={(event) => form.setData('username', event.target.value)} required /></FormField><FormField label="รหัสผ่านใหม่"><Input type="password" value={form.data.password} onChange={(event) => form.setData('password', event.target.value)} placeholder="เว้นว่างหากไม่เปลี่ยน" /></FormField><FormField label="สิทธิ์"><NativeSelect value={form.data.role} onChange={(event) => form.setData('role', event.target.value as User['role'])}><option value="tambon">ระดับตำบล</option><option value="district">ระดับอำเภอ</option></NativeSelect></FormField><FormField label="ตำบล"><NativeSelect value={form.data.tambon} onChange={(event) => form.setData('tambon', event.target.value)} disabled={form.data.role === 'district'}><option value="">ไม่ระบุ</option>{tambons.map((tambon) => <option key={tambon.id} value={tambon.id}>{tambon.name}</option>)}</NativeSelect></FormField><div className="flex gap-1"><Button type="submit" variant="outline" size="icon" aria-label={`บันทึก ${user.name}`}><FloppyDisk size={17} /></Button>{user.role !== 'district' && !self && <Button type="button" variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={destroy} aria-label={`ลบ ${user.name}`}><Trash size={17} /></Button>}</div></form>
 }
@@ -35,13 +37,13 @@ function UsersPanel({ users, tambons, selfId }: { users: User[]; tambons: Tambon
 
 function TambonsPanel({ tambons }: { tambons: Tambon[] }) {
   const create = useForm({ id: '', name: '', icon: '' })
-  const submit = (event: FormEvent) => { event.preventDefault(); create.post('/admin/tambons', { preserveScroll: true, onSuccess: () => create.reset() }) }
+  const submit = (event: FormEvent) => { event.preventDefault(); create.post(appUrl('/admin/tambons'), { preserveScroll: true, onSuccess: () => create.reset() }) }
   return <Card><CardHeader><div className="flex items-center justify-between"><CardTitle>ตำบลและกลุ่มเรียน</CardTitle><Badge variant="outline">{tambons.length} รายการ</Badge></div></CardHeader><CardContent className="grid gap-4"><form onSubmit={submit} className="grid gap-3 rounded-xl bg-muted/35 p-4 md:grid-cols-[1fr_1.5fr_1fr_auto]"><FormField label="รหัสตำบล" error={create.errors.id}><Input value={create.data.id} onChange={(event) => create.setData('id', event.target.value)} required /></FormField><FormField label="ชื่อตำบล" error={create.errors.name}><Input value={create.data.name} onChange={(event) => create.setData('name', event.target.value)} required /></FormField><FormField label="สัญลักษณ์" error={create.errors.icon}><Input value={create.data.icon} onChange={(event) => create.setData('icon', event.target.value)} placeholder="ไม่บังคับ" /></FormField><div className="flex items-end"><Button type="submit"><Plus size={17} />เพิ่มตำบล</Button></div></form><div className="grid gap-3 md:grid-cols-2">{tambons.map((tambon) => <TambonRow key={tambon.id} tambon={tambon} />)}</div></CardContent></Card>
 }
 
 function TambonRow({ tambon }: { tambon: Tambon }) {
   const form = useForm({ _method: 'put', name: tambon.name, icon: tambon.icon || '' })
-  const submit = (event: FormEvent) => { event.preventDefault(); form.post(`/admin/tambons/${tambon.id}`, { preserveScroll: true }) }
+  const submit = (event: FormEvent) => { event.preventDefault(); form.post(appUrl(`/admin/tambons/${tambon.id}`), { preserveScroll: true }) }
   const destroy = () => { if (window.confirm(`ยืนยันลบตำบล ${tambon.name}`)) router.delete(`/admin/tambons/${tambon.id}`, { preserveScroll: true }) }
   return <form onSubmit={submit} className="rounded-xl border p-4"><div className="mb-3 flex items-center justify-between"><code className="rounded-md bg-muted px-2 py-1 text-xs">{tambon.id}</code><Button type="button" variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={destroy} aria-label={`ลบ ${tambon.name}`}><Trash size={16} /></Button></div><div className="grid gap-3 sm:grid-cols-[1fr_100px_auto]"><Input value={form.data.name} onChange={(event) => form.setData('name', event.target.value)} aria-label="ชื่อตำบล" /><Input value={form.data.icon} onChange={(event) => form.setData('icon', event.target.value)} aria-label="สัญลักษณ์" /><Button type="submit" variant="outline" size="icon" aria-label={`บันทึก ${tambon.name}`}><FloppyDisk size={17} /></Button></div></form>
 }
@@ -101,7 +103,7 @@ function SettingsPanel({ settings }: { settings: Record<string, string> }) {
     }
     form.setData('settings', { ...form.data.settings, ...changes })
   }
-  const submit = (event: FormEvent) => { event.preventDefault(); form.post('/admin/settings', { preserveScroll: true }) }
+  const submit = (event: FormEvent) => { event.preventDefault(); form.post(appUrl('/admin/settings'), { preserveScroll: true }) }
 
   useEffect(() => {
     const controller = new AbortController()

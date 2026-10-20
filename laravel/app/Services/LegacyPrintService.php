@@ -2,16 +2,20 @@
 
 namespace App\Services;
 
+use App\Exceptions\DocumentRuntimeUnavailableException;
 use App\Models\RecordRevision;
 use App\Models\TeachingRecord;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use RuntimeException;
+use Symfony\Component\Process\Exception\ExceptionInterface;
 use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
 
 class LegacyPrintService
 {
+    public function __construct(private readonly PhpCliExecutable $phpCli) {}
+
     /**
      * @param  array<string, string>  $settings
      * @param  array<string, string>  $content
@@ -44,17 +48,18 @@ class LegacyPrintService
     }
 
     /** @param array<string, mixed> $snapshot */
-    public function snapshotHtml(array $snapshot, User $user, bool $editor = false): string
+    public function snapshotHtml(array $snapshot, User $user, bool $editor = false, bool $browserAssets = false): string
     {
         if (! is_array($snapshot['record'] ?? null)) {
             throw new RuntimeException('ข้อมูล snapshot เอกสารไม่สมบูรณ์');
         }
 
         $process = new Process([
-            PHP_BINARY,
+            $this->phpCli->resolve(),
             base_path('scripts/render_document_snapshot.php'),
             (string) $user->getKey(),
             $editor ? '1' : '0',
+            $browserAssets ? 'browser' : 'local',
         ], null, $this->databaseEnvironment());
         $process->setInput(json_encode($snapshot, JSON_THROW_ON_ERROR));
         $process->setTimeout(30)->mustRun();
@@ -65,6 +70,16 @@ class LegacyPrintService
         }
 
         return $html;
+    }
+
+    public function browserPrintHtml(TeachingRecord $record, User $user): string
+    {
+        $html = $this->snapshotHtml($this->savedSnapshot($record, $user), $user, false, true);
+        $base = '<base href="'.e(rtrim(url('/'), '/').'/').'">';
+        $html = preg_replace('/<base\b[^>]*>/i', $base, $html, 1) ?? $html;
+        $toolbar = view('records.browser-print-toolbar', ['recordUrl' => route('records.show', $record)])->render();
+
+        return str_replace('<body>', '<body>'.$toolbar, $html);
     }
 
     /** @param array<string, mixed> $snapshot */
@@ -123,7 +138,7 @@ class LegacyPrintService
     {
         $encoded = rtrim(strtr(base64_encode(json_encode($settings, JSON_THROW_ON_ERROR)), '+/', '-_'), '=');
         $process = new Process([
-            PHP_BINARY,
+            $this->phpCli->resolve(),
             base_path('scripts/render_legacy_settings_preview.php'),
             (string) $user->getKey(),
             $encoded,
@@ -159,9 +174,10 @@ class LegacyPrintService
             }
 
             $output = $directory.'/combined.pdf';
-            $python = (new ExecutableFinder)->find('python3');
-            if ($python === null) {
-                throw new RuntimeException('ไม่พบ Python สำหรับรวมเอกสาร PDF');
+            $python = trim((string) config('services.documents.python_binary', '')) ?: (new ExecutableFinder)->find('python3');
+            if (! $python || str_contains($python, "\0")
+                || ! (str_starts_with($python, '/') || preg_match('~^[A-Za-z]:[\\\\/]~', $python))) {
+                throw new DocumentRuntimeUnavailableException(new RuntimeException('Python PDF merge runtime was not found.'));
             }
 
             $script = <<<'PY'
@@ -175,7 +191,11 @@ for filename in sys.argv[2:]:
 with open(sys.argv[1], "wb") as output:
     writer.write(output)
 PY;
-            (new Process([$python, '-c', $script, $output, ...$files]))->setTimeout(30)->mustRun();
+            try {
+                (new Process([$python, '-c', $script, $output, ...$files]))->setTimeout(30)->mustRun();
+            } catch (ExceptionInterface $exception) {
+                throw new DocumentRuntimeUnavailableException($exception);
+            }
 
             if (! is_file($output) || filesize($output) < 1024) {
                 throw new RuntimeException('รวมเอกสาร PDF ไม่สำเร็จ');
@@ -230,10 +250,12 @@ PY;
             }
 
             if (! is_file($pdfPath) || filesize($pdfPath) < 1024) {
-                throw new RuntimeException('Chrome สร้าง PDF ไม่สำเร็จ: '.mb_substr($process->getErrorOutput(), 0, 500));
+                throw new DocumentRuntimeUnavailableException(new RuntimeException('Chrome could not produce PDF: '.mb_substr($process->getErrorOutput(), 0, 2000)));
             }
 
             return (string) file_get_contents($pdfPath);
+        } catch (ExceptionInterface $exception) {
+            throw new DocumentRuntimeUnavailableException($exception);
         } finally {
             $this->removeDirectory($directory);
         }
@@ -242,7 +264,7 @@ PY;
     private function chromeBinary(): string
     {
         $candidates = array_filter([
-            env('SENA_CHROME_BIN'),
+            config('services.documents.chrome_binary'),
             '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
             '/Applications/Chromium.app/Contents/MacOS/Chromium',
             (new ExecutableFinder)->find('google-chrome'),
@@ -255,7 +277,7 @@ PY;
             }
         }
 
-        throw new RuntimeException('ไม่พบ Chrome/Chromium สำหรับสร้าง PDF');
+        throw new DocumentRuntimeUnavailableException(new RuntimeException('Chrome/Chromium document runtime was not found.'));
     }
 
     private function databaseEnvironment(): array

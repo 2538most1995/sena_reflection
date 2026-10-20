@@ -1,4 +1,6 @@
-import { Link, router, usePage } from '@inertiajs/react'
+import { AppLink as Link } from '@/components/app-link'
+import { appRouter as router } from '@/lib/app-router'
+import { usePage } from '@inertiajs/react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Buildings, CaretDown, ChartBar, List, Plus, SignOut, Student, UserCircle, UserList, X } from '@phosphor-icons/react'
@@ -6,6 +8,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { cn } from '@/lib/utils'
+import { appPathname } from '@/lib/app-url'
 import type { SharedProps } from '@/types'
 
 const items = [
@@ -23,11 +26,12 @@ function Brand() {
 
 function NavLinks({ mobile = false, close }: { mobile?: boolean; close?: () => void }) {
   const { url, props } = usePage<SharedProps>()
+  const pathname = appPathname(url)
   const links = props.auth.user?.role === 'district' ? [...items, { href: '/admin', label: 'จัดการระบบ', icon: Buildings, match: (value: string) => value.startsWith('/admin') }] : items
   return <nav className={cn(mobile ? 'grid gap-1' : 'hidden items-center gap-1 md:flex')} aria-label="เมนูหลัก">
     {mobile && <Link href="/records/create" onClick={close} className="focus-ring mb-3 flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground"><Plus size={18} weight="bold" />สร้างบันทึกหลังสอน</Link>}
-    {links.map(({ href, label, icon: Icon, match }) => <Link key={href} href={href} onClick={close} className={cn('focus-ring flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors', match(url) ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
-      <Icon size={18} weight={match(url) ? 'fill' : 'regular'} />{label}
+    {links.map(({ href, label, icon: Icon, match }) => <Link key={href} href={href} onClick={close} className={cn('focus-ring flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors', match(pathname) ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
+      <Icon size={18} weight={match(pathname) ? 'fill' : 'regular'} />{label}
     </Link>)}
   </nav>
 }

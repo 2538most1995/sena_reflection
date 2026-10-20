@@ -1,4 +1,7 @@
-import { Head, Link, router, usePage } from '@inertiajs/react'
+import { AppLink as Link } from '@/components/app-link'
+import { appRouter as router } from '@/lib/app-router'
+import { appFetch as fetch } from '@/lib/app-url'
+import { Head, usePage } from '@inertiajs/react'
 import { ArrowRight, Books, CalendarBlank, CheckCircle, ClockCounterClockwise, Funnel, MagnifyingGlass, Plus, Printer, UsersThree, X } from '@phosphor-icons/react'
 import { FormEvent, useEffect, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'

@@ -9,11 +9,13 @@ use Symfony\Component\Process\Process;
 
 class LegacyDocxService
 {
+    public function __construct(private readonly PhpCliExecutable $phpCli) {}
+
     public function render(TeachingRecord $record, User $user): string
     {
         $connection = config('database.connections.'.config('database.default'));
         $process = new Process([
-            PHP_BINARY, base_path('scripts/render_legacy_docx.php'), (string) $record->id, (string) $user->id,
+            $this->phpCli->resolve(), base_path('scripts/render_legacy_docx.php'), (string) $record->id, (string) $user->id,
         ], null, [
             'SENA_DB_HOST' => (string) ($connection['host'] ?? '127.0.0.1'),
             'SENA_DB_PORT' => (string) ($connection['port'] ?? ''),

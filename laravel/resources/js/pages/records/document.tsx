@@ -1,4 +1,7 @@
-import { Head, Link, router, useForm } from '@inertiajs/react'
+import { appFetch as fetch, appUrl } from '@/lib/app-url'
+import { AppLink as Link } from '@/components/app-link'
+import { appRouter as router } from '@/lib/app-router'
+import { Head, useForm } from '@inertiajs/react'
 import * as Tabs from '@radix-ui/react-tabs'
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowsOutCardinal, FilePdf, FileText,
@@ -336,14 +339,14 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     const popup = thenPrint && !draftContext ? window.open('', '_blank') : null
     if (popup) popup.document.write('<p style="font-family:sans-serif;padding:24px">กำลังสร้าง PDF...</p>')
     form.transform((data) => ({ ...data, ...(draftContext ? { lock_version: draftContext.lockVersion } : {}) }))
-    form.put(documentBase, {
+    form.put(appUrl(documentBase), {
       preserveScroll: true,
       onSuccess: () => {
         form.setDefaults()
         if (thenPrint) {
           if (draftContext) { router.visit(returnUrl); return }
-          if (popup) popup.location.href = `/records/${record.id}/print`
-          else window.location.href = `/records/${record.id}/print`
+          if (popup) popup.location.href = appUrl(`/records/${record.id}/print`)
+          else window.location.href = appUrl(`/records/${record.id}/print`)
         }
       },
       onError: () => popup?.close(),
@@ -364,7 +367,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
       <header className="sticky top-16 z-20 -mx-4 -mt-6 border-b bg-background/96 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:-mt-8 sm:px-6 lg:-mx-8 lg:px-8">
         <div className="mx-auto flex max-w-[1440px] flex-col gap-3 xl:flex-row xl:items-center">
           <div className="flex min-w-0 items-center gap-3">
-            <Button asChild variant="ghost" size="icon"><Link href={returnUrl} aria-label={draftContext ? 'กลับไปรีวิวฉบับร่าง' : 'กลับไปหน้ารายละเอียด'}><ArrowLeft size={20} /></Link></Button>
+            <Button asChild variant="ghost" size="icon"><Link href={appUrl(returnUrl)} aria-label={draftContext ? 'กลับไปรีวิวฉบับร่าง' : 'กลับไปหน้ารายละเอียด'}><ArrowLeft size={20} /></Link></Button>
             <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground"><FileText size={21} weight="fill" /></span>
             <div className="min-w-0"><h1 className="truncate text-base font-bold sm:text-lg">จัดเอกสารก่อนพิมพ์</h1><p className="truncate text-xs text-muted-foreground">{record.subject} | สัปดาห์ {record.week} | {record.level}</p></div>
           </div>
@@ -495,7 +498,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
             <div className="relative h-[calc(100dvh-202px)] min-h-[680px] overflow-auto bg-muted/55 p-4">
               {previewMode === 'editor' && previewing && <div className="sticky left-4 right-4 top-0 z-10 h-1.5 overflow-hidden rounded-full bg-muted"><span className="block h-full w-1/2 animate-pulse rounded-full bg-primary" /></div>}
               {previewMode === 'editor' && preview && <div className="mx-auto" style={{ width: `${pageGeometry.pageWidth * zoom}px`, height: `${pageGeometry.documentHeight * zoom}px` }}><iframe ref={iframeRef} title="ตัวจัดเอกสารก่อนพิมพ์" srcDoc={preview} sandbox="allow-scripts" onLoad={() => postLocalPatch(Object.fromEntries(Object.entries(latestDocumentRef.current.settings).filter(([key]) => localPreviewKey.test(key))))} className="origin-top-left border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" style={{ width: `${pageGeometry.pageWidth + 4}px`, height: `${pageGeometry.documentHeight}px`, transform: `scale(${zoom})` }} /></div>}
-              {previewMode === 'pdf' && actualPdfUrl && <iframe title="PDF จริงก่อนดาวน์โหลด" src={actualPdfUrl} className="h-full min-h-[650px] w-full rounded-lg border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" />}
+              {previewMode === 'pdf' && actualPdfUrl && <iframe title="PDF จริงก่อนดาวน์โหลด" src={appUrl(actualPdfUrl)} className="h-full min-h-[650px] w-full rounded-lg border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" />}
               {previewMode === 'pdf' && !actualPdfUrl && <div className="grid min-h-[620px] place-items-center text-center"><div><FilePdf size={44} className="mx-auto text-muted-foreground" /><p className="mt-3 text-sm font-semibold">ยังไม่ได้สร้าง PDF ตัวอย่าง</p><Button type="button" className="mt-3" disabled={actualPdfLoading} onClick={loadActualPdf}>สร้าง PDF จากข้อมูลปัจจุบัน</Button></div></div>}
             </div>
           </section>

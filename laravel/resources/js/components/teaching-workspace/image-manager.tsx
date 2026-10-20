@@ -1,3 +1,4 @@
+import { appUrl } from '@/lib/app-url'
 import { ArrowLeft, ArrowRight, Camera, DotsSixVertical, ImageSquare, Trash, UploadSimple, WarningCircle } from '@phosphor-icons/react'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -67,7 +68,7 @@ export function ImageManager({ images, busy, onUpload, onDelete, onReorder }: Pr
         className={cn('group overflow-hidden rounded-xl border bg-card transition-[border-color,box-shadow,opacity] duration-150', draggedId === image.id ? 'opacity-50' : 'hover:border-primary/35 hover:shadow-sm')}
       >
         <div className="relative aspect-[4/3] overflow-hidden bg-muted">
-          <img src={image.url} alt={`รูปประกอบลำดับ ${index + 1}`} className="size-full object-cover" />
+          <img src={appUrl(image.url)} alt={`รูปประกอบลำดับ ${index + 1}`} className="size-full object-cover" />
           <span className="absolute left-2 top-2 grid size-7 place-items-center rounded-md bg-foreground/78 text-xs font-bold text-background">{index + 1}</span>
           <span className="absolute right-2 top-2 grid size-7 cursor-grab place-items-center rounded-md bg-background/90 text-foreground shadow-sm" aria-hidden="true"><DotsSixVertical size={17} weight="bold" /></span>
         </div>

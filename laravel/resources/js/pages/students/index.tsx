@@ -1,4 +1,6 @@
-import { Head, Link, router } from '@inertiajs/react'
+import { AppLink as Link } from '@/components/app-link'
+import { appRouter as router } from '@/lib/app-router'
+import { Head } from '@inertiajs/react'
 import { Database, MagnifyingGlass, Student, WarningCircle } from '@phosphor-icons/react'
 import { FormEvent, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'

@@ -1,4 +1,5 @@
-import { Head, router, usePage } from '@inertiajs/react'
+import { appRouter as router } from '@/lib/app-router'
+import { Head, usePage } from '@inertiajs/react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { CheckCircle, MagnifyingGlass, Student, UserMinus, UsersThree } from '@phosphor-icons/react'
 import { FormEvent, useState } from 'react'

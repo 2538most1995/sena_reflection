@@ -9,6 +9,7 @@ if (PHP_SAPI !== 'cli') {
 
 $userId = trim((string) ($argv[1] ?? ''));
 $editor = (string) ($argv[2] ?? '') === '1';
+$browserAssets = (string) ($argv[3] ?? '') === 'browser';
 $json = stream_get_contents(STDIN);
 $snapshot = $json !== false ? json_decode($json, true) : null;
 
@@ -41,7 +42,7 @@ if ($editor) {
 
 $GLOBALS['SENA_RECORD_SNAPSHOT'] = $snapshot;
 define('SENA_PRINT_CAPTURE_HTML', true);
-define('SENA_PRINT_CAPTURE_LOCAL_ASSETS', ! $editor);
+define('SENA_PRINT_CAPTURE_LOCAL_ASSETS', ! $editor && ! $browserAssets);
 
 $html = require $projectRoot.'/print.php';
 if (! is_string($html) || ! str_contains($html, '<!doctype html>')) {

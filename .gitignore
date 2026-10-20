@@ -21,6 +21,8 @@ laravel/public/storage
 /backups/
 /output/
 /tmp/
+/laravel/output/
+/laravel/tmp/
 **/.playwright-cli/
 **/playwright-report/
 **/test-results/

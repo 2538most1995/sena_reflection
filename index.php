@@ -1,4 +1,18 @@
 <?php
+$laravelEntryPoint = __DIR__.'/laravel/public/index.php';
+if (is_file($laravelEntryPoint)) {
+    if (! is_file(__DIR__.'/laravel/vendor/autoload.php')) {
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=UTF-8');
+        header('Cache-Control: no-store');
+        echo 'The application is being prepared. Please try again shortly.';
+        exit;
+    }
+
+    require $laravelEntryPoint;
+    exit;
+}
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/api/teacher_directory.php';
 $authenticatedUser = getAuthenticatedUserOrNull();

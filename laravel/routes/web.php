@@ -35,6 +35,7 @@ Route::middleware('auth')->group(function () {
     Route::put('/records/{record}/document', [RecordDocumentController::class, 'update'])->name('records.document.update');
     Route::delete('/records/{record}/document', [RecordDocumentController::class, 'destroy'])->name('records.document.destroy');
     Route::get('/records/{record}/print', [RecordController::class, 'print'])->middleware('throttle:exports')->name('records.print');
+    Route::get('/records/{record}/browser-print', [RecordController::class, 'browserPrint'])->middleware('throttle:document-previews')->name('records.browser-print');
     Route::get('/records/{record}/images/{image}', [RecordController::class, 'image'])->name('records.images.show');
     Route::get('/records/{record}/edit', [RecordController::class, 'edit'])->name('records.edit');
     Route::put('/records/{record}', [RecordController::class, 'update'])->name('records.update');

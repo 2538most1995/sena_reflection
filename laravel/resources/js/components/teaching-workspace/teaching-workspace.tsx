@@ -1,4 +1,7 @@
-import { Head, Link, router, usePage } from '@inertiajs/react'
+import { appFetch as fetch, appUrl } from '@/lib/app-url'
+import { AppLink as Link } from '@/components/app-link'
+import { appRouter as router } from '@/lib/app-router'
+import { Head, usePage } from '@inertiajs/react'
 import { ArrowLeft, CheckCircle, CloudArrowUp, CloudCheck, FloppyDisk, WarningCircle } from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
@@ -514,7 +517,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const editDocument = async (levelCode: LevelCode) => {
     try {
       const currentDraft = await saveNow()
-      window.location.assign(`/teaching-drafts/${currentDraft.id}/document/${levelCode}`)
+      window.location.assign(appUrl(`/teaching-drafts/${currentDraft.id}/document/${levelCode}`))
     } catch {
       // The draft save reports its error without navigating away from unsaved work.
     }
@@ -567,7 +570,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       const envelope = await parseError(response)
       if (response.status === 409) handleConflict(envelope)
       if (!response.ok) throw new Error(envelope.message || 'ยืนยันบันทึกไม่สำเร็จ')
-      window.location.assign(envelope.data?.redirect_url || '/')
+      window.location.assign(appUrl(envelope.data?.redirect_url || '/'))
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'ยืนยันบันทึกไม่สำเร็จ')
       finalizingRef.current = false
