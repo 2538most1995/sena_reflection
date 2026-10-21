@@ -2,7 +2,7 @@
 node_modules/
 vendor/
 /composer.phar
-laravel/public/build/
+# Production frontend is versioned with its PHP callers.
 laravel/public/hot
 laravel/public/storage
 
