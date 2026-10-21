@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\RecordImage;
 use Illuminate\Support\Facades\Storage;
 
 class RecordImageAssets
@@ -9,6 +10,16 @@ class RecordImageAssets
     private const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
     private const MAX_THUMBNAIL_SIDE = 640;
+
+    /** Keep image viewing independent of Eloquent/client primary-key casts. */
+    public function assetKey(RecordImage $image): string
+    {
+        return hash('sha256', json_encode([
+            (string) $image->record_id,
+            (string) $image->getRawOriginal($image->getKeyName()),
+            (string) $image->file_path,
+        ], JSON_THROW_ON_ERROR));
+    }
 
     /** Normalize shared legacy/print image paths without requiring Laravel to boot. */
     public static function normalizeStoredPath(string $storedPath): ?string

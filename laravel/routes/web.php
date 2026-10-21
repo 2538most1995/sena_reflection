@@ -37,7 +37,9 @@ Route::middleware('auth')->group(function () {
     Route::delete('/records/{record}/document', [RecordDocumentController::class, 'destroy'])->name('records.document.destroy');
     Route::get('/records/{record}/print', [RecordController::class, 'print'])->middleware('throttle:exports')->name('records.print');
     Route::get('/records/{record}/browser-print', [RecordController::class, 'browserPrint'])->middleware('throttle:document-previews')->name('records.browser-print');
+    Route::get('/records/{record}/images/0', [RecordController::class, 'legacyImageGallery'])->name('records.images.legacy-gallery');
     Route::get('/records/{record}/images/{image}', [RecordController::class, 'image'])->name('records.images.show');
+    Route::get('/records/{record}/image-files/{asset}', [RecordController::class, 'imageFile'])->where('asset', '[a-f0-9]{64}')->name('records.image-files.show');
     Route::get('/records/{record}/edit', [RecordController::class, 'edit'])->name('records.edit');
     Route::put('/records/{record}', [RecordController::class, 'update'])->name('records.update');
     Route::delete('/records/{record}', [RecordController::class, 'destroy'])->name('records.destroy');

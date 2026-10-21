@@ -109,15 +109,31 @@ class RecordImageDeliveryTest extends TestCase
         }
         $images = $this->record->images()->get();
         $this->assertSame(['legacy-photo-a', 'legacy-photo-b'], $images->modelKeys());
+        $assets = app(RecordImageAssets::class);
+        $assetKey = $assets->assetKey($images[0]);
+        $opaqueUrl = route('records.image-files.show', [$this->record, $assetKey]);
+        $this->get($opaqueUrl)->assertRedirect(route('login'));
+        $castImage = clone $images[0];
+        $castImage->mergeCasts(['id' => 'integer']);
+        $this->assertSame(0, $castImage->id);
+        $this->assertSame('legacy-photo-a', $castImage->getRawOriginal('id'));
+        $this->assertSame($assetKey, $assets->assetKey($castImage));
         $firstUrl = route('records.images.show', [$this->record, $images[0]]);
         $this->get($firstUrl)->assertRedirect(route('login'));
         $response = $this->actingAs($this->teacher)->get(route('records.show', $this->record))->assertOk();
-        $this->assertSame(['legacy-photo-a', 'legacy-photo-b'], array_column($response->inertiaProps('record.images'), 'id'));
+        $payloadImages = $response->inertiaProps('record.images');
+        $this->assertSame(['legacy-photo-a', 'legacy-photo-b'], array_column($payloadImages, 'id'));
+        $this->assertSame($opaqueUrl, $payloadImages[0]['view_url']);
+        $this->assertNotSame($payloadImages[0]['view_url'], $payloadImages[1]['view_url']);
+        foreach ($payloadImages as $image) {
+            $response = $this->get($image['view_url'])->assertOk()->assertHeader('Cache-Control', 'max-age=300, private')->assertHeader('X-Content-Type-Options', 'nosniff');
+            $this->assertSame(realpath($this->fixtureRoot.'/uploads/'.$image['id'].'.png'), $response->baseResponse->getFile()->getRealPath());
+        }
         foreach ($images as $image) {
             $response = $this->get(route('records.images.show', [$this->record, $image]))->assertOk();
             $this->assertSame(realpath($this->fixtureRoot.'/uploads/'.$image->id.'.png'), $response->baseResponse->getFile()->getRealPath());
         }
-        $this->get(route('records.images.show', [$this->record, '0']))->assertNotFound();
+        $this->get(route('records.images.show', [$this->record, '0']))->assertRedirect(route('records.show', $this->record).'#activity-images');
         $this->actingAs($this->teacher)->put(route('records.update', $this->record), [
             ...$this->record->only(['week', 'year', 'semester', 'level', 'subject', 'total', 'present']),
             'date' => '2026-10-21', 'keep_images' => $images->modelKeys(),
@@ -130,8 +146,10 @@ class RecordImageDeliveryTest extends TestCase
             'total' => 2, 'present' => 1, 'created_by' => $this->teacher->id,
         ]);
         $this->get(route('records.images.show', [$otherRecord, $images[0]]))->assertNotFound();
+        $this->get(route('records.image-files.show', [$otherRecord, $assetKey]))->assertNotFound();
         $other = User::create(['id' => 'legacy-other-user', 'username' => 'legacy-other-user', 'name' => 'ครูอื่น', 'password' => 'not-used', 'role' => 'tambon', 'tambon' => 'image-t2']);
         $this->actingAs($other)->get($firstUrl)->assertForbidden();
+        $this->get($opaqueUrl)->assertForbidden();
     }
 
     public function test_new_numeric_image_ids_still_increment_and_accept_numeric_keep_values(): void
@@ -141,12 +159,38 @@ class RecordImageDeliveryTest extends TestCase
         $second = RecordImage::create(['record_id' => $this->record->id, 'file_path' => 'uploads/numeric.png']);
         $this->assertTrue(ctype_digit($first->id));
         $this->assertSame((int) $first->id + 1, (int) $second->id);
+        $this->assertNotSame(app(RecordImageAssets::class)->assetKey($first->fresh()), app(RecordImageAssets::class)->assetKey($second->fresh()));
         $this->actingAs($this->teacher)->put(route('records.update', $this->record), [
             ...$this->record->only(['week', 'year', 'semester', 'level', 'subject', 'total', 'present']),
             'date' => '2026-10-21', 'keep_images' => [(int) $first->id, (int) $second->id],
         ])->assertSessionHasNoErrors();
         $this->assertSame([$first->id, $second->id], $this->record->images()->get()->modelKeys());
         $this->get(route('records.images.show', [$this->record, $first]))->assertOk();
+        $this->get(route('records.image-files.show', [$this->record, app(RecordImageAssets::class)->assetKey($first->fresh())]))->assertOk();
+    }
+
+    public function test_opaque_image_routes_fail_closed_for_missing_files_unknown_keys_and_changed_paths(): void
+    {
+        $assets = app(RecordImageAssets::class);
+        $image = RecordImage::create(['record_id' => $this->record->id, 'file_path' => 'uploads/missing.png']);
+        $url = route('records.image-files.show', [$this->record, $assets->assetKey($image->fresh())]);
+        $this->actingAs($this->teacher)->get($url)->assertNotFound();
+        $this->get(route('records.image-files.show', [$this->record, str_repeat('a', 64)]))->assertNotFound();
+        $this->get(route('records.image-files.show', [$this->record, '0']))->assertNotFound();
+        File::put($this->fixtureRoot.'/uploads/replaced.png', $this->png());
+        $image->update(['file_path' => 'uploads/replaced.png']);
+        $this->get($url)->assertNotFound();
+        $this->get(route('records.image-files.show', [$this->record, $assets->assetKey($image->fresh())]))->assertOk();
+    }
+
+    public function test_legacy_zero_image_links_redirect_to_the_authorized_gallery_without_guessing_a_photo(): void
+    {
+        $url = route('records.images.show', [$this->record, '0']);
+        $this->get($url)->assertRedirect(route('login'));
+        $this->actingAs($this->teacher)->get($url)->assertRedirect(route('records.show', $this->record).'#activity-images');
+        $this->get(route('records.images.show', [$this->record, '999999']))->assertNotFound();
+        $other = User::create(['id' => 'zero-other-user', 'username' => 'zero-other-user', 'name' => 'ครูอื่น', 'password' => 'not-used', 'role' => 'tambon', 'tambon' => 'image-t2']);
+        $this->actingAs($other)->get($url)->assertForbidden();
     }
 
     public function test_print_and_authenticated_delivery_share_storage_url_and_encoded_path_normalization(): void

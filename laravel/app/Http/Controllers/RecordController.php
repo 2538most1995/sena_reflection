@@ -77,6 +77,13 @@ class RecordController extends Controller
         ]);
     }
 
+    public function legacyImageGallery(Request $request, TeachingRecord $record): RedirectResponse
+    {
+        $this->authorizeScope($request, $record);
+
+        return redirect()->to(route('records.show', $record).'#activity-images');
+    }
+
     public function image(Request $request, TeachingRecord $record, RecordImage $image): BinaryFileResponse
     {
         $this->authorizeScope($request, $record);
@@ -88,7 +95,21 @@ class RecordController extends Controller
         return response()->file($realPath, [
             'Cache-Control' => 'private, max-age=300',
             'X-Content-Type-Options' => 'nosniff',
-        ]);
+        ])->setPrivate();
+    }
+
+    public function imageFile(Request $request, TeachingRecord $record, string $asset, RecordImageAssets $assets): BinaryFileResponse
+    {
+        $this->authorizeScope($request, $record);
+        $image = $record->images()->get()->first(fn (RecordImage $image): bool => hash_equals($assets->assetKey($image), $asset));
+        abort_if($image === null, 404);
+        $realPath = $assets->resolve((string) $image->file_path);
+        abort_if($realPath === null, 404);
+
+        return response()->file($realPath, [
+            'Cache-Control' => 'private, max-age=300',
+            'X-Content-Type-Options' => 'nosniff',
+        ])->setPrivate();
     }
 
     public function edit(Request $request, TeachingRecord $record, RecordCreateController $create, StudentDirectoryController $students, EducationLevelService $levels): InertiaResponse
@@ -264,6 +285,7 @@ class RecordController extends Controller
             $payload['images'] = $record->images->map(fn (RecordImage $image): array => [
                 ...$image->toArray(),
                 'preview_src' => $assets->previewSrc((string) $image->file_path),
+                'view_url' => route('records.image-files.show', ['record' => $record, 'asset' => $assets->assetKey($image)]),
             ])->all();
         }
 
