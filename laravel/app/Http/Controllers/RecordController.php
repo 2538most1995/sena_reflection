@@ -121,7 +121,8 @@ class RecordController extends Controller
             'subject_code' => ['nullable', 'string', 'max:50'], 'class_group_code' => ['nullable', 'string', 'max:50'],
             'class_name' => ['nullable', 'string', 'max:255'], 'result' => ['nullable', 'string', 'max:10000'],
             'problem' => ['nullable', 'string', 'max:10000'], 'suggestion' => ['nullable', 'string', 'max:10000'],
-            'keep_images' => ['nullable', 'array', 'max:4'], 'keep_images.*' => ['integer'],
+            'keep_images' => ['nullable', 'array', 'max:4'],
+            'keep_images.*' => ['required', Rule::anyOf([['integer'], ['string', 'max:255']])],
             'images' => ['nullable', 'array', 'max:4'], 'images.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'attendance' => ['nullable', 'array', 'max:1000'], 'attendance.*.student_id' => ['required', 'string', 'max:50', 'distinct'],
             'attendance.*.full_name' => ['required', 'string', 'max:255'], 'attendance.*.group_code' => ['nullable', 'string', 'max:50'],
@@ -129,7 +130,7 @@ class RecordController extends Controller
             'attendance.*.learning_method' => ['nullable', Rule::in(['พบกลุ่ม', 'ออนไลน์'])],
         ]);
 
-        $keepIds = collect($data['keep_images'] ?? [])->map(fn ($id) => (int) $id);
+        $keepIds = collect($data['keep_images'] ?? [])->map(fn ($id) => (string) $id);
         $ownedKeepIds = $record->images()->whereIn('id', $keepIds)->pluck('id');
         if (! in_array($ownedKeepIds->count() + count($request->file('images', [])), [0, 2, 4], true)) {
             return back()->withInput()->withErrors(['images' => 'ภาพประกอบต้องมี 0, 2 หรือ 4 รูป']);

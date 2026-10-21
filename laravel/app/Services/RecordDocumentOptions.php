@@ -72,10 +72,10 @@ class RecordDocumentOptions
         'pdf_margin_bottom_px' => [20, 140], 'pdf_margin_left_px' => [20, 160],
         'image_width_px' => [180, 620], 'image_height_px' => [120, 560],
         'image_offset_x' => [-220, 220], 'image_offset_y' => [-220, 220], 'image_gap_px' => [0, 72],
-        'image_1_width_px' => [60, 1000], 'image_1_height_px' => [60, 950], 'image_1_offset_x' => [-220, 220], 'image_1_offset_y' => [-220, 220], 'image_1_x_px' => [0, 1200], 'image_1_y_px' => [0, 1100],
-        'image_2_width_px' => [60, 1000], 'image_2_height_px' => [60, 950], 'image_2_offset_x' => [-220, 220], 'image_2_offset_y' => [-220, 220], 'image_2_x_px' => [0, 1200], 'image_2_y_px' => [0, 1100],
-        'image_3_width_px' => [60, 1000], 'image_3_height_px' => [60, 950], 'image_3_offset_x' => [-220, 220], 'image_3_offset_y' => [-220, 220], 'image_3_x_px' => [0, 1200], 'image_3_y_px' => [0, 1100],
-        'image_4_width_px' => [60, 1000], 'image_4_height_px' => [60, 950], 'image_4_offset_x' => [-220, 220], 'image_4_offset_y' => [-220, 220], 'image_4_x_px' => [0, 1200], 'image_4_y_px' => [0, 1100],
+        'image_1_width_px' => [10, 2400], 'image_1_height_px' => [10, 2400], 'image_1_offset_x' => [-220, 220], 'image_1_offset_y' => [-220, 220], 'image_1_x_px' => [-2400, 2400], 'image_1_y_px' => [-2400, 2400],
+        'image_2_width_px' => [10, 2400], 'image_2_height_px' => [10, 2400], 'image_2_offset_x' => [-220, 220], 'image_2_offset_y' => [-220, 220], 'image_2_x_px' => [-2400, 2400], 'image_2_y_px' => [-2400, 2400],
+        'image_3_width_px' => [10, 2400], 'image_3_height_px' => [10, 2400], 'image_3_offset_x' => [-220, 220], 'image_3_offset_y' => [-220, 220], 'image_3_x_px' => [-2400, 2400], 'image_3_y_px' => [-2400, 2400],
+        'image_4_width_px' => [10, 2400], 'image_4_height_px' => [10, 2400], 'image_4_offset_x' => [-220, 220], 'image_4_offset_y' => [-220, 220], 'image_4_x_px' => [-2400, 2400], 'image_4_y_px' => [-2400, 2400],
     ];
 
     /** @return array<string, string> */
@@ -230,6 +230,11 @@ class RecordDocumentOptions
     {
         $decoded = json_decode($settings['image_layout_by_id'] ?? '{}', true);
         $storedLayouts = is_array($decoded) ? $decoded : [];
+        // Older integer casts collapsed string image ids into one invalid key.
+        // Keep the original positional slots when repairing that exact map.
+        if (count($storedLayouts) === 1 && array_key_exists(0, $storedLayouts)) {
+            $storedLayouts = [];
+        }
         $stableLayouts = [];
         $reservedLayouts = array_filter(array_intersect_key($storedLayouts, array_fill_keys($imageIds, true)), 'is_array');
         $parts = ['width_px', 'height_px', 'x_px', 'y_px', 'object_fit', 'rotation_deg', 'lock_aspect', 'crop_x', 'crop_y'];
@@ -309,10 +314,10 @@ class RecordDocumentOptions
         Validator::make(['layouts' => $layouts], [
             'layouts' => ['array', 'max:4'],
             'layouts.*' => ['required', 'array'],
-            'layouts.*.width_px' => ['required', 'integer', 'between:60,1000'],
-            'layouts.*.height_px' => ['required', 'integer', 'between:60,950'],
-            'layouts.*.x_px' => ['required', 'integer', 'between:0,1200'],
-            'layouts.*.y_px' => ['required', 'integer', 'between:0,1100'],
+            'layouts.*.width_px' => ['required', 'integer', 'between:10,2400'],
+            'layouts.*.height_px' => ['required', 'integer', 'between:10,2400'],
+            'layouts.*.x_px' => ['required', 'integer', 'between:-2400,2400'],
+            'layouts.*.y_px' => ['required', 'integer', 'between:-2400,2400'],
             'layouts.*.object_fit' => ['required', Rule::in(['contain', 'cover', 'fill'])],
             'layouts.*.rotation_deg' => ['required', Rule::in(['0', '90', '180', '270'])],
             'layouts.*.lock_aspect' => ['required', Rule::in(['0', '1'])],

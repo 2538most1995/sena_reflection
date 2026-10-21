@@ -1,0 +1,1 @@
+import{t as e}from"./app-YT0ToKpM.js";import{t}from"./teaching-workspace-Cm-CLpN2.js";var n=e();function r(e){return(0,n.jsx)(t,{...e,mode:e.workspace?.mode===`edit`?`edit`:`create`,sourceRecord:null})}export{r as default};

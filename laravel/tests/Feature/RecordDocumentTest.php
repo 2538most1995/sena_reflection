@@ -493,6 +493,90 @@ class RecordDocumentTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->where('settings.image_4_x_px', '0')->where('settings.image_4_y_px', '8'));
     }
 
+    public function test_free_image_geometry_beyond_the_inner_canvas_survives_save_and_reopen(): void
+    {
+        $first = RecordImage::create(['record_id' => $this->record->id, 'file_path' => 'uploads/free-first.jpg']);
+        $second = RecordImage::create(['record_id' => $this->record->id, 'file_path' => 'uploads/free-second.jpg']);
+        $settings = [
+            'image_1_x_px' => '-2400', 'image_1_y_px' => '2400', 'image_1_width_px' => '10', 'image_1_height_px' => '2400',
+            'image_1_lock_aspect' => '0', 'image_1_object_fit' => 'fill',
+            'image_2_x_px' => '2400', 'image_2_y_px' => '-2400', 'image_2_width_px' => '2400', 'image_2_height_px' => '10',
+            'image_2_lock_aspect' => '1', 'image_2_object_fit' => 'cover',
+        ];
+        $this->actingAs($this->teacher)->putJson(route('records.document.update', $this->record), [
+            'settings' => $settings, 'content' => ['record_subject' => $this->record->subject],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $stored = RecordDocumentLayout::findOrFail($this->record->id)->settings;
+        $snapshot = app(LegacyPrintService::class)->savedSnapshot($this->record, $this->teacher);
+        $map = json_decode($snapshot['settings']['image_layout_by_id'], true, flags: JSON_THROW_ON_ERROR);
+        foreach ([$first->id, $second->id] as $index => $id) {
+            $slot = $index + 1;
+            foreach (['x_px', 'y_px', 'width_px', 'height_px', 'lock_aspect', 'object_fit'] as $part) {
+                $this->assertSame($settings["image_{$slot}_{$part}"], $map[$id][$part]);
+                $this->assertSame($settings["image_{$slot}_{$part}"], $stored["image_{$slot}_{$part}"]);
+            }
+        }
+        $this->get(route('records.document.edit', $this->record))->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('settings.image_1_x_px', '-2400')->where('settings.image_1_width_px', '10')
+            ->where('settings.image_2_width_px', '2400')->where('settings.image_2_y_px', '-2400'));
+    }
+
+    public function test_free_image_bounds_are_checked_in_slots_and_the_stable_map(): void
+    {
+        $image = RecordImage::create(['record_id' => $this->record->id, 'file_path' => 'uploads/free-boundary.jpg']);
+        $defaults = app(RecordDocumentOptions::class)->settings([], [(string) $image->id]);
+        $this->actingAs($this->teacher);
+        foreach (['width_px' => ['9', '2401'], 'height_px' => ['9', '2401'], 'x_px' => ['-2401', '2401'], 'y_px' => ['-2401', '2401']] as $part => $values) {
+            foreach ($values as $value) {
+                foreach (['slot', 'map'] as $source) {
+                    $settings = $source === 'slot' ? ["image_1_{$part}" => $value] : [];
+                    if ($source === 'map') {
+                        $map = json_decode($defaults['image_layout_by_id'], true, flags: JSON_THROW_ON_ERROR);
+                        $map[$image->id][$part] = $value;
+                        $settings['image_layout_by_id'] = json_encode($map, JSON_THROW_ON_ERROR);
+                    }
+                    $this->putJson(route('records.document.update', $this->record), [
+                        'settings' => $settings, 'content' => ['record_subject' => $this->record->subject],
+                    ])->assertUnprocessable()->assertJsonValidationErrors("layouts.{$image->id}.{$part}");
+                }
+            }
+        }
+        $this->assertDatabaseCount('record_document_layouts', 0);
+        $this->assertDatabaseCount('record_revisions', 0);
+    }
+
+    public function test_a_legacy_zero_key_layout_recovers_each_existing_positional_slot(): void
+    {
+        $images = collect(range(1, 4))->map(fn (int $index): RecordImage => RecordImage::create([
+            'record_id' => $this->record->id, 'file_path' => "uploads/zero-map-{$index}.jpg",
+        ]));
+        $settings = [];
+        foreach (range(1, 4) as $slot) {
+            $settings["image_{$slot}_x_px"] = (string) ($slot * 31 - 60);
+            $settings["image_{$slot}_y_px"] = (string) ($slot * 51);
+            $settings["image_{$slot}_width_px"] = (string) ($slot * 200);
+            $settings["image_{$slot}_height_px"] = (string) ($slot * 100);
+            $settings["image_{$slot}_lock_aspect"] = $slot % 2 ? '0' : '1';
+        }
+        $settings['image_layout_by_id'] = json_encode(['0' => ['x_px' => '999', 'y_px' => '999', 'width_px' => '300', 'height_px' => '225']], JSON_THROW_ON_ERROR);
+        RecordDocumentLayout::create(['record_id' => $this->record->id, 'settings' => $settings, 'content' => [], 'updated_by' => $this->teacher->id]);
+
+        $snapshot = app(LegacyPrintService::class)->savedSnapshot($this->record, $this->teacher);
+        $map = json_decode($snapshot['settings']['image_layout_by_id'], true, flags: JSON_THROW_ON_ERROR);
+        $this->assertArrayNotHasKey(0, $map);
+        foreach ($images as $index => $image) {
+            $slot = $index + 1;
+            foreach (['x_px', 'y_px', 'width_px', 'height_px', 'lock_aspect'] as $part) {
+                $this->assertSame($settings["image_{$slot}_{$part}"], $map[$image->id][$part]);
+                $this->assertSame($settings["image_{$slot}_{$part}"], $snapshot['settings']["image_{$slot}_{$part}"]);
+            }
+        }
+        $this->actingAs($this->teacher)->get(route('records.document.edit', $this->record))->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('settings.image_layout_by_id', $snapshot['settings']['image_layout_by_id'])
+                ->where('settings.image_1_x_px', '-29')->where('settings.image_4_y_px', '204'));
+    }
+
     public function test_old_document_override_requires_an_explicit_resolution(): void
     {
         RecordDocumentLayout::create([

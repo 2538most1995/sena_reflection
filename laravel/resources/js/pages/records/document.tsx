@@ -96,7 +96,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   const returnUrl = draftContext ? `/records/create?draft=${draftContext.id}&review=1` : `/records/${record.id}`
   const form = useForm<{ settings: Record<string, string>; content: Record<string, string>; content_resolution: 'document' | 'record' | '' }>({ settings, content, content_resolution: contentConflicts.length ? '' : 'document' })
   const [target, setTarget] = useState<LayoutTarget>(record.images?.length ? 'image1' : 'sig1')
-  const [step, setStep] = useState(5)
+  const [step, setStep] = useState(1)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [zoom, setZoom] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640 ? Math.max(0.4, Math.min(0.72, (window.innerWidth - 56) / 794)) : 0.72)
   const [preview, setPreview] = useState('')
@@ -200,6 +200,20 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     const settings = arrangeImageLayouts(current.settings, record.images || [])
     commitDocument({ ...current, settings }, Object.fromEntries(Object.entries(settings).filter(([key]) => localPreviewKey.test(key))))
   }
+  const freeResize = () => {
+    if (position.kind !== 'image') return
+    const changes = { [position.lock]: '0', [position.fit]: 'fill' }
+    commitDocument({ settings: { ...form.data.settings, ...changes }, content: form.data.content }, changes)
+  }
+  const scaleImage = (factor: number) => {
+    if (position.kind !== 'image') return
+    const width = Number(form.data.settings[position.width]) || 300
+    const height = Number(form.data.settings[position.height]) || 225
+    const scale = Math.max(10 / Math.min(width, height), Math.min(factor, 2400 / Math.max(width, height)))
+    const changes = { [position.width]: String(Math.round(width * scale)), [position.height]: String(Math.round(height * scale)) }
+    commitDocument({ settings: { ...form.data.settings, ...changes }, content: form.data.content }, changes)
+  }
+  const fitOriginalImage = () => iframeRef.current?.contentWindow?.postMessage({ source: 'sena-pdf-layout-fit-image', imageId: String(record.images?.[Number(target.replace('image', '')) - 1]?.id || '') }, '*')
   const rotateImage = (amount: number) => {
     if (position.kind !== 'image') return
     const current = Number(form.data.settings[position.rotation] || 0)
@@ -448,7 +462,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
         <div className="flex items-start gap-2"><WarningCircle size={20} className="mt-0.5 shrink-0" /><div><b>เนื้อหาเอกสารต่างจากข้อมูลหลัก</b><p className="mt-1 text-amber-900/80">พบ {contentConflicts.length} ช่องที่เคยแก้จากหน้าจัดเอกสาร กรุณาเลือกฉบับที่จะใช้ก่อนบันทึก ระบบจะไม่ทับข้อมูลให้อัตโนมัติ</p></div></div>
         <div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => resolveContentConflict('record')}>ใช้ข้อมูลหลัก</Button><Button type="button" size="sm" onClick={() => resolveContentConflict('document')}>ใช้ฉบับเอกสาร</Button></div>
       </div>}
-      {safeWarnings.length > 0 && <div className="flex items-start gap-2 rounded-xl border border-amber-300/70 bg-amber-50 p-4 text-sm text-amber-950" role="status"><WarningCircle size={20} className="mt-0.5 shrink-0" /><div><b>มีรูปอยู่นอกพื้นที่ปลอดภัย {safeWarnings.length} รูป</b><p className="mt-1 text-amber-900/80">ขยับรูปให้พ้นเส้นประด้านใน เพื่อป้องกันขอบรูปถูกตัดตอนพิมพ์</p></div></div>}
+      {safeWarnings.length > 0 && <div className="flex items-start gap-2 rounded-xl border border-amber-300/70 bg-amber-50 p-4 text-sm text-amber-950" role="status"><WarningCircle size={20} className="mt-0.5 shrink-0" /><div><b>มีรูปอยู่นอกพื้นที่ปลอดภัย {safeWarnings.length} รูป</b><p className="mt-1 text-amber-900/80">วางรูปข้ามเส้นประได้ หากต้องการให้เห็นครบ ควรเก็บรูปไว้ภายในขอบกระดาษ A4</p></div></div>}
 
       <Tabs.Root defaultValue="content" className="grid gap-3">
         <Button type="button" variant="outline" className="lg:hidden" aria-controls="document-tools" aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}><TextT size={18} />{toolsOpen ? 'ซ่อนเครื่องมือแก้ไข' : 'เปิดเครื่องมือแก้ไขข้อความและรูป'}</Button>
@@ -517,12 +531,13 @@ export default function RecordDocument({ record, settings, content, canonicalCon
                   <p className="text-xs leading-5 text-muted-foreground">ปรับระยะก่อนลายเซ็นเพื่อลดช่องว่าง ส่วนถัดไปจะเลื่อนตาม ใช้จุดจับ “ย้ายลายเซ็น” เมื่อต้องการลาก และคลิกชื่อหรือตำแหน่งเพื่อพิมพ์แก้ไข</p>
                 </div>}
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2"><span /><Button type="button" variant="outline" size="icon" onClick={() => nudge(position.y, -step)} aria-label="เลื่อนขึ้น"><ArrowUp size={18} /></Button><span /><Button type="button" variant="outline" size="icon" onClick={() => nudge(position.x, -step)} aria-label="เลื่อนซ้าย"><ArrowLeft size={18} /></Button><Button type="button" variant="ghost" size="sm" onClick={resetTarget}>คืนตำแหน่ง</Button><Button type="button" variant="outline" size="icon" onClick={() => nudge(position.x, step)} aria-label="เลื่อนขวา"><ArrowRight size={18} /></Button><span /><Button type="button" variant="outline" size="icon" onClick={() => nudge(position.y, step)} aria-label="เลื่อนลง"><ArrowDown size={18} /></Button><span /></div>
-                <div className="grid grid-cols-2 gap-3"><FormField label="จากซ้าย"><Input type="number" min={position.kind === 'image' ? 0 : -400} max={position.kind === 'image' ? 1200 : 400} value={form.data.settings[position.x]} onChange={(event) => setSetting(position.x, event.target.value)} /></FormField><FormField label="จากบน"><Input type="number" min={position.kind === 'image' ? 0 : -400} max={position.kind === 'image' ? 1100 : 400} value={form.data.settings[position.y]} onChange={(event) => setSetting(position.y, event.target.value)} /></FormField></div>
+                <div className="grid grid-cols-2 gap-3"><FormField label="จากซ้าย"><Input type="number" min={position.kind === 'image' ? -2400 : -400} max={position.kind === 'image' ? 2400 : 400} value={form.data.settings[position.x]} onChange={(event) => setSetting(position.x, event.target.value)} /></FormField><FormField label="จากบน"><Input type="number" min={position.kind === 'image' ? -2400 : -400} max={position.kind === 'image' ? 2400 : 400} value={form.data.settings[position.y]} onChange={(event) => setSetting(position.y, event.target.value)} /></FormField></div>
                 <FormField label="ระยะขยับต่อครั้ง"><NativeSelect value={step} onChange={(event) => setStep(Number(event.target.value))}><option value={1}>1 พิกเซล</option><option value={5}>5 พิกเซล</option><option value={10}>10 พิกเซล</option></NativeSelect></FormField>
                 {position.kind === 'signature' && <FormField label="การจัดแนว"><NativeSelect value={form.data.settings[position.align]} onChange={(event) => setSetting(position.align, event.target.value)}><option value="flex-start">ชิดซ้าย</option><option value="center">กึ่งกลาง</option><option value="flex-end">ชิดขวา</option></NativeSelect></FormField>}
                 {position.kind === 'image' && <div className="grid gap-3">
                   <div className="grid grid-cols-3 gap-2" aria-label="ขนาดรูปสำเร็จรูป">{imagePresets.map((preset) => <Button key={preset.label} type="button" size="sm" variant="outline" onClick={() => applyImagePreset(preset.width, preset.height)}>{preset.label}</Button>)}</div>
-                  <div className="grid grid-cols-2 gap-3"><FormField label="ความกว้าง"><Input type="number" min={60} max={1000} value={form.data.settings[position.width]} onChange={(event) => resizeImage('width', event.target.value)} /></FormField><FormField label="ความสูง"><Input type="number" min={60} max={950} value={form.data.settings[position.height]} onChange={(event) => resizeImage('height', event.target.value)} /></FormField></div>
+                  <div className="grid grid-cols-2 gap-2"><Button type="button" variant="outline" size="sm" onClick={freeResize}>ยืด / บีบอิสระ</Button><Button type="button" variant="outline" size="sm" onClick={fitOriginalImage}>พอดีรูปต้นฉบับ</Button><Button type="button" variant="outline" size="sm" onClick={() => scaleImage(0.9)}><Minus size={16} />ย่อ 10%</Button><Button type="button" variant="outline" size="sm" onClick={() => scaleImage(1.1)}><Plus size={16} />ขยาย 10%</Button></div>
+                  <div className="grid grid-cols-2 gap-3"><FormField label="ความกว้าง"><Input type="number" min={10} max={2400} value={form.data.settings[position.width]} onChange={(event) => resizeImage('width', event.target.value)} /></FormField><FormField label="ความสูง"><Input type="number" min={10} max={2400} value={form.data.settings[position.height]} onChange={(event) => resizeImage('height', event.target.value)} /></FormField></div>
                   <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2.5">
                     <span><b className="block text-sm">ล็อกสัดส่วน</b><small className="block text-muted-foreground">ปิดเพื่อยืดหรือบีบความกว้างและความสูงแยกกัน</small></span>
                     <Switch checked={form.data.settings[position.lock] === '1'} onCheckedChange={(checked) => { const changes = { [position.lock]: checked ? '1' : '0', [position.fit]: checked ? 'contain' : 'fill' }; commitDocument({ settings: { ...form.data.settings, ...changes }, content: form.data.content }, changes) }} aria-label="ล็อกสัดส่วนรูป" />
@@ -533,7 +548,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
                     return <FormField key={axis} label={axis === 'x' ? 'ครอบภาพ ซ้าย - ขวา' : 'ครอบภาพ บน - ล่าง'}><input aria-label={axis === 'x' ? 'จุดโฟกัสภาพแนวนอน' : 'จุดโฟกัสภาพแนวตั้ง'} type="range" min="0" max="100" value={form.data.settings[key] || '50'} onChange={(event) => setSetting(key, event.target.value)} className="w-full accent-primary" /></FormField>
                   })}</div>}
                   <div className="grid grid-cols-2 gap-2"><Button type="button" variant="outline" size="sm" onClick={() => rotateImage(-90)}><ArrowCounterClockwise size={17} />หมุนซ้าย</Button><Button type="button" variant="outline" size="sm" onClick={() => rotateImage(90)}><ArrowClockwise size={17} />หมุนขวา</Button></div>
-                  <div className="rounded-lg bg-muted/60 p-3 text-xs leading-5 text-muted-foreground"><b className="text-foreground">จุดจับ 8 ทิศบน Preview</b><br />ลากด้านหรือมุมใดก็ได้ ระบบล็อกสัดส่วนให้ตามค่าเริ่มต้น กด Shift ค้างเพื่อสลับล็อกชั่วคราว</div>
+                  <div className="rounded-lg bg-muted/60 p-3 text-xs leading-5 text-muted-foreground"><b className="text-foreground">จุดจับ 8 ทิศบน Preview</b><br />ลากด้านหรือมุมเพื่อปรับขนาด · เลือกยืด / บีบอิสระเพื่อปรับสองด้านแยกกัน · ลากข้ามเส้นประได้ · Shift สลับล็อกสัดส่วนชั่วคราว</div>
                 </div>}
               </ToolSection>
               {position.kind === 'signature' && <ToolSection title="ข้อความลายเซ็น">

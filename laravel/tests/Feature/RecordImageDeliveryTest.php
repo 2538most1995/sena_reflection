@@ -7,8 +7,11 @@ use App\Models\Tambon;
 use App\Models\TeachingRecord;
 use App\Models\User;
 use App\Services\RecordImageAssets;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
@@ -87,6 +90,63 @@ class RecordImageDeliveryTest extends TestCase
         $response = $this->actingAs($this->teacher)->get(route('records.images.show', [$this->record, $image]));
         $response->assertOk();
         $this->assertSame(Storage::disk('public')->path('records/photo.png'), $response->baseResponse->getFile()->getPathname());
+    }
+
+    public function test_imported_string_image_ids_remain_distinct_in_payload_routes_and_record_edits(): void
+    {
+        $this->withoutVite();
+        // Exercise an imported schema only in the isolated SQLite database.
+        Schema::drop('record_images');
+        Schema::create('record_images', function (Blueprint $table): void {
+            $table->string('id')->primary();
+            $table->string('record_id');
+            $table->string('file_path');
+            $table->timestamp('created_at')->nullable();
+        });
+        foreach (['legacy-photo-a', 'legacy-photo-b'] as $id) {
+            File::put($this->fixtureRoot.'/uploads/'.$id.'.png', $this->png());
+            DB::table('record_images')->insert(['id' => $id, 'record_id' => $this->record->id, 'file_path' => 'uploads/'.$id.'.png']);
+        }
+        $images = $this->record->images()->get();
+        $this->assertSame(['legacy-photo-a', 'legacy-photo-b'], $images->modelKeys());
+        $firstUrl = route('records.images.show', [$this->record, $images[0]]);
+        $this->get($firstUrl)->assertRedirect(route('login'));
+        $response = $this->actingAs($this->teacher)->get(route('records.show', $this->record))->assertOk();
+        $this->assertSame(['legacy-photo-a', 'legacy-photo-b'], array_column($response->inertiaProps('record.images'), 'id'));
+        foreach ($images as $image) {
+            $response = $this->get(route('records.images.show', [$this->record, $image]))->assertOk();
+            $this->assertSame(realpath($this->fixtureRoot.'/uploads/'.$image->id.'.png'), $response->baseResponse->getFile()->getRealPath());
+        }
+        $this->get(route('records.images.show', [$this->record, '0']))->assertNotFound();
+        $this->actingAs($this->teacher)->put(route('records.update', $this->record), [
+            ...$this->record->only(['week', 'year', 'semester', 'level', 'subject', 'total', 'present']),
+            'date' => '2026-10-21', 'keep_images' => $images->modelKeys(),
+        ])->assertSessionHasNoErrors();
+        $this->assertSame(['legacy-photo-a', 'legacy-photo-b'], $this->record->images()->get()->modelKeys());
+
+        $otherRecord = TeachingRecord::create([
+            'id' => 'legacy-other-record', 'tambon' => 'image-t1', 'week' => 2, 'date' => '2026-10-21',
+            'level' => 'ประถมศึกษา', 'semester' => '1', 'year' => '2569', 'subject' => 'ภาษาไทย',
+            'total' => 2, 'present' => 1, 'created_by' => $this->teacher->id,
+        ]);
+        $this->get(route('records.images.show', [$otherRecord, $images[0]]))->assertNotFound();
+        $other = User::create(['id' => 'legacy-other-user', 'username' => 'legacy-other-user', 'name' => 'ครูอื่น', 'password' => 'not-used', 'role' => 'tambon', 'tambon' => 'image-t2']);
+        $this->actingAs($other)->get($firstUrl)->assertForbidden();
+    }
+
+    public function test_new_numeric_image_ids_still_increment_and_accept_numeric_keep_values(): void
+    {
+        File::put($this->fixtureRoot.'/uploads/numeric.png', $this->png());
+        $first = RecordImage::create(['record_id' => $this->record->id, 'file_path' => 'uploads/numeric.png']);
+        $second = RecordImage::create(['record_id' => $this->record->id, 'file_path' => 'uploads/numeric.png']);
+        $this->assertTrue(ctype_digit($first->id));
+        $this->assertSame((int) $first->id + 1, (int) $second->id);
+        $this->actingAs($this->teacher)->put(route('records.update', $this->record), [
+            ...$this->record->only(['week', 'year', 'semester', 'level', 'subject', 'total', 'present']),
+            'date' => '2026-10-21', 'keep_images' => [(int) $first->id, (int) $second->id],
+        ])->assertSessionHasNoErrors();
+        $this->assertSame([$first->id, $second->id], $this->record->images()->get()->modelKeys());
+        $this->get(route('records.images.show', [$this->record, $first]))->assertOk();
     }
 
     public function test_print_and_authenticated_delivery_share_storage_url_and_encoded_path_normalization(): void

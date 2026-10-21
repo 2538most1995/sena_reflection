@@ -1012,22 +1012,24 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                     var parentWidth = state.parentWidth || 1200;
                     var parentHeight = state.parentHeight || 1100;
                     if (keepAspect) {
-                        if (width < 60) { width = 60; height = width / ratio; }
-                        if (height < 60) { height = 60; width = height * ratio; }
-                        var scale = Math.min(1, 1000 / width, 950 / height, parentWidth / width, parentHeight / height);
+                        if (width < 10) { width = 10; height = width / ratio; }
+                        if (height < 10) { height = 10; width = height * ratio; }
+                        var scale = Math.min(1, 2400 / width, 2400 / height);
                         width *= scale;
                         height *= scale;
                         if (mode.indexOf('w') !== -1) left = right - width;
                         else if (mode === 'n' || mode === 's') left = state.startX + (state.startWidth - width) / 2;
                         if (mode.indexOf('n') !== -1) top = bottom - height;
                         else if (mode === 'e' || mode === 'w') top = state.startY + (state.startHeight - height) / 2;
-                        left = clamp(left, 0, Math.max(0, parentWidth - width));
-                        top = clamp(top, 0, Math.max(0, parentHeight - height));
+                        left = clamp(left, -2400, 2400);
+                        top = clamp(top, -2400, 2400);
                     } else {
-                        left = clamp(left, 0, Math.max(0, parentWidth - 60));
-                        top = clamp(top, 0, Math.max(0, parentHeight - 60));
-                        width = clamp(width, 60, Math.min(1000, parentWidth - left));
-                        height = clamp(height, 60, Math.min(950, parentHeight - top));
+                        width = clamp(width, 10, 2400);
+                        height = clamp(height, 10, 2400);
+                        if (mode.indexOf('w') !== -1) left = right - width;
+                        if (mode.indexOf('n') !== -1) top = bottom - height;
+                        left = clamp(left, -2400, 2400);
+                        top = clamp(top, -2400, 2400);
                     }
                     return { x: Math.round(left), y: Math.round(top), width: Math.round(width), height: Math.round(height) };
                 };
@@ -1043,8 +1045,8 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                         active.item.dataset.layoutWidth = String(box.width); active.item.dataset.layoutHeight = String(box.height);
                         applyImageMedia(active.item);
                     } else if (active.absolute) {
-                        var x = clamp(active.startX + dx, 0, Math.max(0, active.parentWidth - active.startWidth));
-                        var y = clamp(active.startY + dy, 0, Math.max(0, active.parentHeight - active.startHeight));
+                        var x = clamp(active.startX + dx, -2400, 2400);
+                        var y = clamp(active.startY + dy, -2400, 2400);
                         active.item.style.left = x + 'px'; active.item.style.top = y + 'px';
                         active.item.dataset.layoutX = String(x); active.item.dataset.layoutY = String(y);
                     } else {
@@ -1165,8 +1167,8 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                     if (event.key === 'ArrowLeft') x -= distance; if (event.key === 'ArrowRight') x += distance;
                     if (event.key === 'ArrowUp') y -= distance; if (event.key === 'ArrowDown') y += distance;
                     var absolute = item.dataset.layoutPosition === 'absolute'; var parent = item.parentElement;
-                    x = absolute ? clamp(x, 0, parent ? Math.max(0, parent.clientWidth - number(item.dataset.layoutWidth)) : 1200) : clamp(x, -400, 400);
-                    y = absolute ? clamp(y, 0, parent ? Math.max(0, parent.clientHeight - number(item.dataset.layoutHeight)) : 1100) : clamp(y, -400, 400);
+                    x = absolute ? clamp(x, -2400, 2400) : clamp(x, -400, 400);
+                    y = absolute ? clamp(y, -2400, 2400) : clamp(y, -400, 400);
                     item.dataset.layoutX = String(x); item.dataset.layoutY = String(y);
                     if (absolute) { item.style.left = x + 'px'; item.style.top = y + 'px'; }
                     else { item.style.transform = 'translateX(' + x + 'px)'; item.style.marginTop = y + 'px'; }
@@ -1187,6 +1189,25 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                         clone.querySelector('head').appendChild(cleanStyle);
                         window.parent.postMessage({ source: 'sena-document-print-result', requestId: event.data.requestId, html: '<!doctype html>' + clone.outerHTML }, '*');
                         return;
+                    }
+                    if (event.data?.source === 'sena-pdf-layout-fit-image') {
+                        var fitItem = imageItems().find(function (item) { return item.dataset.layoutImageId === String(event.data.imageId); });
+                        var fitImage = fitItem && fitItem.querySelector('img');
+                        if (!fitImage || !fitImage.naturalWidth || !fitImage.naturalHeight) return;
+                        var quarterTurn = number(fitItem.dataset.layoutRotation) % 180 !== 0;
+                        var naturalRatio = quarterTurn ? fitImage.naturalHeight / fitImage.naturalWidth : fitImage.naturalWidth / fitImage.naturalHeight;
+                        var fitWidth = Math.max(10, Math.min(2400, number(fitItem.dataset.layoutWidth)));
+                        var fitHeight = fitWidth / naturalRatio;
+                        var fitScale = Math.min(1, 2400 / fitHeight);
+                        fitWidth = Math.max(10, Math.round(fitWidth * fitScale)); fitHeight = Math.max(10, Math.round(fitHeight * fitScale));
+                        fitItem.dataset.layoutWidth = String(fitWidth); fitItem.dataset.layoutHeight = String(fitHeight);
+                        fitItem.dataset.layoutLockAspect = '1'; fitItem.dataset.layoutFit = 'contain';
+                        fitItem.style.width = fitWidth + 'px'; fitItem.style.height = fitHeight + 'px';
+                        applyImageMedia(fitItem);
+                        var fitChanges = {};
+                        fitChanges[fitItem.dataset.layoutWidthKey] = String(fitWidth); fitChanges[fitItem.dataset.layoutHeightKey] = String(fitHeight);
+                        fitChanges[fitItem.dataset.layoutLockKey] = '1'; fitChanges[fitItem.dataset.layoutFitKey] = 'contain';
+                        notify(fitItem, fitChanges); return;
                     }
                     if (event.data?.source === 'sena-pdf-layout-select') {
                         var target = Array.from(document.querySelectorAll('[data-layout-kind]')).find(function (item) {
@@ -2536,7 +2557,7 @@ $styles = '
         width: ' . $imageCanvasWidthPx . 'px;
         height: ' . $imageCanvasHeightPx . 'px;
         max-width: 100%;
-        overflow: hidden;
+        overflow: visible;
         page-break-inside: avoid;
         break-inside: avoid;
     }
@@ -2889,10 +2910,10 @@ if ($showImagePage && !empty($images)) {
         foreach ($images as $imageIndex => $image) {
             $imageNumber = $imageIndex + 1;
             $imageId = (string) ($image['id'] ?? 'legacy-' . $imageNumber);
-            $itemWidthPx = normalizePrintSettingInt($settings, 'image_' . $imageNumber . '_width_px', $imageWidthPx, 60, 1000);
-            $itemHeightPx = normalizePrintSettingInt($settings, 'image_' . $imageNumber . '_height_px', $imageHeightPx, 60, 950);
-            $itemX = normalizePrintSettingInt($settings, 'image_' . $imageNumber . '_x_px', 0, 0, 1200);
-            $itemY = normalizePrintSettingInt($settings, 'image_' . $imageNumber . '_y_px', 0, 0, 1100);
+            $itemWidthPx = normalizePrintSettingInt($settings, 'image_' . $imageNumber . '_width_px', $imageWidthPx, 10, 2400);
+            $itemHeightPx = normalizePrintSettingInt($settings, 'image_' . $imageNumber . '_height_px', $imageHeightPx, 10, 2400);
+            $itemX = normalizePrintSettingInt($settings, 'image_' . $imageNumber . '_x_px', 0, -2400, 2400);
+            $itemY = normalizePrintSettingInt($settings, 'image_' . $imageNumber . '_y_px', 0, -2400, 2400);
             $itemObjectFit = in_array(($settings['image_' . $imageNumber . '_object_fit'] ?? 'fill'), ['contain', 'cover', 'fill'], true)
                 ? $settings['image_' . $imageNumber . '_object_fit']
                 : 'fill';
