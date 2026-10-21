@@ -1,3 +1,4 @@
+import { captureDocumentForPrint, composePrintPreview } from '@/lib/document-print-preview'
 import { appFetch as fetch, appUrl } from '@/lib/app-url'
 import { arrangeImageLayouts, synchronizeImageLayouts } from '@/lib/document-image-layout'
 import { AppLink as Link } from '@/components/app-link'
@@ -96,18 +97,20 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   const form = useForm<{ settings: Record<string, string>; content: Record<string, string>; content_resolution: 'document' | 'record' | '' }>({ settings, content, content_resolution: contentConflicts.length ? '' : 'document' })
   const [target, setTarget] = useState<LayoutTarget>(record.images?.length ? 'image1' : 'sig1')
   const [step, setStep] = useState(5)
-  const [zoom, setZoom] = useState(0.72)
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [zoom, setZoom] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640 ? Math.max(0.4, Math.min(0.72, (window.innerWidth - 56) / 794)) : 0.72)
   const [preview, setPreview] = useState('')
   const [previewing, setPreviewing] = useState(true)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [safeWarnings, setSafeWarnings] = useState<string[]>([])
-  const [actualPdfUrl, setActualPdfUrl] = useState<string | null>(null)
-  const [actualPdfLoading, setActualPdfLoading] = useState(false)
-  const [actualPdfStale, setActualPdfStale] = useState(true)
-  const [previewMode, setPreviewMode] = useState<'editor' | 'pdf'>('editor')
+  const [printPreviewUrl, setPrintPreviewUrl] = useState<string | null>(null)
+  const [printPreviewLoading, setPrintPreviewLoading] = useState(false)
+  const [printPreviewStale, setPrintPreviewStale] = useState(true)
+  const [previewMode, setPreviewMode] = useState<'editor' | 'print'>('editor')
   const [historyIndex, setHistoryIndex] = useState(0)
   const [pageGeometry, setPageGeometry] = useState<PageGeometry>(() => ({ pageWidth: settings.paper_orientation === 'landscape' ? 1123 : 794, documentHeight: 1220, pageCount: 1 }))
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const printFrameRef = useRef<HTMLIFrameElement>(null)
   const locallyRenderedKeyRef = useRef<string | null>(null)
   const renderedDocumentRef = useRef<string | null>(null)
   const historyRef = useRef<DocumentState[]>([{ settings, content }])
@@ -131,7 +134,8 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     setHistoryIndex(nextIndex)
     latestDocumentRef.current = next
     form.setData((current) => ({ ...current, ...next, ...(resolution ? { content_resolution: resolution } : {}) }))
-    setActualPdfStale(true)
+    setPrintPreviewStale(true)
+    printFrameRef.current?.contentWindow?.postMessage({ source: 'sena-print-invalidated' }, '*')
     if (Object.keys(localChanges).length) postLocalPatch(localChanges)
   }
   const setSetting = (key: string, value: string) => {
@@ -147,7 +151,8 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     historyIndexRef.current = index
     setHistoryIndex(index)
     form.setData((current) => ({ ...current, ...snapshot }))
-    setActualPdfStale(true)
+    setPrintPreviewStale(true)
+    printFrameRef.current?.contentWindow?.postMessage({ source: 'sena-print-invalidated' }, '*')
     postLocalPatch(Object.fromEntries(Object.entries(snapshot.settings).filter(([key]) => localPreviewKey.test(key))))
   }
   const undo = () => restoreHistory(historyIndexRef.current - 1)
@@ -214,10 +219,10 @@ export default function RecordDocument({ record, settings, content, canonicalCon
 
   useEffect(() => {
     if (locallyRenderedKeyRef.current === remotePreviewKey) { setPreviewing(false); return }
+    setPreviewing(true)
+    setPreviewError(null)
     const controller = new AbortController()
     const timer = window.setTimeout(async () => {
-      setPreviewing(true)
-      setPreviewError(null)
       try {
         const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || ''
         const requestedDocument = latestDocumentRef.current
@@ -285,7 +290,16 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   }, [record.images])
 
   useEffect(() => {
+    const returnToEditor = (event: MessageEvent) => {
+      if (event.source === printFrameRef.current?.contentWindow && event.data?.source === 'sena-print-edit-request') setPreviewMode('editor')
+    }
+    window.addEventListener('message', returnToEditor)
+    return () => window.removeEventListener('message', returnToEditor)
+  }, [])
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (form.processing || printPreviewLoading) return
       const element = event.target as HTMLElement | null
       if (element?.matches('input, textarea, select, [contenteditable="true"]')) return
       const modifier = event.metaKey || event.ctrlKey
@@ -300,11 +314,11 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [historyIndex])
+  }, [historyIndex, form.processing, printPreviewLoading])
 
   useEffect(() => () => {
-    if (actualPdfUrl) URL.revokeObjectURL(actualPdfUrl)
-  }, [actualPdfUrl])
+    if (printPreviewUrl) URL.revokeObjectURL(printPreviewUrl)
+  }, [printPreviewUrl])
 
   useEffect(() => {
     if (!form.isDirty) return
@@ -313,34 +327,38 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     return () => window.removeEventListener('beforeunload', warnBeforeLeaving)
   }, [form.isDirty])
 
-  const loadActualPdf = async () => {
+  const createPrintPreview = async () => {
+    if (previewing || !iframeRef.current || renderedDocumentRef.current !== previewKey(latestDocumentRef.current)) throw new Error('กำลังอัปเดตกระดาษ กรุณารอสักครู่แล้วลองใหม่')
     const requestedDocument = JSON.stringify(latestDocumentRef.current)
-    setActualPdfLoading(true)
+    const capturedHtml = await captureDocumentForPrint(iframeRef.current)
+    if (requestedDocument !== JSON.stringify(latestDocumentRef.current)) throw new Error('เอกสารมีการแก้ไขระหว่างเตรียมพิมพ์ กรุณาลองอีกครั้ง')
+    const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || ''
+    const response = await fetch(`${documentBase}/browser-preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/html, application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify({ ...form.data, ...latestDocumentRef.current, ...(draftContext ? { lock_version: draftContext.lockVersion } : {}) }),
+    })
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null)
+      throw new Error(payload?.message || 'สร้างหน้าพิมพ์ไม่สำเร็จ')
+    }
+    const html = composePrintPreview(capturedHtml, await response.text())
+    if (requestedDocument !== JSON.stringify(latestDocumentRef.current)) throw new Error('เอกสารมีการแก้ไขระหว่างเตรียมพิมพ์ กรุณาอัปเดตตัวอย่างอีกครั้ง')
+    return URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+  }
+
+  const loadPrintPreview = async () => {
+    setPrintPreviewLoading(true)
     setPreviewError(null)
     try {
-      const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || ''
-      const response = await fetch(`${documentBase}/pdf-preview`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/pdf, application/json', 'X-CSRF-TOKEN': token },
-        body: JSON.stringify({ ...form.data, ...latestDocumentRef.current, ...(draftContext ? { lock_version: draftContext.lockVersion } : {}) }),
-      })
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null)
-        throw new Error(payload?.message || 'สร้าง PDF ตัวอย่างไม่สำเร็จ')
-      }
-      const type = response.headers.get('content-type') || ''
-      if (!type.includes('application/pdf')) throw new Error('เซิร์ฟเวอร์ไม่ได้ส่งไฟล์ PDF กลับมา')
-      const nextUrl = URL.createObjectURL(await response.blob())
-      setActualPdfUrl((current) => {
-        if (current) URL.revokeObjectURL(current)
-        return nextUrl
-      })
-      setActualPdfStale(requestedDocument !== JSON.stringify(latestDocumentRef.current))
-      setPreviewMode('pdf')
+      const nextUrl = await createPrintPreview()
+      setPrintPreviewUrl(nextUrl)
+      setPrintPreviewStale(false)
+      setPreviewMode('print')
     } catch (error) {
-      setPreviewError(error instanceof Error ? error.message : 'สร้าง PDF ตัวอย่างไม่สำเร็จ')
+      setPreviewError(error instanceof Error ? error.message : 'สร้างหน้าพิมพ์ไม่สำเร็จ')
     } finally {
-      setActualPdfLoading(false)
+      setPrintPreviewLoading(false)
     }
   }
 
@@ -352,26 +370,44 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     form.setData('content_resolution', 'document')
   }
 
-  const save = (event?: FormEvent, thenPrint = false) => {
+  const save = async (event?: FormEvent, thenPrint = false) => {
     event?.preventDefault()
     if (contentConflicts.length && !form.data.content_resolution) {
       form.setError('content_resolution', 'เลือกว่าจะใช้เนื้อหาจากเอกสารหรือข้อมูลหลักก่อนบันทึก')
       return
     }
     const popup = thenPrint && !draftContext ? window.open('', '_blank') : null
-    if (popup) popup.document.write('<p style="font-family:sans-serif;padding:24px">กำลังสร้าง PDF...</p>')
+    if (popup) popup.document.write('<p style="font-family:sans-serif;padding:24px">กำลังเตรียมหน้าพิมพ์…</p>')
+    let printUrl: string | null = null
+    if (thenPrint && !draftContext) {
+      setPrintPreviewLoading(true)
+      try { printUrl = await createPrintPreview() }
+      catch (error) { popup?.close(); setPreviewError(error instanceof Error ? error.message : 'เตรียมพิมพ์ไม่สำเร็จ'); return }
+      finally { setPrintPreviewLoading(false) }
+    }
+    const savedDocument = JSON.stringify(latestDocumentRef.current)
     form.transform((data) => ({ ...data, ...latestDocumentRef.current, ...(draftContext ? { lock_version: draftContext.lockVersion } : {}) }))
     form.put(appUrl(documentBase), {
       preserveScroll: true,
       onSuccess: () => {
+        if (savedDocument !== JSON.stringify(latestDocumentRef.current)) {
+          popup?.close()
+          if (printUrl) URL.revokeObjectURL(printUrl)
+          setPreviewError('บันทึกฉบับก่อนหน้าแล้ว แต่มีการแก้ไขเพิ่มเติม กรุณาบันทึกอีกครั้งก่อนพิมพ์')
+          return
+        }
         form.setDefaults()
         if (thenPrint) {
           if (draftContext) { router.visit(returnUrl); return }
-          if (popup) popup.location.href = appUrl(`/records/${record.id}/print`)
-          else window.location.href = appUrl(`/records/${record.id}/print`)
+          if (printUrl) {
+            setPrintPreviewUrl(printUrl)
+            setPrintPreviewStale(false)
+            setPreviewMode('print')
+            if (popup) popup.location.href = printUrl
+          }
         }
       },
-      onError: () => popup?.close(),
+      onError: () => { popup?.close(); if (printUrl) URL.revokeObjectURL(printUrl) },
     })
   }
 
@@ -381,27 +417,27 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     }
   }
 
-  const tabTrigger = 'focus-ring flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm'
+  const tabTrigger = 'focus-ring flex min-h-10 items-center justify-center gap-2 rounded-lg px-2 text-xs font-semibold text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm'
 
   return <AppShell>
     <Head title={`จัดเอกสาร ${record.subject}`} />
     <form onSubmit={save} className="grid gap-4">
       <header className="sticky top-16 z-20 -mx-4 -mt-6 border-b bg-background/96 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:-mt-8 sm:px-6 lg:-mx-8 lg:px-8">
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-3 xl:flex-row xl:items-center">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-3 lg:flex-row lg:items-center">
           <div className="flex min-w-0 items-center gap-3">
             <Button asChild variant="ghost" size="icon"><Link href={appUrl(returnUrl)} aria-label={draftContext ? 'กลับไปรีวิวฉบับร่าง' : 'กลับไปหน้ารายละเอียด'}><ArrowLeft size={20} /></Link></Button>
             <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground"><FileText size={21} weight="fill" /></span>
             <div className="min-w-0"><h1 className="truncate text-base font-bold sm:text-lg">จัดเอกสารก่อนพิมพ์</h1><p className="truncate text-xs text-muted-foreground">{record.subject} | สัปดาห์ {record.week} | {record.level}</p></div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 xl:ml-auto">
+          <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
             <Badge variant={previewError ? 'outline' : 'secondary'} className={previewError ? 'border-destructive/30 text-destructive' : undefined}>{previewing ? 'กำลังอัปเดตตัวอย่าง' : previewError ? 'ตัวอย่างมีปัญหา' : form.isDirty ? 'มีการแก้ไขที่ยังไม่บันทึก' : 'บันทึกแล้ว'}</Badge>
             <div className="flex items-center rounded-lg border bg-background p-0.5" aria-label="ประวัติการแก้ไข">
-              <Button type="button" variant="ghost" size="icon" disabled={historyIndex <= 0} onClick={undo} aria-label="ย้อนกลับ"><ArrowCounterClockwise size={17} /></Button>
-              <Button type="button" variant="ghost" size="icon" disabled={historyIndex >= historyRef.current.length - 1} onClick={redo} aria-label="ทำซ้ำ"><ArrowClockwise size={17} /></Button>
+              <Button type="button" variant="ghost" size="icon" disabled={form.processing || printPreviewLoading || historyIndex <= 0} onClick={undo} aria-label="ย้อนกลับ"><ArrowCounterClockwise size={17} /></Button>
+              <Button type="button" variant="ghost" size="icon" disabled={form.processing || printPreviewLoading || historyIndex >= historyRef.current.length - 1} onClick={redo} aria-label="ทำซ้ำ"><ArrowClockwise size={17} /></Button>
             </div>
-            {hasSavedLayout && !draftContext && <Button type="button" variant="ghost" size="sm" onClick={restoreDefault}><Trash size={16} />คืนค่าเริ่มต้น</Button>}
-            <Button type="submit" variant="outline" disabled={form.processing || (contentConflicts.length > 0 && !form.data.content_resolution)}><FloppyDisk size={17} />บันทึก</Button>
-            <Button type="button" disabled={form.processing || (contentConflicts.length > 0 && !form.data.content_resolution)} onClick={() => save(undefined, true)}><Printer size={18} />{draftContext ? 'บันทึกและกลับรีวิว' : 'บันทึกและพิมพ์'}</Button>
+            {hasSavedLayout && !draftContext && <Button type="button" variant="ghost" size="sm" disabled={form.processing || printPreviewLoading} onClick={restoreDefault}><Trash size={16} />คืนค่าเริ่มต้น</Button>}
+            <Button type="submit" variant="outline" disabled={form.processing || printPreviewLoading || previewing || (contentConflicts.length > 0 && !form.data.content_resolution)}><FloppyDisk size={17} />บันทึก</Button>
+            <Button type="button" disabled={form.processing || printPreviewLoading || previewing || (contentConflicts.length > 0 && !form.data.content_resolution)} onClick={() => save(undefined, true)}><Printer size={18} />{draftContext ? 'บันทึกและกลับรีวิว' : 'บันทึกและพิมพ์'}</Button>
           </div>
         </div>
       </header>
@@ -414,15 +450,17 @@ export default function RecordDocument({ record, settings, content, canonicalCon
       </div>}
       {safeWarnings.length > 0 && <div className="flex items-start gap-2 rounded-xl border border-amber-300/70 bg-amber-50 p-4 text-sm text-amber-950" role="status"><WarningCircle size={20} className="mt-0.5 shrink-0" /><div><b>มีรูปอยู่นอกพื้นที่ปลอดภัย {safeWarnings.length} รูป</b><p className="mt-1 text-amber-900/80">ขยับรูปให้พ้นเส้นประด้านใน เพื่อป้องกันขอบรูปถูกตัดตอนพิมพ์</p></div></div>}
 
-      <Tabs.Root defaultValue="content" className="grid gap-4">
-        <Tabs.List className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1.5 lg:max-w-xl">
+      <Tabs.Root defaultValue="content" className="grid gap-3">
+        <Button type="button" variant="outline" className="lg:hidden" aria-controls="document-tools" aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}><TextT size={18} />{toolsOpen ? 'ซ่อนเครื่องมือแก้ไข' : 'เปิดเครื่องมือแก้ไขข้อความและรูป'}</Button>
+
+
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <aside id="document-tools" inert={form.processing || printPreviewLoading} className={cn("h-fit overflow-hidden rounded-xl border bg-card lg:sticky lg:top-[138px] lg:max-h-[calc(100dvh-154px)] lg:overflow-y-auto", !toolsOpen && "hidden lg:block")}>
+        <Tabs.List className="grid grid-cols-3 gap-1 sticky top-0 z-10 rounded-none border-b bg-muted p-1">
           <Tabs.Trigger value="content" className={tabTrigger}><TextT size={18} />เนื้อหา</Tabs.Trigger>
           <Tabs.Trigger value="paper" className={tabTrigger}><FilePdf size={18} />กระดาษ</Tabs.Trigger>
           <Tabs.Trigger value="elements" className={tabTrigger}><ArrowsOutCardinal size={18} />องค์ประกอบ</Tabs.Trigger>
         </Tabs.List>
-
-        <div className="grid min-w-0 gap-4 xl:grid-cols-[390px_minmax(0,1fr)]">
-          <aside className="h-fit overflow-hidden rounded-xl border bg-card xl:sticky xl:top-[138px] xl:max-h-[calc(100dvh-154px)] xl:overflow-y-auto">
             <Tabs.Content value="content" className="outline-none">
               <ToolSection title="ข้อมูลบนหัวเอกสาร">
                 <FormField label="รายวิชา" error={form.errors['content.record_subject']}><Input value={form.data.content.record_subject || ''} onChange={(event) => setContent('record_subject', event.target.value)} /></FormField>
@@ -507,19 +545,19 @@ export default function RecordDocument({ record, settings, content, canonicalCon
 
           <section className="min-w-0 overflow-hidden rounded-xl border bg-card">
             <header className="flex flex-col gap-3 border-b p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div><h2 className="flex items-center gap-2 text-sm font-semibold"><NotePencil size={18} className="text-primary" />{previewMode === 'editor' ? 'ตัวจัดเอกสารแบบโต้ตอบ' : 'PDF จริงก่อนดาวน์โหลด'}</h2><p className="mt-1 text-xs text-muted-foreground">{previewMode === 'editor' ? 'คลิกข้อความเพื่อพิมพ์ · Enter เพิ่มบรรทัด · Tab ย่อหน้า · ลากรูปหรือจุดจับเพื่อปรับขนาด' : `เรนเดอร์ด้วยระบบเดียวกับไฟล์ดาวน์โหลดจริง · ${pageGeometry.pageCount} หน้า`}</p></div>
+              <div><h2 className="flex items-center gap-2 text-sm font-semibold"><NotePencil size={18} className="text-primary" />{previewMode === 'editor' ? 'แก้ไขบนกระดาษ' : 'ตรวจหน้าพิมพ์ / PDF'}</h2><p className="mt-1 text-xs text-muted-foreground">{previewMode === 'editor' ? 'คลิกข้อความเพื่อพิมพ์ · Enter ขึ้นบรรทัด · ลากรูปเพื่อจัดวาง' : 'ใช้หน้ากระดาษที่จัดวางล่าสุด · เลือกพิมพ์หรือ Save as PDF'}</p></div>
               <div className="flex flex-wrap items-center gap-1">
-                <div className="flex rounded-lg bg-muted p-1"><Button type="button" variant={previewMode === 'editor' ? 'secondary' : 'ghost'} size="sm" onClick={() => setPreviewMode('editor')}><NotePencil size={16} />จัดวาง</Button><Button type="button" variant={previewMode === 'pdf' ? 'secondary' : 'ghost'} size="sm" disabled={actualPdfLoading} onClick={loadActualPdf}><FilePdf size={16} />{actualPdfLoading ? 'กำลังสร้าง' : 'ดู PDF จริง'}</Button></div>
-                {previewMode === 'editor' && <><Button type="button" variant="ghost" size="icon" onClick={() => setZoom(Math.max(0.4, zoom - 0.08))} aria-label="ซูมออก"><Minus size={17} /></Button><button type="button" className="focus-ring min-w-14 rounded-md px-2 py-1 text-xs font-semibold" onClick={() => setZoom(0.72)}>{Math.round(zoom * 100)}%</button><Button type="button" variant="ghost" size="icon" onClick={() => setZoom(Math.min(1.15, zoom + 0.08))} aria-label="ซูมเข้า"><Plus size={17} /></Button></>}
+                <div className="flex rounded-lg bg-muted p-1"><Button type="button" variant={previewMode === 'editor' ? 'secondary' : 'ghost'} size="sm" onClick={() => setPreviewMode('editor')}><NotePencil size={16} />จัดวาง</Button><Button type="button" variant={previewMode === 'print' ? 'secondary' : 'ghost'} size="sm" disabled={printPreviewLoading || previewing} onClick={loadPrintPreview}><FilePdf size={16} />{printPreviewLoading ? 'กำลังสร้าง' : 'ตรวจหน้าพิมพ์'}</Button></div>
+                {previewMode === 'editor' && <><Button type="button" variant="ghost" size="icon" onClick={() => setZoom(Math.max(0.4, zoom - 0.08))} aria-label="ซูมออก"><Minus size={17} /></Button><button type="button" aria-label="คืนค่าซูม 72 เปอร์เซ็นต์" className="focus-ring min-w-14 rounded-md px-2 py-1 text-xs font-semibold" onClick={() => setZoom(0.72)}>{Math.round(zoom * 100)}%</button><Button type="button" variant="ghost" size="icon" onClick={() => setZoom(Math.min(1.15, zoom + 0.08))} aria-label="ซูมเข้า"><Plus size={17} /></Button></>}
               </div>
             </header>
             {previewError && <div className="m-4 flex items-start gap-2 rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive"><WarningCircle size={19} className="mt-0.5 shrink-0" />{previewError}</div>}
-            {previewMode === 'pdf' && actualPdfStale && actualPdfUrl && <div className="m-4 flex items-center justify-between gap-3 rounded-xl border border-amber-300/70 bg-amber-50 p-3 text-sm text-amber-950"><span>มีการแก้ไขหลังสร้าง PDF ตัวอย่างล่าสุด</span><Button type="button" size="sm" variant="outline" disabled={actualPdfLoading} onClick={loadActualPdf}>สร้างใหม่</Button></div>}
-            <div className="relative h-[calc(100dvh-202px)] min-h-[680px] overflow-auto bg-muted/55 p-4">
+            {previewMode === 'print' && printPreviewStale && printPreviewUrl && <div className="m-4 flex items-center justify-between gap-3 rounded-xl border border-amber-300/70 bg-amber-50 p-3 text-sm text-amber-950"><span>เอกสารถูกแก้ไขแล้ว กรุณาอัปเดตหน้าพิมพ์</span><Button type="button" size="sm" variant="outline" disabled={printPreviewLoading || previewing} onClick={loadPrintPreview}>อัปเดตตัวอย่าง</Button></div>}
+            <div className="relative h-[calc(100dvh-220px)] min-h-[480px] overflow-auto bg-muted/55 p-3">
               {previewMode === 'editor' && previewing && <div className="sticky left-4 right-4 top-0 z-10 h-1.5 overflow-hidden rounded-full bg-muted"><span className="block h-full w-1/2 animate-pulse rounded-full bg-primary" /></div>}
-              {preview && <div hidden={previewMode !== 'editor'} className="mx-auto" style={{ width: `${pageGeometry.pageWidth * zoom}px`, height: `${pageGeometry.documentHeight * zoom}px` }}><iframe ref={iframeRef} title="ตัวจัดเอกสารก่อนพิมพ์" srcDoc={preview} sandbox="allow-scripts" onLoad={() => { postLocalPatch(Object.fromEntries(Object.entries(latestDocumentRef.current.settings).filter(([key]) => localPreviewKey.test(key)))); postSelection(target) }} className="origin-top-left border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" style={{ width: `${pageGeometry.pageWidth + 4}px`, height: `${pageGeometry.documentHeight}px`, transform: `scale(${zoom})` }} /></div>}
-              {previewMode === 'pdf' && actualPdfUrl && <iframe title="PDF จริงก่อนดาวน์โหลด" src={appUrl(actualPdfUrl)} className="h-full min-h-[650px] w-full rounded-lg border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" />}
-              {previewMode === 'pdf' && !actualPdfUrl && <div className="grid min-h-[620px] place-items-center text-center"><div><FilePdf size={44} className="mx-auto text-muted-foreground" /><p className="mt-3 text-sm font-semibold">ยังไม่ได้สร้าง PDF ตัวอย่าง</p><Button type="button" className="mt-3" disabled={actualPdfLoading} onClick={loadActualPdf}>สร้าง PDF จากข้อมูลปัจจุบัน</Button></div></div>}
+              {preview && <div inert={form.processing || printPreviewLoading} hidden={previewMode !== 'editor'} className="mx-auto" style={{ width: `${pageGeometry.pageWidth * zoom}px`, height: `${pageGeometry.documentHeight * zoom}px` }}><iframe ref={iframeRef} title="ตัวจัดเอกสารก่อนพิมพ์" srcDoc={preview} sandbox="allow-scripts" onLoad={() => { postLocalPatch(Object.fromEntries(Object.entries(latestDocumentRef.current.settings).filter(([key]) => localPreviewKey.test(key)))); postSelection(target) }} className="origin-top-left border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" style={{ width: `${pageGeometry.pageWidth + 4}px`, height: `${pageGeometry.documentHeight}px`, transform: `scale(${zoom})` }} /></div>}
+              {previewMode === 'print' && printPreviewUrl && <iframe ref={printFrameRef} title="หน้าพิมพ์และบันทึก PDF" sandbox="allow-scripts allow-modals allow-top-navigation-by-user-activation" src={printPreviewUrl} className="h-full min-h-[650px] w-full rounded-lg border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" />}
+              {previewMode === 'print' && !printPreviewUrl && <div className="grid min-h-[620px] place-items-center text-center"><div><FilePdf size={44} className="mx-auto text-muted-foreground" /><p className="mt-3 text-sm font-semibold">ยังไม่ได้เตรียมหน้าพิมพ์</p><Button type="button" className="mt-3" disabled={printPreviewLoading || previewing} onClick={loadPrintPreview}>เตรียมหน้าพิมพ์จากกระดาษปัจจุบัน</Button></div></div>}
             </div>
           </section>
         </div>

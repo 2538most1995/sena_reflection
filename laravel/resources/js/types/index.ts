@@ -36,7 +36,7 @@ export type RecordRow = {
   suggestion?: string | null
   supervisor_comment?: string | null
   images_count?: number
-  images?: { id: number | string; record_id: string; file_path: string }[]
+  images?: { id: number | string; record_id: string; file_path: string; preview_src?: string | null }[]
   attendance?: AttendanceRow[]
 }
 

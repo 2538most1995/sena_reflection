@@ -77,6 +77,19 @@ class RecordDocumentController extends Controller
         ]);
     }
 
+    public function browserPreview(Request $request, TeachingRecord $record, RecordDocumentOptions $options, LegacyPrintService $print): Response
+    {
+        $this->authorizeScope($request, $record);
+        $document = $options->validate($record, $request->all());
+        $snapshot = $print->snapshotForRecord($record, $document['settings'], $document['content'], $request->user());
+
+        return response($print->browserSnapshotHtml($snapshot, $request->user(), route('records.show', $record)), 200, [
+            'Content-Type' => 'text/html; charset=UTF-8',
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
     public function update(
         Request $request,
         TeachingRecord $record,

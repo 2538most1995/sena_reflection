@@ -74,10 +74,16 @@ class LegacyPrintService
 
     public function browserPrintHtml(TeachingRecord $record, User $user): string
     {
-        $html = $this->snapshotHtml($this->savedSnapshot($record, $user), $user, false, true);
+        return $this->browserSnapshotHtml($this->savedSnapshot($record, $user), $user, route('records.show', $record));
+    }
+
+    /** @param array<string, mixed> $snapshot */
+    public function browserSnapshotHtml(array $snapshot, User $user, string $recordUrl): string
+    {
+        $html = $this->snapshotHtml($snapshot, $user, false, true);
         $base = '<base href="'.e(rtrim(url('/'), '/').'/').'">';
         $html = preg_replace('/<base\b[^>]*>/i', $base, $html, 1) ?? $html;
-        $toolbar = view('records.browser-print-toolbar', ['recordUrl' => route('records.show', $record)])->render();
+        $toolbar = view('records.browser-print-toolbar', compact('recordUrl'))->render();
 
         return str_replace('<body>', '<body>'.$toolbar, $html);
     }

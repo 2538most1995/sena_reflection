@@ -55,6 +55,18 @@ class DraftDocumentController extends Controller
         ]);
     }
 
+    public function browserPreview(Request $request, TeachingDraft $teachingDraft, string $levelCode, DraftService $drafts, RecordDocumentOptions $options, LegacyPrintService $print): Response
+    {
+        $snapshot = $this->snapshot($request, $teachingDraft, $levelCode, $drafts, $options);
+        $recordUrl = route('records.create', ['draft' => $teachingDraft->id, 'review' => 1]);
+
+        return response($print->browserSnapshotHtml($snapshot, $request->user(), $recordUrl), 200, [
+            'Content-Type' => 'text/html; charset=UTF-8',
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
     public function update(Request $request, TeachingDraft $teachingDraft, string $levelCode, DraftService $drafts, RecordDocumentOptions $options): RedirectResponse
     {
         $snapshot = $this->snapshot($request, $teachingDraft, $levelCode, $drafts, $options);

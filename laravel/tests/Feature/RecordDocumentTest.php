@@ -352,6 +352,49 @@ class RecordDocumentTest extends TestCase
         $this->assertSame('17', $projected['image_2_crop_x']);
     }
 
+    public function test_browser_preview_uses_current_four_image_geometry_without_saving_or_server_pdf(): void
+    {
+        $images = collect(range(1, 4))->map(fn (int $index): RecordImage => RecordImage::create([
+            'record_id' => $this->record->id, 'file_path' => "uploads/current-preview-{$index}.jpg",
+        ]));
+        $ids = $images->pluck('id')->map(fn ($id): string => (string) $id)->all();
+        $settings = app(RecordDocumentOptions::class)->settings([], $ids);
+        foreach (range(1, 4) as $slot) {
+            $settings["image_{$slot}_x_px"] = (string) (10 + (($slot - 1) % 2) * 310);
+            $settings["image_{$slot}_y_px"] = (string) (20 + intdiv($slot - 1, 2) * 250);
+            $settings["image_{$slot}_width_px"] = (string) (280 - $slot * 10);
+            $settings["image_{$slot}_height_px"] = (string) (190 + $slot * 5);
+        }
+        $print = $this->partialMock(LegacyPrintService::class);
+        $print->shouldNotReceive('snapshotPdf');
+        $print->shouldReceive('snapshotHtml')->once()->withArgs(function (array $snapshot, User $user, bool $editor, bool $browserAssets) use ($ids, $settings): bool {
+            $this->assertSame($ids, array_map(fn (array $image): string => (string) $image['id'], $snapshot['images']));
+            $map = json_decode($snapshot['settings']['image_layout_by_id'], true, flags: JSON_THROW_ON_ERROR);
+            foreach ($ids as $index => $id) {
+                $slot = $index + 1;
+                foreach (['x_px', 'y_px', 'width_px', 'height_px'] as $part) {
+                    $this->assertSame($settings["image_{$slot}_{$part}"], $map[$id][$part]);
+                    $this->assertSame($settings["image_{$slot}_{$part}"], $snapshot['settings']["image_{$slot}_{$part}"]);
+                }
+            }
+
+            return $user->is($this->teacher) && ! $editor && $browserAssets && $snapshot['content']['record_result'] === "\nผลที่กำลังแก้ไข\n\n";
+        })->andReturn('<!doctype html><html><head><base href="http://localhost/"></head><body><section class="page">current four images</section></body></html>');
+
+        $url = route('records.document.browser-preview', $this->record);
+        $this->postJson($url, ['settings' => [], 'content' => []])->assertUnauthorized();
+        $this->actingAs($this->teacher)->postJson($url, [
+            'settings' => $settings, 'content' => ['record_result' => "\nผลที่กำลังแก้ไข\n\n"],
+        ])->assertOk()->assertHeader('Content-Type', 'text/html; charset=UTF-8')
+            ->assertHeader('Cache-Control', 'no-store, private')->assertSee('current four images')
+            ->assertSee('browser-print-button')->assertSee(route('records.show', $this->record));
+        $this->postJson($url, ['settings' => ['paper_orientation' => 'invalid'], 'content' => ['record_result' => 'ข้อความ']])
+            ->assertUnprocessable()->assertJsonValidationErrors('paper_orientation');
+        $this->assertSame('ผลเดิม', $this->record->fresh()->result);
+        $this->assertDatabaseCount('record_document_layouts', 0);
+        $this->assertDatabaseCount('record_revisions', 0);
+    }
+
     public function test_four_image_moves_survive_stale_client_map_preview_save_reopen_and_pdf(): void
     {
         $images = collect(range(1, 4))->map(fn (int $index): RecordImage => RecordImage::query()->create([
@@ -478,6 +521,7 @@ class RecordDocumentTest extends TestCase
         $this->actingAs($other)->get(route('records.document.edit', $this->record))->assertForbidden();
         $this->postJson(route('records.document.preview', $this->record), ['settings' => [], 'content' => []])->assertForbidden();
         $this->postJson(route('records.document.pdf-preview', $this->record), ['settings' => [], 'content' => []])->assertForbidden();
+        $this->postJson(route('records.document.browser-preview', $this->record), ['settings' => [], 'content' => []])->assertForbidden();
         $this->put(route('records.document.update', $this->record), ['settings' => [], 'content' => []])->assertForbidden();
         $this->delete(route('records.document.destroy', $this->record))->assertForbidden();
     }

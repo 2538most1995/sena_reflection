@@ -11,6 +11,7 @@ use App\Models\TeachingRecord;
 use App\Models\WeeklySubmission;
 use App\Services\EducationLevelService;
 use App\Services\LegacyPrintService;
+use App\Services\RecordImageAssets;
 use App\Services\RecordPdfService;
 use App\Services\RecordRevisionService;
 use Illuminate\Http\RedirectResponse;
@@ -81,34 +82,8 @@ class RecordController extends Controller
         $this->authorizeScope($request, $record);
         abort_unless((string) $image->record_id === (string) $record->getKey(), 404);
 
-        // Older records retain a site URL or mount prefix before uploads/.
-        // Resolve that local upload exactly as the legacy print renderer does.
-        $storedPath = preg_replace('/[?#].*$/', '', trim((string) $image->file_path)) ?? '';
-        $storedPath = str_replace('\\', '/', rawurldecode($storedPath));
-        if (preg_match('~(?:^|/)uploads/(.+)$~', $storedPath, $matches)) {
-            $storedPath = 'uploads/'.$matches[1];
-        }
-        $relativePath = ltrim($storedPath, '/');
-        abort_if($relativePath === '' || str_contains($relativePath, "\0") || in_array('..', explode('/', $relativePath), true), 404);
-
-        if (str_starts_with($relativePath, 'storage/')) {
-            $path = Storage::disk('public')->path(substr($relativePath, 8));
-        } else {
-            $path = dirname(base_path()).'/'.$relativePath;
-            if (! is_file($path)) {
-                $path = public_path($relativePath);
-            }
-        }
-        $realPath = realpath($path);
-        $allowedRoots = array_filter(array_map('realpath', [
-            Storage::disk('public')->path(''),
-            dirname(base_path()),
-            public_path(),
-        ]));
-        $isAllowed = $realPath !== false && collect($allowedRoots)->contains(
-            fn ($root) => $realPath === $root || str_starts_with($realPath, $root.DIRECTORY_SEPARATOR)
-        );
-        abort_unless($isAllowed && is_file($realPath), 404);
+        $realPath = app(RecordImageAssets::class)->resolve((string) $image->file_path);
+        abort_if($realPath === null, 404);
 
         return response()->file($realPath, [
             'Cache-Control' => 'private, max-age=300',
@@ -283,6 +258,13 @@ class RecordController extends Controller
     {
         $payload = $record->toArray();
         $payload['date'] = $record->date?->format('Y-m-d');
+        if ($record->relationLoaded('images')) {
+            $assets = app(RecordImageAssets::class);
+            $payload['images'] = $record->images->map(fn (RecordImage $image): array => [
+                ...$image->toArray(),
+                'preview_src' => $assets->previewSrc((string) $image->file_path),
+            ])->all();
+        }
 
         return $payload;
     }

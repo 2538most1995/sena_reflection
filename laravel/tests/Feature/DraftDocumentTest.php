@@ -59,12 +59,42 @@ class DraftDocumentTest extends TestCase
         [$teacher, $draft] = $this->draft();
         $url = route('teaching-drafts.document.edit', [$draft->id, '1']);
         $this->get($url)->assertRedirect(route('login'));
+        $browserUrl = route('teaching-drafts.document.browser-preview', [$draft->id, '1']);
+        $this->postJson($browserUrl, ['lock_version' => 1])->assertUnauthorized();
         $other = User::create(['id' => 'other', 'username' => 'other', 'name' => 'ครูอื่น', 'password' => Hash::make('secret'), 'role' => 'district']);
 
         $this->actingAs($other)->get($url)->assertNotFound();
+        $this->postJson($browserUrl, ['lock_version' => 1])->assertNotFound();
         $this->putJson(route('teaching-drafts.document.update', [$draft->id, '1']), ['lock_version' => 1])->assertNotFound();
         $this->actingAs($teacher)->get(route('teaching-drafts.document.edit', [$draft->id, '4']))->assertNotFound();
+        $this->postJson(route('teaching-drafts.document.browser-preview', [$draft->id, '4']), ['lock_version' => 1])->assertNotFound();
         $this->assertSame(1, $draft->fresh()->lock_version);
+    }
+
+    public function test_browser_preview_prints_the_current_validated_draft_without_publishing_or_saving(): void
+    {
+        [$teacher, $draft] = $this->draft();
+        $print = $this->partialMock(LegacyPrintService::class);
+        $print->shouldNotReceive('snapshotPdf');
+        $print->shouldReceive('snapshotHtml')->once()->withArgs(fn (array $snapshot, User $user, bool $editor, bool $browserAssets): bool => $snapshot['content']['record_result'] === 'ข้อความฉบับปัจจุบัน'
+            && $snapshot['settings']['image_1_width_px'] === '470'
+            && $user->is($teacher) && ! $editor && $browserAssets)
+            ->andReturn('<!doctype html><html><head><base href="http://localhost/"></head><body><section class="page">current draft</section></body></html>');
+
+        $url = route('teaching-drafts.document.browser-preview', [$draft->id, '1']);
+        $payload = ['lock_version' => 1, 'settings' => ['image_1_width_px' => '470'], 'content' => ['record_result' => 'ข้อความฉบับปัจจุบัน']];
+        $this->actingAs($teacher)->postJson($url, $payload)->assertOk()
+            ->assertHeader('Content-Type', 'text/html; charset=UTF-8')->assertHeader('Cache-Control', 'no-store, private')
+            ->assertSee('current draft')->assertSee('browser-print-button')
+            ->assertSee(route('records.create', ['draft' => $draft->id, 'review' => 1]));
+        $payload['lock_version'] = 2;
+        $this->postJson($url, $payload)->assertConflict()->assertJsonPath('code', 'draft_version_conflict');
+        $payload['lock_version'] = 1;
+        $payload['settings']['paper_orientation'] = 'invalid';
+        $this->postJson($url, $payload)->assertUnprocessable()->assertJsonValidationErrors('paper_orientation');
+        $this->assertSame(1, $draft->fresh()->lock_version);
+        $this->assertSame('ผลเดิม', $draft->fresh()->payload['levels']['1']['result']);
+        $this->assertDatabaseCount('records', 0);
     }
 
     public function test_stale_version_and_invalid_settings_never_overwrite_the_draft(): void

@@ -1174,6 +1174,20 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 });
                 window.addEventListener('message', function (event) {
                     if (event.source !== window.parent) return;
+                    if (event.data?.source === 'sena-document-print-request') {
+                        if (active) finish({ pointerId: active.pointerId, type: 'capture' });
+                        if (document.activeElement && document.activeElement.isContentEditable) document.activeElement.blur();
+                        // Export the displayed DOM, preserving every image's current geometry.
+                        var clone = document.documentElement.cloneNode(true);
+                        clone.querySelectorAll('script, .preprint-image-resize-handle, .preprint-image-resize-corner, .preprint-move-handle').forEach(function (item) { item.remove(); });
+                        clone.querySelectorAll('[contenteditable]').forEach(function (item) { item.removeAttribute('contenteditable'); });
+                        clone.querySelectorAll('.is-selected, .is-editing, .is-dragging').forEach(function (item) { item.classList.remove('is-selected', 'is-editing', 'is-dragging'); });
+                        var cleanStyle = document.createElement('style');
+                        cleanStyle.textContent = '.preprint-live-draggable,.preprint-live-editable{outline:none!important;box-shadow:none!important;background-color:transparent!important;cursor:default!important}.image-free-canvas{background-image:none!important;outline:none!important}.image-free-canvas::before,.page::before,.page::after{display:none!important}';
+                        clone.querySelector('head').appendChild(cleanStyle);
+                        window.parent.postMessage({ source: 'sena-document-print-result', requestId: event.data.requestId, html: '<!doctype html>' + clone.outerHTML }, '*');
+                        return;
+                    }
                     if (event.data?.source === 'sena-pdf-layout-select') {
                         var target = Array.from(document.querySelectorAll('[data-layout-kind]')).find(function (item) {
                             return event.data.imageId ? item.dataset.layoutImageId === String(event.data.imageId) : item.dataset.layoutLabel === event.data.label;
@@ -1247,6 +1261,12 @@ function resolveLocalPath($relativePath)
         }
     }
 
+    require_once __DIR__ . '/laravel/app/Services/RecordImageAssets.php';
+    $relativePath = \App\Services\RecordImageAssets::normalizeStoredPath((string) $relativePath);
+    if ($relativePath === null) {
+        return null;
+    }
+
     $uploadPath = getUploadFilePath($relativePath);
     if ($uploadPath && is_file($uploadPath)) {
         return str_replace('\\', '/', realpath($uploadPath));
@@ -1255,7 +1275,7 @@ function resolveLocalPath($relativePath)
     // Laravel stores new uploads under laravel/storage/app/public while the
     // legacy renderer historically read only the project-level uploads folder.
     // Supporting both paths keeps old records and newly created records printable.
-    $normalized = ltrim(str_replace('\\', '/', (string) $relativePath), '/');
+    $normalized = $relativePath;
     if (strpos($normalized, 'storage/') === 0) {
         $laravelStoragePath = __DIR__ . '/laravel/storage/app/public/' . substr($normalized, 8);
         if (is_file($laravelStoragePath)) {

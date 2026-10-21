@@ -1,1 +1,0 @@
-import{t as e}from"./app-CX30oAUn.js";import{t}from"./teaching-workspace-CiK-ksN6.js";var n=e();function r(e){return(0,n.jsx)(t,{...e,mode:e.workspace?.mode===`edit`?`edit`:`create`,sourceRecord:null})}export{r as default};

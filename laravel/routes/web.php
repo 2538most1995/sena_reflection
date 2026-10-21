@@ -31,6 +31,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/records/{record}', [RecordController::class, 'show'])->name('records.show');
     Route::get('/records/{record}/document', [RecordDocumentController::class, 'edit'])->name('records.document.edit');
     Route::post('/records/{record}/document/preview', [RecordDocumentController::class, 'preview'])->name('records.document.preview');
+    Route::post('/records/{record}/document/browser-preview', [RecordDocumentController::class, 'browserPreview'])->middleware('throttle:document-previews')->name('records.document.browser-preview');
     Route::post('/records/{record}/document/pdf-preview', [RecordDocumentController::class, 'pdfPreview'])->middleware('throttle:document-previews')->name('records.document.pdf-preview');
     Route::put('/records/{record}/document', [RecordDocumentController::class, 'update'])->name('records.document.update');
     Route::delete('/records/{record}/document', [RecordDocumentController::class, 'destroy'])->name('records.document.destroy');

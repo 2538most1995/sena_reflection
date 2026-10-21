@@ -59,7 +59,16 @@ class BrowserPrintTest extends TestCase
             ->assertSee('html.html-preview-direct body{display:block!important;margin:0!important;padding:0!important}', false)
             ->assertSee('@page{size:A4 landscape}', false)
             ->assertSee('data:image/png;base64', false)->assertSee('data:font/ttf;base64', false)
-            ->assertSee('Save as PDF')->assertSee('document.fonts.ready', false)
+            ->assertSee('Save as PDF')->assertSee('withTimeout(document.fonts.ready)', false)
+            ->assertSee('ตรวจเอกสารก่อนพิมพ์')->assertSee('<details><summary>ตั้งค่าการพิมพ์</summary>', false)
+            ->assertSee('id="browser-print-button" disabled', false)->assertSee('image.decode()', false)
+            ->assertSee('event.source !== window.parent', false)->assertSee('sena-print-invalidated')
+            ->assertSee('เอกสารถูกแก้ไข กรุณาอัปเดตตัวอย่างก่อนพิมพ์')
+            ->assertSee('id="browser-print-styles"', false)->assertSee('id="browser-print-script"', false)
+            ->assertSee('target="_top"', false)
+            ->assertSee("document.querySelectorAll('.missing-image-note')", false)
+            ->assertSee('images.length + missing', false)->assertSee("reject(new Error('timeout')), 15000", false)
+            ->assertSee("window.addEventListener('DOMContentLoaded', ready", false)
             ->assertDontSee('file://')->assertDontSee('data-layout-kind');
     }
 
