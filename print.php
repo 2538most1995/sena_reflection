@@ -262,6 +262,7 @@ if ($isRecordDocument && !empty($recordDocumentPayload)) {
             || preg_match('/^record_section[123]_title$/', (string) $key)
             || in_array($key, [
                 'pdf_font_size_pt', 'pdf_line_spacing',
+                'record_paragraph_spacing_px', 'record_text_indent_px', 'record_text_align',
                 'pdf_margin_top_px', 'pdf_margin_right_px', 'pdf_margin_bottom_px', 'pdf_margin_left_px',
                 'show_image_page', 'show_attendance_page', 'image_layout_mode',
                 'image_width_px', 'image_height_px', 'image_offset_x', 'image_offset_y', 'image_gap_px',
@@ -299,7 +300,8 @@ if ($isSettingsPreview && !empty($settingsPreviewPayload)) {
             preg_match('/^sig[123]_/', (string) $key)
             || preg_match('/^record_section[123]_title$/', (string) $key)
             || in_array($key, [
-                'font_size_offset', 'pdf_font_size_pt', 'pdf_line_spacing', 'pdf_dot_size',
+                'font_size_offset', 'pdf_font_size_pt', 'pdf_line_spacing',
+                'record_paragraph_spacing_px', 'record_text_indent_px', 'record_text_align', 'pdf_dot_size',
                 'signature_font_size_pt', 'attendance_font_size_pt',
                 'pdf_margin_top_px', 'pdf_margin_right_px', 'pdf_margin_bottom_px', 'pdf_margin_left_px',
                 'show_image_page', 'show_attendance_page', 'image_layout_mode',
@@ -550,7 +552,7 @@ function pathToLocalFileUrl($path)
 
 function outputPrintableHtmlPreview($contentHtml, $filename)
 {
-    global $pdfPageMarginTopPx, $pdfPageMarginRightPx, $pdfPageMarginBottomPx, $pdfPageMarginLeftPx, $isClientPdfExport, $isLayoutEditorPreview;
+    global $recordTextAlign, $pdfPageMarginTopPx, $pdfPageMarginRightPx, $pdfPageMarginBottomPx, $pdfPageMarginLeftPx, $isClientPdfExport, $isLayoutEditorPreview;
 
     if (ob_get_length()) {
         ob_clean();
@@ -683,10 +685,10 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 .dotted-text-content p.official-para,
                 .dotted-text-content p,
                 .official-line {
-                    text-align: justify !important;
+                    text-align: ' . $recordTextAlign . ' !important;
                     text-justify: inter-character !important;
-                    -webkit-text-align-last: left !important;
-                    text-align-last: left !important;
+                    -webkit-text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ' !important;
+                    text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ' !important;
                     letter-spacing: 0 !important;
                     word-spacing: normal !important;
                     font-kerning: none !important;
@@ -731,7 +733,8 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                     background: #fff !important;
                     position: relative !important;
                     overflow: visible !important;
-                    border: 1px solid rgba(148, 163, 184, 0.46) !important;
+                    border: none !important;
+                    outline: 1px solid rgba(148, 163, 184, 0.46);
                     box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12) !important;
                 }
                 .page + .page,
@@ -757,11 +760,20 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                     background: rgba(239,246,255,0.42);
                     box-shadow: 0 0 0 4px rgba(47,103,177,0.10);
                 }
+                .preprint-live-draggable.is-selected { z-index: 10; }
                 .preprint-live-draggable.is-dragging {
+                    z-index: 20;
                     cursor: grabbing;
                     outline-color: rgba(194,122,18,0.95);
                     background: rgba(255,244,223,0.72);
                 }
+                .preprint-move-handle {
+                    position:absolute; right:0; top:-24px; z-index:30;
+                    font:12px/20px sans-serif; color:#1a3a6b; background:#eff6ff;
+                    border:1px solid #93b4dc; border-radius:4px; padding:0 6px;
+                    cursor:grab; touch-action:none; user-select:none;
+                }
+                .pdf-preview-block--flow-signature { position:relative; }
                 .preprint-live-editable {
                     cursor: text;
                     border-radius: 4px;
@@ -772,17 +784,18 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 }
                 .sig-box-line .preprint-live-editable,
                 .sig-box-line-tight .preprint-live-editable {
-                    white-space: nowrap;
+                    white-space: break-spaces;
                 }
                 .preprint-live-editable:hover {
                     background: rgba(41,82,163,0.08);
                 }
                 .preprint-live-editable[data-preprint-dblclick="1"] {
-                    cursor: pointer;
+                    cursor: text;
                 }
                 .preprint-live-editable[data-preprint-dblclick="1"].is-editing {
                     cursor: text;
                 }
+                .preprint-live-editable.is-editing::after { content: "\200B"; }
                 .preprint-live-editable:focus,
                 .preprint-live-editable.is-editing {
                     outline: none;
@@ -794,7 +807,7 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                     position: relative;
                 }
                 .image-free-canvas {
-                    overflow: hidden;
+                    overflow: visible;
                     outline: 1px dashed rgba(100,116,139,0.36);
                     outline-offset: 3px;
                     background-image:
@@ -895,6 +908,7 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 };
                 var notifyGeometry = function () {
                     var pages = Array.from(document.querySelectorAll('.page')).filter(function (page) { return page.getBoundingClientRect().height > 0; });
+                    if (!pages.length) return;
                     window.parent.postMessage({
                         source: 'sena-pdf-geometry',
                         pageWidth: pages.reduce(function (width, page) { return Math.max(width, page.getBoundingClientRect().width); }, 0),
@@ -913,8 +927,35 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                     }, '*');
                     notifyGeometry();
                 };
+                var readText = function (item) {
+                    return (item.textContent || '').replace(/\u00a0/g, ' ').replace(/\r\n?|[\u2028\u2029]/g, '\n');
+                };
+                var renderText = function (item, text) {
+                    item.dataset.preprintText = text;
+                    item.replaceChildren();
+                    if (item.classList.contains('dotted-text-content')) {
+                        text.split(/(\[break\]|\[page-break\]|\*\*\*)/i).forEach(function (part) {
+                            var block = document.createElement('p');
+                            if (/^(\[break\]|\[page-break\]|\*\*\*)$/i.test(part)) {
+                                block = document.createElement('div');
+                                block.className = 'manual-page-break';
+                                block.style.cssText = 'height:0;margin:0;padding:0;break-before:page;page-break-before:always';
+                            } else {
+                                block.className = 'official-para official-para-first';
+                                block.textContent = part + (!part || part.endsWith('\n') ? '\u00a0' : '');
+                            }
+                            item.appendChild(block);
+                        });
+                    } else if (item.dataset.preprintAllowBr) {
+                        text.split('\n').forEach(function (line) {
+                            var block = document.createElement('div');
+                            block.style.cssText = 'margin:0;padding:0'; block.textContent = line || '\u00a0';
+                            item.appendChild(block);
+                        });
+                    } else item.textContent = text;
+                };
                 var notifyText = function (item) {
-                    var text = (item.innerText || item.textContent || '').replace(/\u00a0/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+                    var text = readText(item);
                     var changes = {};
                     changes[item.dataset.preprintSetting] = text;
                     window.parent.postMessage({ source: 'sena-pdf-layout', textChanges: changes, target: { kind: 'text', label: 'ข้อความในเอกสาร' } }, '*');
@@ -1010,7 +1051,8 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                         var offsetX = clamp(active.startX + dx, -400, 400);
                         var offsetY = clamp(active.startY + dy, -400, 400);
                         active.item.dataset.layoutX = String(offsetX); active.item.dataset.layoutY = String(offsetY);
-                        active.item.style.transform = 'translate(' + offsetX + 'px,' + offsetY + 'px)';
+                        active.item.style.transform = 'translateX(' + offsetX + 'px)';
+                        active.item.style.marginTop = offsetY + 'px';
                     }
                     warningIds();
                 };
@@ -1066,23 +1108,49 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 document.addEventListener('pointerup', finish);
                 document.addEventListener('pointercancel', finish);
                 document.querySelectorAll('[data-preprint-setting]').forEach(function (item) {
-                    item.setAttribute('title', 'ดับเบิลคลิกเพื่อแก้ข้อความ');
-                    item.addEventListener('dblclick', function (event) {
-                        event.preventDefault(); event.stopPropagation();
-                        item.dataset.originalText = item.innerText || item.textContent || '';
-                        item.contentEditable = 'true'; item.classList.add('is-editing'); item.focus();
+                    item.setAttribute('title', 'คลิกเพื่อแก้ข้อความ · Enter เพิ่มบรรทัด · Tab ย่อหน้า · Esc ยกเลิก');
+                    item.addEventListener('click', function (event) {
+                        event.stopPropagation();
+                        if (item.isContentEditable) return;
+                        item.dataset.originalText = item.dataset.preprintText !== undefined ? item.dataset.preprintText : (item.innerText || '');
+                        item.textContent = item.dataset.originalText;
+                        item.contentEditable = 'plaintext-only'; item.classList.add('is-editing'); item.focus();
+                        if (document.caretRangeFromPoint) {
+                            var caret = document.caretRangeFromPoint(event.clientX, event.clientY);
+                            if (caret && item.contains(caret.startContainer)) {
+                                var selection = window.getSelection();
+                                selection.removeAllRanges(); selection.addRange(caret);
+                            }
+                        }
+                    });
+                    item.addEventListener('input', function () { notifyText(item); });
+                    item.addEventListener('paste', function (event) {
+                        if (!item.isContentEditable || !event.clipboardData) return;
+                        event.preventDefault();
+                        var pasted = event.clipboardData.getData('text/plain').replace(/\r\n?|\n/g, item.dataset.preprintAllowBr ? '\u2028' : ' ');
+                        document.execCommand('insertText', false, pasted);
                     });
                     item.addEventListener('blur', function () {
-                        if (item.contentEditable !== 'true') return;
-                        item.contentEditable = 'false'; item.classList.remove('is-editing'); notifyText(item);
+                        if (!item.isContentEditable) return;
+                        notifyText(item);
+                        var text = readText(item);
+                        item.contentEditable = 'false'; item.classList.remove('is-editing');
+                        renderText(item, text);
                     });
                     item.addEventListener('keydown', function (event) {
-                        if (item.contentEditable !== 'true') return;
-                        if (event.key === 'Escape') { event.preventDefault(); item.innerText = item.dataset.originalText || ''; item.blur(); return; }
-                        if ((event.key === 'Enter' && !item.dataset.preprintAllowBr) || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) { event.preventDefault(); item.blur(); }
+                        if (!item.isContentEditable || event.isComposing) return;
+                        event.stopPropagation();
+                        if (event.key === 'Escape') { event.preventDefault(); item.textContent = item.dataset.originalText || ''; notifyText(item); item.blur(); return; }
+                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey || !item.dataset.preprintAllowBr)) { event.preventDefault(); item.blur(); return; }
+                        if (event.key === 'Tab' || event.key === 'Enter') {
+                            event.preventDefault();
+                            // A literal line separator keeps native undo without Chrome inserting block divs.
+                            document.execCommand('insertText', false, event.key === 'Tab' ? '\t' : '\u2028');
+                        }
                     });
                 });
                 document.addEventListener('keydown', function (event) {
+                    if (event.target.closest('[data-preprint-setting], input, textarea, select')) return;
                     var item = event.target.closest('[data-layout-kind]');
                     if (!item || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
                     event.preventDefault(); select(item);
@@ -1095,7 +1163,7 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                     y = absolute ? clamp(y, 0, parent ? Math.max(0, parent.clientHeight - number(item.dataset.layoutHeight)) : 1100) : clamp(y, -400, 400);
                     item.dataset.layoutX = String(x); item.dataset.layoutY = String(y);
                     if (absolute) { item.style.left = x + 'px'; item.style.top = y + 'px'; }
-                    else item.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+                    else { item.style.transform = 'translateX(' + x + 'px)'; item.style.marginTop = y + 'px'; }
                     var changes = {}; changes[item.dataset.layoutXKey] = String(x); changes[item.dataset.layoutYKey] = String(y); notify(item, changes);
                 });
                 window.addEventListener('message', function (event) {
@@ -1119,7 +1187,7 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                         if (item.dataset.layoutCropXKey && Object.prototype.hasOwnProperty.call(changes, item.dataset.layoutCropXKey)) item.dataset.layoutCropX = String(changes[item.dataset.layoutCropXKey]);
                         if (item.dataset.layoutCropYKey && Object.prototype.hasOwnProperty.call(changes, item.dataset.layoutCropYKey)) item.dataset.layoutCropY = String(changes[item.dataset.layoutCropYKey]);
                         if (item.dataset.layoutWidthKey) applyImageMedia(item);
-                        else item.style.transform = 'translate(' + number(item.dataset.layoutX) + 'px,' + number(item.dataset.layoutY) + 'px)';
+                        else { item.style.transform = 'translateX(' + number(item.dataset.layoutX) + 'px)'; item.style.marginTop = number(item.dataset.layoutY) + 'px'; }
                     });
                     warningIds(); notifyGeometry();
                 });
@@ -1148,7 +1216,8 @@ HTML;
 
 function officialFirstLineIndentPx()
 {
-    return 42;
+    global $settings;
+    return normalizePrintSettingInt($settings, 'record_text_indent_px', 42, 0, 160);
 }
 
 function resolveLocalPath($relativePath)
@@ -1348,7 +1417,9 @@ function preprintEditableHtml($settingKey, $html, $allowBr = false, $doubleClick
     $allowBrAttr = $allowBr ? ' data-preprint-allow-br="1"' : '';
     $parsedHtml = parseManualPageBreaks($html);
     $doubleClickAttr = $doubleClick ? ' data-preprint-dblclick="1"' : '';
-    return '<span class="preprint-live-editable" data-preprint-setting="' . $settingKey . '"' . $allowBrAttr . $doubleClickAttr . '>' . $parsedHtml . '</span>';
+    $plainHtml = preg_replace('/<\/div>\s*<div[^>]*>/i', "\n", $html);
+    $plainText = htmlspecialchars(html_entity_decode(strip_tags(preg_replace('/<br\s*\/?>/i', "\n", $plainHtml)), ENT_QUOTES | ENT_HTML5, 'UTF-8'), ENT_QUOTES, 'UTF-8');
+    return '<span class="preprint-live-editable" data-preprint-text="' . $plainText . '" data-preprint-setting="' . $settingKey . '"' . $allowBrAttr . $doubleClickAttr . '>' . $parsedHtml . '</span>';
 }
 
 function normalizePdfFontSizePt($value)
@@ -1444,11 +1515,9 @@ function buildDottedTextArea($text, $minLines, $maxLines = null, $settingKey = '
 
     // Newlines are line breaks inside one official paragraph, not new indented paragraphs.
     // This keeps the first-line indent only at the very first visual line of the field.
+    $editableText = $normalized;
     $normalized = preg_replace('/(?:\[break\]|\[page\-break\]|\*\*\*)/i', "\n[[SENA_PAGE_BREAK]]\n", $normalized);
     $sourceLines = explode("\n", $normalized);
-    while (count($sourceLines) > 1 && trim(end($sourceLines)) === '') {
-        array_pop($sourceLines);
-    }
 
     $contentParts = [];
     $paragraphLines = [];
@@ -1459,9 +1528,9 @@ function buildDottedTextArea($text, $minLines, $maxLines = null, $settingKey = '
 
         $lineHtml = [];
         foreach ($paragraphLines as $line) {
-            $lineHtml[] = trim($line) !== '' ? escapeTextPreserveSpaces(rtrim($line)) : '&nbsp;';
+            $lineHtml[] = trim($line) !== '' ? htmlspecialchars($line, ENT_QUOTES, 'UTF-8') : '&nbsp;';
         }
-        $contentParts[] = '<p class="official-para official-para-first">' . implode('<br>', $lineHtml) . '</p>';
+        $contentParts[] = '<p class="official-para official-para-first">' . implode("\n", $lineHtml) . '</p>';
         $paragraphLines = [];
     };
 
@@ -1493,6 +1562,7 @@ function buildDottedTextArea($text, $minLines, $maxLines = null, $settingKey = '
     if ($settingKey !== '') {
         $contentClass .= ' preprint-live-editable';
         $contentAttrs .= ' data-preprint-setting="' . htmlspecialchars((string) $settingKey, ENT_QUOTES, 'UTF-8') . '"';
+        $contentAttrs .= ' data-preprint-text="' . htmlspecialchars($editableText, ENT_QUOTES, 'UTF-8') . '"';
         $contentAttrs .= ' data-preprint-allow-br="1"';
         $contentAttrs .= ' data-preprint-dblclick="1"';
     }
@@ -1680,7 +1750,7 @@ function buildFlowSignatureBlock($align, $marginTop, $contentHtml, $blockWidth =
     $offsetX = (int) ($options['offset_x'] ?? 0);
     $offsetY = (int) ($options['offset_y'] ?? 0);
     $transformStyle = ($offsetX !== 0 || $offsetY !== 0)
-        ? ' transform:translate(' . $offsetX . 'px,' . $offsetY . 'px);'
+        ? ' transform:translateX(' . $offsetX . 'px); margin-top:' . $offsetY . 'px;'
         : '';
     $editorClass = '';
     $editorAttributes = '';
@@ -1695,9 +1765,11 @@ function buildFlowSignatureBlock($align, $marginTop, $contentHtml, $blockWidth =
             . ' data-layout-x="' . $offsetX . '" data-layout-y="' . $offsetY . '"';
     }
 
+    $moveHandle = $editorClass !== '' ? '<span class="preprint-move-handle" title="ลากเพื่อย้ายลายเซ็น">✥ ย้ายลายเซ็น</span>' : '';
+
     return '
         <div class="signature-flow-section" style="margin-top:' . (int) $marginTop . 'px; width:100%; display:flex; justify-content:' . $justifyContent . ';">
-            <div class="pdf-preview-block pdf-preview-block--flow-signature' . $editorClass . '"' . $editorAttributes . ' style="width:' . $resolvedWidth . 'px;' . $transformStyle . '">
+            <div class="pdf-preview-block pdf-preview-block--flow-signature' . $editorClass . '"' . $editorAttributes . ' style="width:' . $resolvedWidth . 'px;' . $transformStyle . '">' . $moveHandle . '
                 <div class="sig-box">' . $contentHtml . '</div>
             </div>
         </div>
@@ -1946,6 +2018,8 @@ $pdfFontSizePt = resolvePdfFontSizePt($settings);
 $fontSizeOffsetPt = $pdfFontSizePt - 16;
 $fontSizeOffsetPtCss = rtrim(rtrim(number_format($fontSizeOffsetPt, 2, '.', ''), '0'), '.');
 $pdfLineSpacing = normalizePrintSettingInt($settings, 'pdf_line_spacing', 26, 20, 40);
+$recordParagraphSpacing = normalizePrintSettingInt($settings, 'record_paragraph_spacing_px', 0, 0, 80);
+$recordTextAlign = in_array($settings['record_text_align'] ?? '', ['left', 'justify', 'center', 'right'], true) ? $settings['record_text_align'] : 'justify';
 $signatureFontSizePt = normalizePrintSettingInt($settings, 'signature_font_size_pt', $pdfFontSizePt, 10, 20);
 $attendanceFontSizePt = normalizePrintSettingInt($settings, 'attendance_font_size_pt', $pdfFontSizePt, 10, 20);
 $signatureFontSizeCss = rtrim(rtrim(number_format($signatureFontSizePt, 2, '.', ''), '0'), '.');
@@ -2036,6 +2110,9 @@ $styles = '
         background: #fff;
     }
     @media print {
+        .preprint-image-resize-handle, .preprint-move-handle { display:none !important; }
+        .preprint-live-draggable, .preprint-live-editable { outline:none !important; box-shadow:none !important; background-color:transparent !important; }
+        .image-free-canvas::before, .page::before, .page::after { display:none !important; }
         body {
             background: none;
             width: ' . PDF_PAGE_WIDTH . 'px !important;
@@ -2067,20 +2144,20 @@ $styles = '
         }
         .dotted-text-content p.official-para,
         .dotted-text-content p {
-            text-align: justify !important;
+            text-align: ' . $recordTextAlign . ' !important;
             text-justify: inter-character !important;
-            -webkit-text-align-last: left !important;
-            text-align-last: left !important;
-            white-space: normal !important;
+            -webkit-text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ' !important;
+            text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ' !important;
+            white-space: break-spaces !important;
             overflow: visible !important;
             overflow-wrap: break-word !important;
             word-break: break-word !important;
         }
         .official-line {
-            text-align: justify !important;
+            text-align: ' . $recordTextAlign . ' !important;
             text-justify: inter-character !important;
-            text-align-last: left !important;
-            white-space: normal !important;
+            text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ' !important;
+            white-space: break-spaces !important;
             overflow: visible !important;
             overflow-wrap: break-word !important;
             word-break: break-word !important;
@@ -2181,8 +2258,17 @@ $styles = '
         line-height: ' . $pdfLineSpacing . 'px;
     }
     .dotted-text-content--prewrapped {
-        /* No extra indent here - paragraphs control their own indent */
+        text-align: ' . $recordTextAlign . ';
+        text-indent: ' . officialFirstLineIndentPx() . 'px;
+        white-space: break-spaces;
+        tab-size: 4;
     }
+    .dotted-text-area { margin-bottom: ' . $recordParagraphSpacing . 'px; }
+    .preprint-live-editable { tab-size: 4; }
+    .sig-box-line .preprint-live-editable[data-preprint-allow-br],
+    .sig-box-line-tight .preprint-live-editable[data-preprint-allow-br] { display:block; min-height:1em; }
+    .preprint-live-editable[data-preprint-allow-br="1"] { white-space: break-spaces; }
+    .dotted-text-content--prewrapped:has(.official-para) { text-indent: 0; }
     /* ── Paragraph-based justified text (เอกสารราชการ) ──────────────────── */
     /* IMPORTANT: text-align:justify only works when CSS wraps the text
        (multi-line). We output whole paragraphs so the browser wraps and
@@ -2195,13 +2281,14 @@ $styles = '
         padding: 0;
         font-size: ' . (16 + $fontSizeOffsetPt) . 'pt;
         line-height: ' . $pdfLineSpacing . 'px;
-        text-align: justify;
-        -webkit-text-align-last: left;
-        text-align-last: left;
+        text-align: ' . $recordTextAlign . ';
+        -webkit-text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ';
+        text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ';
         text-justify: inter-character;
         -webkit-hyphens: auto;
         hyphens: auto;
-        white-space: normal;
+        white-space: break-spaces;
+        tab-size: 4;
         overflow-wrap: break-word;
         word-break: break-word;
         width: 100%;
@@ -2228,7 +2315,7 @@ $styles = '
         overflow: visible;
         text-align: justify;
         text-justify: inter-character;
-        text-align-last: left;
+        text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ';
         image-rendering: auto;
         width: 100%;
     }
@@ -2672,7 +2759,7 @@ $sig1Content = '
         'suffix_setting' => 'sig1_sign_suffix',
     ]), $sig1_line_offset_x, $sig1_line_offset_y, 'sig-box-line-tight') . '
     ' . buildShiftedSignaturePart('( ' . preprintEditableHtml('sig1_name', $sig1DisplayName) . ' )', $sig1_name_offset_x, $sig1_name_offset_y, 'sig-box-line') . '
-    ' . buildShiftedSignaturePart(preprintEditableHtml('sig1_pos', escapeTextPreserveSpaces($sig1_pos !== '' ? $sig1_pos : 'ครูผู้สอน')), $sig1_pos_offset_x, $sig1_pos_offset_y, 'sig-box-line') . '
+    ' . buildShiftedSignaturePart(preprintEditableHtml('sig1_pos', escapeTextPreserveSpacesAllowBr($sig1_pos !== '' ? $sig1_pos : 'ครูผู้สอน'), true), $sig1_pos_offset_x, $sig1_pos_offset_y, 'sig-box-line') . '
 ';
 
 $sig2Content = '

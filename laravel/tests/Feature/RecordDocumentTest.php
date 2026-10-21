@@ -92,6 +92,68 @@ class RecordDocumentTest extends TestCase
         $this->assertSame('ผลเดิม', RecordRevision::query()->where('record_id', $this->record->id)->orderBy('revision')->firstOrFail()->snapshot['record']['result']);
     }
 
+    public function test_document_spacing_and_explicit_blank_lines_survive_save_and_export_snapshot(): void
+    {
+        $settings = [
+            'sig1_mt' => '0', 'sig2_mt' => '24', 'sig3_mt' => '36',
+            'sig2_block_offset_y' => '-18', 'sig3_block_offset_y' => '42',
+            'record_paragraph_spacing_px' => '12', 'record_text_indent_px' => '64', 'record_text_align' => 'left',
+            'sig1_pos' => "\nครูผู้สอน\n\n", 'sig2_pos' => "  หัวหน้างาน\nเสนา  ", 'sig3_pos' => "ผู้อำนวยการ\n\n",
+        ];
+        $text = "\n  บรรทัดแรก\n\n\nบรรทัดสุดท้าย  \n\n";
+
+        $this->actingAs($this->teacher)->putJson(route('records.document.update', $this->record), [
+            'settings' => $settings,
+            'content' => ['record_subject' => $this->record->subject, 'record_result' => $text],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $layout = RecordDocumentLayout::query()->findOrFail($this->record->id);
+        foreach ($settings as $key => $value) {
+            $this->assertSame($value, $layout->settings[$key]);
+        }
+        $this->assertSame($text, $this->record->fresh()->result);
+        $snapshot = app(LegacyPrintService::class)->savedSnapshot($this->record, $this->teacher);
+        $this->assertSame($text, $snapshot['content']['record_result']);
+        $this->assertSame($text, $snapshot['record']['result']);
+        foreach ($settings as $key => $value) {
+            $this->assertSame($value, $snapshot['settings'][$key]);
+        }
+    }
+
+    public function test_document_defaults_preserve_legacy_and_explicit_signature_spacing(): void
+    {
+        Setting::query()->create(['setting_key' => 'sig1_mt', 'setting_value' => '48']);
+        Setting::query()->create(['setting_key' => 'sig2_mt', 'setting_value' => '40']);
+        $options = app(RecordDocumentOptions::class);
+
+        $defaults = $options->settings();
+        $this->assertSame('48', $defaults['sig1_mt']);
+        $this->assertSame('40', $defaults['sig2_mt']);
+        $this->assertSame('16', $defaults['sig3_mt']);
+        $explicit = $options->settings(['sig1_mt' => '0', 'sig2_mt' => '9', 'record_text_indent_px' => '0']);
+        $this->assertSame('0', $explicit['sig1_mt']);
+        $this->assertSame('9', $explicit['sig2_mt']);
+        $this->assertSame('0', $explicit['record_text_indent_px']);
+    }
+
+    public function test_document_rejects_unsupported_spacing_and_text_alignment(): void
+    {
+        $this->actingAs($this->teacher);
+        foreach ([
+            'sig1_mt' => '-1', 'sig2_mt' => '241', 'sig3_mt' => '1.5',
+            'sig2_block_offset_y' => '-121', 'sig3_block_offset_y' => '241',
+            'record_paragraph_spacing_px' => '81', 'record_text_indent_px' => '161',
+            'record_text_align' => 'unsafe',
+        ] as $key => $value) {
+            $this->putJson(route('records.document.update', $this->record), [
+                'settings' => [$key => $value],
+                'content' => ['record_subject' => $this->record->subject],
+            ])->assertUnprocessable()->assertJsonValidationErrors($key);
+        }
+        $this->assertDatabaseMissing('record_document_layouts', ['record_id' => $this->record->id]);
+        $this->assertSame('ผลเดิม', $this->record->fresh()->result);
+    }
+
     public function test_saved_print_uses_the_frozen_reviewed_snapshot_and_geometry(): void
     {
         RecordImage::query()->create(['record_id' => $this->record->id, 'file_path' => 'storage/records/reviewed.jpg']);
@@ -227,6 +289,7 @@ class RecordDocumentTest extends TestCase
 
     public function test_preview_uses_actual_record_and_unsaved_document_values(): void
     {
+        $text = "\n  ข้อความจาก Preview\n\n\n";
         $snapshot = ['schema_version' => 1, 'record' => ['id' => $this->record->id], 'images' => [], 'attendance' => [], 'settings' => [], 'content' => []];
         $print = $this->mock(LegacyPrintService::class);
         $print->shouldReceive('snapshotForRecord')
@@ -234,7 +297,7 @@ class RecordDocumentTest extends TestCase
             ->withArgs(fn ($record, $settings, $content, $user) => $record->is($this->record)
                 && $user->is($this->teacher)
                 && $settings['paper_orientation'] === 'portrait'
-                && $content['record_result'] === 'ข้อความจาก Preview')
+                && $content['record_result'] === $text)
             ->andReturn($snapshot);
         $print->shouldReceive('snapshotHtml')
             ->once()
@@ -243,7 +306,7 @@ class RecordDocumentTest extends TestCase
 
         $this->actingAs($this->teacher)->postJson(route('records.document.preview', $this->record), [
             'settings' => ['paper_orientation' => 'portrait'],
-            'content' => ['record_result' => 'ข้อความจาก Preview'],
+            'content' => ['record_result' => $text],
         ])->assertOk()->assertHeader('content-type', 'text/html; charset=UTF-8')->assertSee('preview');
     }
 

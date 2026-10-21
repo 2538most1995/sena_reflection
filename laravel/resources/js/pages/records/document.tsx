@@ -67,6 +67,10 @@ const documentContentKeys = new Set([
 
 const localPreviewKey = /^(sig[123]_offset(_y)?|image_[1-4]_(x_px|y_px|width_px|height_px|object_fit|rotation_deg|lock_aspect|crop_x|crop_y))$/
 
+function previewKey(document: DocumentState) {
+  return JSON.stringify({ settings: Object.fromEntries(Object.entries(document.settings).filter(([key]) => !localPreviewKey.test(key))), content: document.content })
+}
+
 const marginPresets = [
   { label: 'มาตรฐาน', top: '57', right: '76', bottom: '38', left: '94' },
   { label: 'แคบ', top: '32', right: '38', bottom: '32', left: '38' },
@@ -103,16 +107,15 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   const [historyIndex, setHistoryIndex] = useState(0)
   const [pageGeometry, setPageGeometry] = useState<PageGeometry>(() => ({ pageWidth: settings.paper_orientation === 'landscape' ? 1123 : 794, documentHeight: 1220, pageCount: 1 }))
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const locallyRenderedKeyRef = useRef<string | null>(null)
+  const renderedDocumentRef = useRef<string | null>(null)
   const historyRef = useRef<DocumentState[]>([{ settings, content }])
   const historyIndexRef = useRef(0)
   const latestDocumentRef = useRef<DocumentState>({ settings, content })
   const position = layoutTargets[target]
   const imageCount = record.images?.length || 0
   const attendanceCount = record.attendance?.filter((student) => student.present).length || 0
-  const remotePreviewKey = useMemo(() => JSON.stringify({
-    settings: Object.fromEntries(Object.entries(form.data.settings).filter(([key]) => !localPreviewKey.test(key))),
-    content: form.data.content,
-  }), [form.data.content, form.data.settings])
+  const remotePreviewKey = useMemo(() => previewKey({ settings: form.data.settings, content: form.data.content }), [form.data.content, form.data.settings])
 
   const postLocalPatch = (changes: Record<string, string>) => iframeRef.current?.contentWindow?.postMessage({ source: 'sena-pdf-layout-patch', changes }, '*')
   const commitDocument = (next: DocumentState, localChanges: Record<string, string> = {}, resolution?: 'document' | 'record') => {
@@ -201,23 +204,26 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   }
 
   useEffect(() => {
+    if (locallyRenderedKeyRef.current === remotePreviewKey) { setPreviewing(false); return }
     const controller = new AbortController()
     const timer = window.setTimeout(async () => {
       setPreviewing(true)
       setPreviewError(null)
       try {
         const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || ''
+        const requestedDocument = latestDocumentRef.current
         const response = await fetch(`${documentBase}/preview`, {
           method: 'POST',
           signal: controller.signal,
           headers: { 'Content-Type': 'application/json', Accept: 'text/html, application/json', 'X-CSRF-TOKEN': token },
-          body: JSON.stringify({ ...form.data, ...latestDocumentRef.current, ...(draftContext ? { lock_version: draftContext.lockVersion } : {}) }),
+          body: JSON.stringify({ ...form.data, ...requestedDocument, ...(draftContext ? { lock_version: draftContext.lockVersion } : {}) }),
         })
         if (!response.ok) {
           const payload = await response.json().catch(() => null)
           throw new Error(payload?.message || 'สร้างตัวอย่างเอกสารไม่สำเร็จ')
         }
-        setPreview(await response.text())
+        const html = await response.text()
+        if (!controller.signal.aborted) { renderedDocumentRef.current = previewKey(requestedDocument); setPreview(html) }
       } catch (error) {
         if (!controller.signal.aborted) setPreviewError(error instanceof Error ? error.message : 'สร้างตัวอย่างเอกสารไม่สำเร็จ')
       } finally {
@@ -232,7 +238,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
       if (event.source !== iframeRef.current?.contentWindow) return
       if (event.data?.source === 'sena-pdf-geometry') {
         const geometry = event.data as Partial<PageGeometry> & { safeWarnings?: unknown }
-        if (Number.isFinite(geometry.pageWidth) && Number.isFinite(geometry.documentHeight) && Number.isFinite(geometry.pageCount)) {
+        if (Number.isFinite(geometry.pageWidth) && Number.isFinite(geometry.documentHeight) && Number.isFinite(geometry.pageCount) && Number(geometry.pageWidth) > 0 && Number(geometry.documentHeight) > 0 && Number(geometry.pageCount) > 0) {
           setPageGeometry({ pageWidth: Number(geometry.pageWidth), documentHeight: Number(geometry.documentHeight), pageCount: Number(geometry.pageCount) })
         }
         setSafeWarnings(Array.isArray(geometry.safeWarnings) ? geometry.safeWarnings.filter((warning): warning is string => typeof warning === 'string') : [])
@@ -252,10 +258,17 @@ export default function RecordDocument({ record, settings, content, canonicalCon
       const contentChanges = Object.fromEntries(Object.entries(textChanges).filter(([key]) => documentContentKeys.has(key)))
       const textSettingChanges = Object.fromEntries(Object.entries(textChanges).filter(([key]) => key in current.settings))
       if (Object.keys(settingChanges).length || Object.keys(textSettingChanges).length || Object.keys(contentChanges).length) {
-        commitDocument({
+        const next = {
           settings: { ...current.settings, ...settingChanges, ...textSettingChanges },
           content: { ...current.content, ...contentChanges },
-        })
+        }
+        // The iframe already displays these edits. Replacing srcDoc would reset
+        // the caret, native undo history, selection and an in-progress IME input.
+        if (renderedDocumentRef.current === previewKey(current)) {
+          locallyRenderedKeyRef.current = previewKey(next)
+          renderedDocumentRef.current = previewKey(next)
+        }
+        commitDocument(next, {}, Object.keys(contentChanges).length ? 'document' : undefined)
       }
     }
     window.addEventListener('message', receiveLayoutChange)
@@ -338,7 +351,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     }
     const popup = thenPrint && !draftContext ? window.open('', '_blank') : null
     if (popup) popup.document.write('<p style="font-family:sans-serif;padding:24px">กำลังสร้าง PDF...</p>')
-    form.transform((data) => ({ ...data, ...(draftContext ? { lock_version: draftContext.lockVersion } : {}) }))
+    form.transform((data) => ({ ...data, ...latestDocumentRef.current, ...(draftContext ? { lock_version: draftContext.lockVersion } : {}) }))
     form.put(appUrl(documentBase), {
       preserveScroll: true,
       onSuccess: () => {
@@ -408,7 +421,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
                 <FormField label="ชื่อกลุ่มเรียน"><Input value={form.data.content.record_class_name || ''} onChange={(event) => setContent('record_class_name', event.target.value)} /></FormField>
               </ToolSection>
               <ToolSection title="ข้อความในบันทึก">
-                <p className="text-xs leading-5 text-muted-foreground">แก้ในช่องด้านล่าง หรือดับเบิลคลิกข้อความบนกระดาษ Preview</p>
+                <p className="text-xs leading-5 text-muted-foreground">แก้ในช่องด้านล่าง หรือคลิกข้อความบนกระดาษ Preview</p>
                 <FormField label="ผลการจัดการเรียนรู้"><Textarea rows={5} value={form.data.content.record_result || ''} onChange={(event) => setContent('record_result', event.target.value)} /></FormField>
                 <FormField label="ปัญหาและอุปสรรค"><Textarea rows={4} value={form.data.content.record_problem || ''} onChange={(event) => setContent('record_problem', event.target.value)} /></FormField>
                 <FormField label="ข้อเสนอแนะ"><Textarea rows={4} value={form.data.content.record_suggestion || ''} onChange={(event) => setContent('record_suggestion', event.target.value)} /></FormField>
@@ -430,6 +443,8 @@ export default function RecordDocument({ record, settings, content, canonicalCon
                   <Button type="button" size="sm" variant={form.data.settings.pdf_font_size_pt === '14' && form.data.settings.pdf_line_spacing === '24' ? 'secondary' : 'outline'} onClick={() => applyTextDensityPreset('14', '24')}>กะทัดรัด (14 pt)</Button>
                 </div>
                 <div className="grid grid-cols-2 gap-3"><FormField label="ขนาดตัวอักษร"><Input type="number" min={10} max={20} value={form.data.settings.pdf_font_size_pt} onChange={(event) => setSetting('pdf_font_size_pt', event.target.value)} /></FormField><FormField label="ระยะบรรทัด"><Input type="number" min={20} max={40} value={form.data.settings.pdf_line_spacing} onChange={(event) => setSetting('pdf_line_spacing', event.target.value)} /></FormField></div>
+                <div className="grid grid-cols-2 gap-3"><FormField label="ระยะหลังย่อหน้า (px)"><Input type="number" min={0} max={80} value={form.data.settings.record_paragraph_spacing_px} onChange={(event) => setSetting('record_paragraph_spacing_px', event.target.value)} /></FormField><FormField label="ย่อบรรทัดแรก (px)"><Input type="number" min={0} max={160} value={form.data.settings.record_text_indent_px} onChange={(event) => setSetting('record_text_indent_px', event.target.value)} /></FormField></div>
+                <FormField label="จัดแนวข้อความ"><NativeSelect value={form.data.settings.record_text_align} onChange={(event) => setSetting('record_text_align', event.target.value)}><option value="left">ชิดซ้าย</option><option value="justify">กระจายเต็มบรรทัด</option><option value="center">กึ่งกลาง</option><option value="right">ชิดขวา</option></NativeSelect></FormField>
                 <p className="text-xs text-muted-foreground">หากเนื้อหาบันทึกยาวจนลายเซ็นตกไปหน้า 2 ให้เลือก &ldquo;กะทัดรัด&rdquo; เพื่อให้ข้อความกระชับและจบในหน้าแรก</p>
               </ToolSection>
               <ToolSection title="หน้าที่ต้องการพิมพ์">
@@ -448,16 +463,11 @@ export default function RecordDocument({ record, settings, content, canonicalCon
               </ToolSection>
               <ToolSection title={`ตำแหน่ง ${position.label}`}>
                 <p className="text-xs leading-5 text-muted-foreground">ลากกรอบบน Preview หรือใช้ลูกศรเพื่อขยับอย่างละเอียด ตำแหน่งรูปวัดจากขอบซ้ายและขอบบนของพื้นที่รูป</p>
-                {position.kind === 'signature' && Number(form.data.settings[position.y] || 0) < -25 && (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-2.5 text-xs leading-relaxed text-destructive">
-                    ⚠️ <b>ระวัง:</b> ลายเซ็นถูกเลื่อนขึ้นมามาก ({form.data.settings[position.y]}px) อาจซ้อนทับกับเนื้อหาด้านบน หากต้องการให้เอกสารจบในหน้าเดียว แนะนำให้กดปุ่ม <b>&ldquo;คืนตำแหน่ง&rdquo;</b> แล้วปรับลดขนาดตัวอักษรหรือระยะบรรทัดในแท็บ <b>&ldquo;กระดาษ&rdquo;</b> แทน
-                  </div>
-                )}
-                {position.kind === 'signature' && (
-                  <div className="rounded-lg bg-muted/60 p-2.5 text-xs leading-relaxed text-muted-foreground">
-                    💡 <b>คำแนะนำ:</b> หากเนื้อหาบันทึกยาวจนลายเซ็นตกไปหน้า 2 แนะนำให้ไปที่แท็บ <b>&ldquo;กระดาษ&rdquo;</b> แล้วเลือก <b>&ldquo;กะทัดรัด&rdquo;</b> (14 pt) จะช่วยให้เนื้อหาทั้งหมดพอดีในหน้าแรกอย่างเป็นระเบียบ โดยไม่ต้องเลื่อนลายเซ็นขึ้นมาทับเนื้อหา และสามารถกดปุ่ม <b>&ldquo;คืนตำแหน่ง&rdquo;</b> เพื่อรีเซ็ตตำแหน่งลายเซ็นได้
-                  </div>
-                )}
+                {position.kind === 'signature' && <div className="grid gap-3">
+                  <FormField label="ระยะก่อนลายเซ็น (px)"><Input type="number" min={0} max={240} value={form.data.settings[`${target}_mt`]} onChange={(event) => setSetting(`${target}_mt`, event.target.value)} /></FormField>
+                  {target !== 'sig1' && <FormField label="ระยะก่อนส่วนความคิดเห็น (px)"><Input type="number" min={-120} max={240} value={form.data.settings[`${target}_block_offset_y`]} onChange={(event) => setSetting(`${target}_block_offset_y`, event.target.value)} /></FormField>}
+                  <p className="text-xs leading-5 text-muted-foreground">ปรับระยะก่อนลายเซ็นเพื่อลดช่องว่าง ส่วนถัดไปจะเลื่อนตาม ใช้จุดจับ “ย้ายลายเซ็น” เมื่อต้องการลาก และคลิกชื่อหรือตำแหน่งเพื่อพิมพ์แก้ไข</p>
+                </div>}
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2"><span /><Button type="button" variant="outline" size="icon" onClick={() => nudge(position.y, -step)} aria-label="เลื่อนขึ้น"><ArrowUp size={18} /></Button><span /><Button type="button" variant="outline" size="icon" onClick={() => nudge(position.x, -step)} aria-label="เลื่อนซ้าย"><ArrowLeft size={18} /></Button><Button type="button" variant="ghost" size="sm" onClick={resetTarget}>คืนตำแหน่ง</Button><Button type="button" variant="outline" size="icon" onClick={() => nudge(position.x, step)} aria-label="เลื่อนขวา"><ArrowRight size={18} /></Button><span /><Button type="button" variant="outline" size="icon" onClick={() => nudge(position.y, step)} aria-label="เลื่อนลง"><ArrowDown size={18} /></Button><span /></div>
                 <div className="grid grid-cols-2 gap-3"><FormField label="จากซ้าย"><Input type="number" min={position.kind === 'image' ? 0 : -400} max={position.kind === 'image' ? 1200 : 400} value={form.data.settings[position.x]} onChange={(event) => setSetting(position.x, event.target.value)} /></FormField><FormField label="จากบน"><Input type="number" min={position.kind === 'image' ? 0 : -400} max={position.kind === 'image' ? 1100 : 400} value={form.data.settings[position.y]} onChange={(event) => setSetting(position.y, event.target.value)} /></FormField></div>
                 <FormField label="ระยะขยับต่อครั้ง"><NativeSelect value={step} onChange={(event) => setStep(Number(event.target.value))}><option value={1}>1 พิกเซล</option><option value={5}>5 พิกเซล</option><option value={10}>10 พิกเซล</option></NativeSelect></FormField>
@@ -466,10 +476,10 @@ export default function RecordDocument({ record, settings, content, canonicalCon
                   <div className="grid grid-cols-3 gap-2" aria-label="ขนาดรูปสำเร็จรูป">{imagePresets.map((preset) => <Button key={preset.label} type="button" size="sm" variant="outline" onClick={() => applyImagePreset(preset.width, preset.height)}>{preset.label}</Button>)}</div>
                   <div className="grid grid-cols-2 gap-3"><FormField label="ความกว้าง"><Input type="number" min={60} max={1000} value={form.data.settings[position.width]} onChange={(event) => resizeImage('width', event.target.value)} /></FormField><FormField label="ความสูง"><Input type="number" min={60} max={950} value={form.data.settings[position.height]} onChange={(event) => resizeImage('height', event.target.value)} /></FormField></div>
                   <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2.5">
-                    <span><b className="block text-sm">ล็อกสัดส่วน</b><small className="block text-muted-foreground">เปิดเมื่อต้องการย่อขยายโดยไม่ให้รูปยืด</small></span>
-                    <Switch checked={form.data.settings[position.lock] === '1'} onCheckedChange={(checked) => setSetting(position.lock, checked ? '1' : '0')} aria-label="ล็อกสัดส่วนรูป" />
+                    <span><b className="block text-sm">ล็อกสัดส่วน</b><small className="block text-muted-foreground">ปิดเพื่อยืดหรือบีบความกว้างและความสูงแยกกัน</small></span>
+                    <Switch checked={form.data.settings[position.lock] === '1'} onCheckedChange={(checked) => { const changes = { [position.lock]: checked ? '1' : '0', [position.fit]: checked ? 'contain' : 'fill' }; commitDocument({ settings: { ...form.data.settings, ...changes }, content: form.data.content }, changes) }} aria-label="ล็อกสัดส่วนรูป" />
                   </label>
-                  <FormField label="การวางรูปในกรอบ"><NativeSelect value={form.data.settings[position.fit]} onChange={(event) => setSetting(position.fit, event.target.value)}><option value="fill">ยืดเต็มกรอบ</option><option value="cover">ครอบเต็มกรอบ</option><option value="contain">แสดงครบทั้งรูป</option></NativeSelect></FormField>
+                  <FormField label="การวางรูปในกรอบ"><NativeSelect value={form.data.settings[position.fit]} onChange={(event) => setSetting(position.fit, event.target.value)}><option value="fill">ยืด / บีบภาพตามกรอบ</option><option value="cover">ครอบเต็มกรอบ</option><option value="contain">แสดงครบทั้งรูป</option></NativeSelect></FormField>
                   {form.data.settings[position.fit] === 'cover' && <div className="grid gap-3 rounded-lg border p-3"><p className="text-xs text-muted-foreground">เลื่อนจุดโฟกัสเพื่อเลือกส่วนภาพที่ต้องการเก็บไว้ในกรอบ</p>{(['x', 'y'] as const).map((axis) => {
                     const key = `image_${target.replace('image', '')}_crop_${axis}`
                     return <FormField key={axis} label={axis === 'x' ? 'ครอบภาพ ซ้าย - ขวา' : 'ครอบภาพ บน - ล่าง'}><input aria-label={axis === 'x' ? 'จุดโฟกัสภาพแนวนอน' : 'จุดโฟกัสภาพแนวตั้ง'} type="range" min="0" max="100" value={form.data.settings[key] || '50'} onChange={(event) => setSetting(key, event.target.value)} className="w-full accent-primary" /></FormField>
@@ -487,7 +497,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
 
           <section className="min-w-0 overflow-hidden rounded-xl border bg-card">
             <header className="flex flex-col gap-3 border-b p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div><h2 className="flex items-center gap-2 text-sm font-semibold"><NotePencil size={18} className="text-primary" />{previewMode === 'editor' ? 'ตัวจัดเอกสารแบบโต้ตอบ' : 'PDF จริงก่อนดาวน์โหลด'}</h2><p className="mt-1 text-xs text-muted-foreground">{previewMode === 'editor' ? 'ลากรูป ปรับขนาด 8 ทิศ และดับเบิลคลิกข้อความได้โดยไม่โหลด Preview ใหม่' : `เรนเดอร์ด้วยระบบเดียวกับไฟล์ดาวน์โหลดจริง · ${pageGeometry.pageCount} หน้า`}</p></div>
+              <div><h2 className="flex items-center gap-2 text-sm font-semibold"><NotePencil size={18} className="text-primary" />{previewMode === 'editor' ? 'ตัวจัดเอกสารแบบโต้ตอบ' : 'PDF จริงก่อนดาวน์โหลด'}</h2><p className="mt-1 text-xs text-muted-foreground">{previewMode === 'editor' ? 'คลิกข้อความเพื่อพิมพ์ · Enter เพิ่มบรรทัด · Tab ย่อหน้า · ลากรูปหรือจุดจับเพื่อปรับขนาด' : `เรนเดอร์ด้วยระบบเดียวกับไฟล์ดาวน์โหลดจริง · ${pageGeometry.pageCount} หน้า`}</p></div>
               <div className="flex flex-wrap items-center gap-1">
                 <div className="flex rounded-lg bg-muted p-1"><Button type="button" variant={previewMode === 'editor' ? 'secondary' : 'ghost'} size="sm" onClick={() => setPreviewMode('editor')}><NotePencil size={16} />จัดวาง</Button><Button type="button" variant={previewMode === 'pdf' ? 'secondary' : 'ghost'} size="sm" disabled={actualPdfLoading} onClick={loadActualPdf}><FilePdf size={16} />{actualPdfLoading ? 'กำลังสร้าง' : 'ดู PDF จริง'}</Button></div>
                 {previewMode === 'editor' && <><Button type="button" variant="ghost" size="icon" onClick={() => setZoom(Math.max(0.4, zoom - 0.08))} aria-label="ซูมออก"><Minus size={17} /></Button><button type="button" className="focus-ring min-w-14 rounded-md px-2 py-1 text-xs font-semibold" onClick={() => setZoom(0.72)}>{Math.round(zoom * 100)}%</button><Button type="button" variant="ghost" size="icon" onClick={() => setZoom(Math.min(1.15, zoom + 0.08))} aria-label="ซูมเข้า"><Plus size={17} /></Button></>}
@@ -497,7 +507,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
             {previewMode === 'pdf' && actualPdfStale && actualPdfUrl && <div className="m-4 flex items-center justify-between gap-3 rounded-xl border border-amber-300/70 bg-amber-50 p-3 text-sm text-amber-950"><span>มีการแก้ไขหลังสร้าง PDF ตัวอย่างล่าสุด</span><Button type="button" size="sm" variant="outline" disabled={actualPdfLoading} onClick={loadActualPdf}>สร้างใหม่</Button></div>}
             <div className="relative h-[calc(100dvh-202px)] min-h-[680px] overflow-auto bg-muted/55 p-4">
               {previewMode === 'editor' && previewing && <div className="sticky left-4 right-4 top-0 z-10 h-1.5 overflow-hidden rounded-full bg-muted"><span className="block h-full w-1/2 animate-pulse rounded-full bg-primary" /></div>}
-              {previewMode === 'editor' && preview && <div className="mx-auto" style={{ width: `${pageGeometry.pageWidth * zoom}px`, height: `${pageGeometry.documentHeight * zoom}px` }}><iframe ref={iframeRef} title="ตัวจัดเอกสารก่อนพิมพ์" srcDoc={preview} sandbox="allow-scripts" onLoad={() => postLocalPatch(Object.fromEntries(Object.entries(latestDocumentRef.current.settings).filter(([key]) => localPreviewKey.test(key))))} className="origin-top-left border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" style={{ width: `${pageGeometry.pageWidth + 4}px`, height: `${pageGeometry.documentHeight}px`, transform: `scale(${zoom})` }} /></div>}
+              {preview && <div hidden={previewMode !== 'editor'} className="mx-auto" style={{ width: `${pageGeometry.pageWidth * zoom}px`, height: `${pageGeometry.documentHeight * zoom}px` }}><iframe ref={iframeRef} title="ตัวจัดเอกสารก่อนพิมพ์" srcDoc={preview} sandbox="allow-scripts" onLoad={() => postLocalPatch(Object.fromEntries(Object.entries(latestDocumentRef.current.settings).filter(([key]) => localPreviewKey.test(key))))} className="origin-top-left border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" style={{ width: `${pageGeometry.pageWidth + 4}px`, height: `${pageGeometry.documentHeight}px`, transform: `scale(${zoom})` }} /></div>}
               {previewMode === 'pdf' && actualPdfUrl && <iframe title="PDF จริงก่อนดาวน์โหลด" src={appUrl(actualPdfUrl)} className="h-full min-h-[650px] w-full rounded-lg border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" />}
               {previewMode === 'pdf' && !actualPdfUrl && <div className="grid min-h-[620px] place-items-center text-center"><div><FilePdf size={44} className="mx-auto text-muted-foreground" /><p className="mt-3 text-sm font-semibold">ยังไม่ได้สร้าง PDF ตัวอย่าง</p><Button type="button" className="mt-3" disabled={actualPdfLoading} onClick={loadActualPdf}>สร้าง PDF จากข้อมูลปัจจุบัน</Button></div></div>}
             </div>
