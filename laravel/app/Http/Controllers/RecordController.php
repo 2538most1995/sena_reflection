@@ -79,14 +79,24 @@ class RecordController extends Controller
     public function image(Request $request, TeachingRecord $record, RecordImage $image): BinaryFileResponse
     {
         $this->authorizeScope($request, $record);
-        abort_unless($image->record_id === $record->id, 404);
+        abort_unless((string) $image->record_id === (string) $record->getKey(), 404);
 
-        if (str_starts_with($image->file_path, 'storage/')) {
-            $path = Storage::disk('public')->path(substr($image->file_path, 8));
+        // Older records retain a site URL or mount prefix before uploads/.
+        // Resolve that local upload exactly as the legacy print renderer does.
+        $storedPath = preg_replace('/[?#].*$/', '', trim((string) $image->file_path)) ?? '';
+        $storedPath = str_replace('\\', '/', rawurldecode($storedPath));
+        if (preg_match('~(?:^|/)uploads/(.+)$~', $storedPath, $matches)) {
+            $storedPath = 'uploads/'.$matches[1];
+        }
+        $relativePath = ltrim($storedPath, '/');
+        abort_if($relativePath === '' || str_contains($relativePath, "\0") || in_array('..', explode('/', $relativePath), true), 404);
+
+        if (str_starts_with($relativePath, 'storage/')) {
+            $path = Storage::disk('public')->path(substr($relativePath, 8));
         } else {
-            $path = dirname(base_path()).'/'.ltrim($image->file_path, '/');
+            $path = dirname(base_path()).'/'.$relativePath;
             if (! is_file($path)) {
-                $path = public_path(ltrim($image->file_path, '/'));
+                $path = public_path($relativePath);
             }
         }
         $realPath = realpath($path);

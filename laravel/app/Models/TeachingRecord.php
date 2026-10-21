@@ -41,7 +41,7 @@ class TeachingRecord extends Model
 
     public function images(): HasMany
     {
-        return $this->hasMany(RecordImage::class, 'record_id');
+        return $this->hasMany(RecordImage::class, 'record_id')->orderBy('id');
     }
 
     public function attendance(): HasMany

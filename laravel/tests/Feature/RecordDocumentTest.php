@@ -352,6 +352,104 @@ class RecordDocumentTest extends TestCase
         $this->assertSame('17', $projected['image_2_crop_x']);
     }
 
+    public function test_four_image_moves_survive_stale_client_map_preview_save_reopen_and_pdf(): void
+    {
+        $images = collect(range(1, 4))->map(fn (int $index): RecordImage => RecordImage::query()->create([
+            'record_id' => $this->record->id, 'file_path' => "uploads/round-trip-{$index}.jpg",
+        ]));
+        $imageIds = $images->pluck('id')->map(fn ($id): string => (string) $id)->all();
+        $settings = app(RecordDocumentOptions::class)->settings([], $imageIds);
+        $staleMap = $settings['image_layout_by_id'];
+        $this->actingAs($this->teacher);
+        $print = $this->partialMock(LegacyPrintService::class);
+        $capturedPreview = [];
+        $capturedPdf = [];
+        $print->shouldReceive('snapshotHtml')->twice()->andReturnUsing(function (array $snapshot) use (&$capturedPreview): string {
+            $capturedPreview[] = $snapshot;
+
+            return '<!doctype html><html><body>four image preview</body></html>';
+        });
+        $print->shouldReceive('snapshotPdf')->once()->andReturnUsing(function (array $snapshot) use (&$capturedPdf): string {
+            $capturedPdf = $snapshot;
+
+            return '%PDF-1.7 four-image-layout';
+        });
+
+        foreach ([0, 1] as $round) {
+            foreach (range(1, 4) as $slot) {
+                $settings["image_{$slot}_x_px"] = (string) (12 + (($slot - 1) % 2) * 310 + $round * 7);
+                $settings["image_{$slot}_y_px"] = (string) (20 + intdiv($slot - 1, 2) * 290 + $round * 11);
+                $settings["image_{$slot}_width_px"] = (string) (250 - $slot * 10);
+                $settings["image_{$slot}_height_px"] = (string) (180 + $slot * 5);
+                $settings["image_{$slot}_object_fit"] = $slot % 2 ? 'fill' : 'cover';
+                $settings["image_{$slot}_lock_aspect"] = '0';
+            }
+            // The browser edits slots locally while this serialized map still
+            // contains the previous render. Submitted slots must win on writes.
+            $settings['image_layout_by_id'] = $staleMap;
+            $payload = ['settings' => $settings, 'content' => [
+                'record_subject' => $this->record->subject, 'record_result' => "ข้อความแก้ไขรอบ {$round}",
+            ]];
+            $this->postJson(route('records.document.preview', $this->record), $payload)->assertOk();
+            $this->putJson(route('records.document.update', $this->record), $payload)
+                ->assertRedirect()->assertSessionHasNoErrors();
+            $stored = RecordDocumentLayout::query()->findOrFail($this->record->id)->settings;
+            $snapshot = app(LegacyPrintService::class)->savedSnapshot($this->record, $this->teacher);
+            $this->assertSame($stored['image_layout_by_id'], $snapshot['settings']['image_layout_by_id']);
+            $map = json_decode($stored['image_layout_by_id'], true, flags: JSON_THROW_ON_ERROR);
+            foreach ($imageIds as $index => $imageId) {
+                $slot = $index + 1;
+                foreach (['x_px', 'y_px', 'width_px', 'height_px', 'object_fit', 'lock_aspect'] as $part) {
+                    $key = "image_{$slot}_{$part}";
+                    $this->assertSame($settings[$key], $map[$imageId][$part]);
+                    $this->assertSame($settings[$key], $stored[$key]);
+                    $this->assertSame($settings[$key], $capturedPreview[$round]['settings'][$key]);
+                    $this->assertSame($settings[$key], $snapshot['settings'][$key]);
+                }
+            }
+            $this->get(route('records.document.edit', $this->record))->assertOk()
+                ->assertInertia(fn (Assert $page) => $page
+                    ->where('settings.image_layout_by_id', $stored['image_layout_by_id'])
+                    ->where('settings.image_1_x_px', $settings['image_1_x_px'])
+                    ->where('settings.image_4_y_px', $settings['image_4_y_px']));
+            if ($round === 1) {
+                $this->postJson(route('records.document.pdf-preview', $this->record), $payload)->assertOk();
+                $this->assertSame($stored['image_layout_by_id'], $capturedPdf['settings']['image_layout_by_id']);
+                $this->assertSame($snapshot['content'], $capturedPdf['content']);
+            }
+            $staleMap = $stored['image_layout_by_id'];
+        }
+    }
+
+    public function test_replacing_an_image_preserves_survivor_geometry_and_uses_the_vacated_position(): void
+    {
+        $images = collect(range(1, 4))->map(fn (int $index): RecordImage => RecordImage::query()->create([
+            'record_id' => $this->record->id, 'file_path' => "uploads/replacement-{$index}.jpg",
+        ]));
+        $imageIds = $images->pluck('id')->map(fn ($id): string => (string) $id)->all();
+        $initial = app(RecordDocumentOptions::class)->settings([], $imageIds);
+        RecordDocumentLayout::query()->create([
+            'record_id' => $this->record->id, 'settings' => $initial, 'content' => [], 'updated_by' => $this->teacher->id,
+        ]);
+        $images->first()->delete();
+        $replacement = RecordImage::query()->create(['record_id' => $this->record->id, 'file_path' => 'uploads/replacement-new.jpg']);
+
+        $snapshot = app(LegacyPrintService::class)->savedSnapshot($this->record, $this->teacher);
+        $ids = array_column($snapshot['images'], 'id');
+        $this->assertSame([$images[1]->id, $images[2]->id, $images[3]->id, $replacement->id], $ids);
+        $map = json_decode($snapshot['settings']['image_layout_by_id'], true, flags: JSON_THROW_ON_ERROR);
+        $initialMap = json_decode($initial['image_layout_by_id'], true, flags: JSON_THROW_ON_ERROR);
+        foreach ($images->slice(1) as $survivor) {
+            $this->assertSame($initialMap[(string) $survivor->id], $map[(string) $survivor->id]);
+        }
+        $this->assertSame('0', $map[(string) $replacement->id]['x_px']);
+        $this->assertSame('8', $map[(string) $replacement->id]['y_px']);
+        $positions = array_map(fn (array $layout): string => $layout['x_px'].':'.$layout['y_px'], $map);
+        $this->assertCount(4, array_unique($positions));
+        $this->actingAs($this->teacher)->get(route('records.document.edit', $this->record))->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('settings.image_4_x_px', '0')->where('settings.image_4_y_px', '8'));
+    }
+
     public function test_old_document_override_requires_an_explicit_resolution(): void
     {
         RecordDocumentLayout::create([

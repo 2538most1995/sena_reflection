@@ -231,11 +231,16 @@ class RecordDocumentOptions
         $decoded = json_decode($settings['image_layout_by_id'] ?? '{}', true);
         $storedLayouts = is_array($decoded) ? $decoded : [];
         $stableLayouts = [];
+        $reservedLayouts = array_filter(array_intersect_key($storedLayouts, array_fill_keys($imageIds, true)), 'is_array');
         $parts = ['width_px', 'height_px', 'x_px', 'y_px', 'object_fit', 'rotation_deg', 'lock_aspect', 'crop_x', 'crop_y'];
 
         foreach (array_values(array_slice($imageIds, 0, 4)) as $index => $imageId) {
             $slot = $index + 1;
             $stored = is_array($storedLayouts[$imageId] ?? null) ? $storedLayouts[$imageId] : [];
+            if ($stored === [] && $storedLayouts !== []) {
+                $stored = $this->newImageLayout($settings, $reservedLayouts);
+                $reservedLayouts[$imageId] = $stored;
+            }
             $layout = [];
             foreach ($parts as $part) {
                 $positionalKey = "image_{$slot}_{$part}";
@@ -248,6 +253,54 @@ class RecordDocumentOptions
         $settings['image_layout_by_id'] = json_encode($stableLayouts, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
         return $settings;
+    }
+
+    /**
+     * A newly attached image must not inherit the former occupant's slot. Keep
+     * existing images fixed and start the new image in the first vacant area.
+     *
+     * @param  array<string, string>  $settings
+     * @param  array<string, array<string, string>>  $reserved
+     * @return array<string, string>
+     */
+    private function newImageLayout(array $settings, array $reserved): array
+    {
+        $layout = [];
+        foreach (['width_px', 'height_px', 'x_px', 'y_px', 'object_fit', 'rotation_deg', 'lock_aspect', 'crop_x', 'crop_y'] as $part) {
+            $layout[$part] = self::DEFAULTS["image_1_{$part}"];
+        }
+        $landscape = $settings['paper_orientation'] === 'landscape';
+        $canvasWidth = max(120, ($landscape ? 1123 : 794) - (int) $settings['pdf_margin_left_px'] - (int) $settings['pdf_margin_right_px']);
+        $canvasHeight = max(160, ($landscape ? 794 : 1123) - (int) $settings['pdf_margin_top_px'] - (int) $settings['pdf_margin_bottom_px'] - 54);
+        $width = min((int) $layout['width_px'], $canvasWidth);
+        $height = min((int) $layout['height_px'], $canvasHeight);
+        $layout['width_px'] = (string) $width;
+        $layout['height_px'] = (string) $height;
+        $xs = [0];
+        $ys = [8];
+        foreach ($reserved as $existing) {
+            $xs[] = (int) ($existing['x_px'] ?? 0) + (int) ($existing['width_px'] ?? 300) + 16;
+            $ys[] = (int) ($existing['y_px'] ?? 8) + (int) ($existing['height_px'] ?? 225) + 16;
+        }
+        sort($xs);
+        sort($ys);
+        foreach (array_unique($ys) as $y) {
+            foreach (array_unique($xs) as $x) {
+                if ($x + $width > $canvasWidth || $y + $height > $canvasHeight) {
+                    continue;
+                }
+                $overlaps = collect($reserved)->contains(fn (array $existing): bool => $x < (int) ($existing['x_px'] ?? 0) + (int) ($existing['width_px'] ?? 300)
+                    && $x + $width > (int) ($existing['x_px'] ?? 0)
+                    && $y < (int) ($existing['y_px'] ?? 8) + (int) ($existing['height_px'] ?? 225)
+                    && $y + $height > (int) ($existing['y_px'] ?? 8)
+                );
+                if (! $overlaps) {
+                    return [...$layout, 'x_px' => (string) $x, 'y_px' => (string) $y];
+                }
+            }
+        }
+
+        return $layout;
     }
 
     private function validateStableImageLayout(string $encoded): void

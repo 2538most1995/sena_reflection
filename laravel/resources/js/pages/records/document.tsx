@@ -1,4 +1,5 @@
 import { appFetch as fetch, appUrl } from '@/lib/app-url'
+import { arrangeImageLayouts, synchronizeImageLayouts } from '@/lib/document-image-layout'
 import { AppLink as Link } from '@/components/app-link'
 import { appRouter as router } from '@/lib/app-router'
 import { Head, useForm } from '@inertiajs/react'
@@ -65,7 +66,7 @@ const documentContentKeys = new Set([
   'record_result', 'record_problem', 'record_suggestion', 'record_supervisor_comment',
 ])
 
-const localPreviewKey = /^(sig[123]_offset(_y)?|image_[1-4]_(x_px|y_px|width_px|height_px|object_fit|rotation_deg|lock_aspect|crop_x|crop_y))$/
+const localPreviewKey = /^(image_layout_by_id|sig[123]_offset(_y)?|image_[1-4]_(x_px|y_px|width_px|height_px|object_fit|rotation_deg|lock_aspect|crop_x|crop_y))$/
 
 function previewKey(document: DocumentState) {
   return JSON.stringify({ settings: Object.fromEntries(Object.entries(document.settings).filter(([key]) => !localPreviewKey.test(key))), content: document.content })
@@ -117,8 +118,10 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   const attendanceCount = record.attendance?.filter((student) => student.present).length || 0
   const remotePreviewKey = useMemo(() => previewKey({ settings: form.data.settings, content: form.data.content }), [form.data.content, form.data.settings])
 
+  const postSelection = (key: LayoutTarget) => iframeRef.current?.contentWindow?.postMessage({ source: 'sena-pdf-layout-select', imageId: key.startsWith('image') ? String(record.images?.[Number(key.replace('image', '')) - 1]?.id || '') : '', label: layoutTargets[key].label }, '*')
   const postLocalPatch = (changes: Record<string, string>) => iframeRef.current?.contentWindow?.postMessage({ source: 'sena-pdf-layout-patch', changes }, '*')
   const commitDocument = (next: DocumentState, localChanges: Record<string, string> = {}, resolution?: 'document' | 'record') => {
+    next = { ...next, settings: synchronizeImageLayouts(next.settings, record.images || []) }
     if (JSON.stringify(next) === JSON.stringify(latestDocumentRef.current)) return
     const nextHistory = historyRef.current.slice(0, historyIndexRef.current + 1)
     nextHistory.push(next)
@@ -132,10 +135,11 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     if (Object.keys(localChanges).length) postLocalPatch(localChanges)
   }
   const setSetting = (key: string, value: string) => {
-    const nextSettings = { ...form.data.settings, [key]: value }
-    commitDocument({ settings: nextSettings, content: form.data.content }, localPreviewKey.test(key) ? { [key]: value } : {})
+    const current = latestDocumentRef.current
+    const nextSettings = { ...current.settings, [key]: value }
+    commitDocument({ settings: nextSettings, content: current.content }, localPreviewKey.test(key) ? { [key]: value } : {})
   }
-  const setContent = (key: string, value: string) => commitDocument({ settings: form.data.settings, content: { ...form.data.content, [key]: value } }, {}, 'document')
+  const setContent = (key: string, value: string) => commitDocument({ settings: latestDocumentRef.current.settings, content: { ...latestDocumentRef.current.content, [key]: value } }, {}, 'document')
   const restoreHistory = (index: number) => {
     const snapshot = historyRef.current[index]
     if (!snapshot) return
@@ -185,6 +189,11 @@ export default function RecordDocument({ record, settings, content, canonicalCon
     if (position.kind !== 'image') return
     const changes = { [position.width]: width, [position.height]: height, [position.lock]: '1' }
     commitDocument({ settings: { ...form.data.settings, ...changes }, content: form.data.content }, changes)
+  }
+  const arrangeImages = () => {
+    const current = latestDocumentRef.current
+    const settings = arrangeImageLayouts(current.settings, record.images || [])
+    commitDocument({ ...current, settings }, Object.fromEntries(Object.entries(settings).filter(([key]) => localPreviewKey.test(key))))
   }
   const rotateImage = (amount: number) => {
     if (position.kind !== 'image') return
@@ -458,9 +467,10 @@ export default function RecordDocument({ record, settings, content, canonicalCon
                 <div className="grid grid-cols-2 gap-2">{(Object.entries(layoutTargets) as [LayoutTarget, typeof layoutTargets[LayoutTarget]][]).map(([key, item]) => {
                   const imageNumber = key.startsWith('image') ? Number(key.replace('image', '')) : 0
                   const unavailable = imageNumber > imageCount
-                  return <button key={key} type="button" disabled={unavailable} onClick={() => setTarget(key)} className={cn('focus-ring rounded-lg border px-3 py-2 text-left text-sm font-semibold transition-colors', target === key ? 'border-primary bg-primary/8 text-primary' : 'hover:bg-muted', unavailable && 'cursor-not-allowed opacity-40')}>{item.label}</button>
+                  return <button key={key} type="button" disabled={unavailable} onClick={() => { setTarget(key); postSelection(key) }} className={cn('focus-ring rounded-lg border px-3 py-2 text-left text-sm font-semibold transition-colors', target === key ? 'border-primary bg-primary/8 text-primary' : 'hover:bg-muted', unavailable && 'cursor-not-allowed opacity-40')}>{item.label}</button>
                 })}</div>
               </ToolSection>
+              {imageCount > 1 && <ToolSection title="จัดรูปทั้งหน้า"><Button type="button" variant="outline" onClick={arrangeImages}><ImageSquare size={18} />จัดรูปไม่ให้ซ้อนกัน</Button><p className="text-xs leading-5 text-muted-foreground">จัดรูปทั้งหมดเป็นสองคอลัมน์ตามพื้นที่กระดาษ แล้วลากปรับต่อได้ กดย้อนกลับเพื่อคืนแบบเดิม</p></ToolSection>}
               <ToolSection title={`ตำแหน่ง ${position.label}`}>
                 <p className="text-xs leading-5 text-muted-foreground">ลากกรอบบน Preview หรือใช้ลูกศรเพื่อขยับอย่างละเอียด ตำแหน่งรูปวัดจากขอบซ้ายและขอบบนของพื้นที่รูป</p>
                 {position.kind === 'signature' && <div className="grid gap-3">
@@ -507,7 +517,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
             {previewMode === 'pdf' && actualPdfStale && actualPdfUrl && <div className="m-4 flex items-center justify-between gap-3 rounded-xl border border-amber-300/70 bg-amber-50 p-3 text-sm text-amber-950"><span>มีการแก้ไขหลังสร้าง PDF ตัวอย่างล่าสุด</span><Button type="button" size="sm" variant="outline" disabled={actualPdfLoading} onClick={loadActualPdf}>สร้างใหม่</Button></div>}
             <div className="relative h-[calc(100dvh-202px)] min-h-[680px] overflow-auto bg-muted/55 p-4">
               {previewMode === 'editor' && previewing && <div className="sticky left-4 right-4 top-0 z-10 h-1.5 overflow-hidden rounded-full bg-muted"><span className="block h-full w-1/2 animate-pulse rounded-full bg-primary" /></div>}
-              {preview && <div hidden={previewMode !== 'editor'} className="mx-auto" style={{ width: `${pageGeometry.pageWidth * zoom}px`, height: `${pageGeometry.documentHeight * zoom}px` }}><iframe ref={iframeRef} title="ตัวจัดเอกสารก่อนพิมพ์" srcDoc={preview} sandbox="allow-scripts" onLoad={() => postLocalPatch(Object.fromEntries(Object.entries(latestDocumentRef.current.settings).filter(([key]) => localPreviewKey.test(key))))} className="origin-top-left border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" style={{ width: `${pageGeometry.pageWidth + 4}px`, height: `${pageGeometry.documentHeight}px`, transform: `scale(${zoom})` }} /></div>}
+              {preview && <div hidden={previewMode !== 'editor'} className="mx-auto" style={{ width: `${pageGeometry.pageWidth * zoom}px`, height: `${pageGeometry.documentHeight * zoom}px` }}><iframe ref={iframeRef} title="ตัวจัดเอกสารก่อนพิมพ์" srcDoc={preview} sandbox="allow-scripts" onLoad={() => { postLocalPatch(Object.fromEntries(Object.entries(latestDocumentRef.current.settings).filter(([key]) => localPreviewKey.test(key)))); postSelection(target) }} className="origin-top-left border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" style={{ width: `${pageGeometry.pageWidth + 4}px`, height: `${pageGeometry.documentHeight}px`, transform: `scale(${zoom})` }} /></div>}
               {previewMode === 'pdf' && actualPdfUrl && <iframe title="PDF จริงก่อนดาวน์โหลด" src={appUrl(actualPdfUrl)} className="h-full min-h-[650px] w-full rounded-lg border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" />}
               {previewMode === 'pdf' && !actualPdfUrl && <div className="grid min-h-[620px] place-items-center text-center"><div><FilePdf size={44} className="mx-auto text-muted-foreground" /><p className="mt-3 text-sm font-semibold">ยังไม่ได้สร้าง PDF ตัวอย่าง</p><Button type="button" className="mt-3" disabled={actualPdfLoading} onClick={loadActualPdf}>สร้าง PDF จากข้อมูลปัจจุบัน</Button></div></div>}
             </div>

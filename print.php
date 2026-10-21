@@ -980,8 +980,8 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 };
                 var resizeValues = function (state, clientX, clientY, shiftKey) {
                     var mode = state.resizeMode;
-                    var dx = clientX - state.startClientX;
-                    var dy = clientY - state.startClientY;
+                    var dx = (clientX - state.startClientX) / state.scaleX;
+                    var dy = (clientY - state.startClientY) / state.scaleY;
                     var left = state.startX;
                     var top = state.startY;
                     var width = state.startWidth;
@@ -1033,8 +1033,8 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 };
                 var renderPointer = function (clientX, clientY, shiftKey) {
                     if (!active) return;
-                    var dx = clientX - active.startClientX;
-                    var dy = clientY - active.startClientY;
+                    var dx = (clientX - active.startClientX) / active.scaleX;
+                    var dy = (clientY - active.startClientY) / active.scaleY;
                     if (active.resizeMode) {
                         var box = resizeValues(active, clientX, clientY, shiftKey);
                         active.item.style.left = box.x + 'px'; active.item.style.top = box.y + 'px';
@@ -1057,15 +1057,18 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                     warningIds();
                 };
                 document.addEventListener('pointerdown', function (event) {
-                    if (active || event.target.closest('[data-preprint-setting]')) return;
+                    if (active || event.button !== 0 || event.target.closest('[data-preprint-setting]')) return;
                     var item = event.target.closest('[data-layout-kind]');
                     if (!item) return;
                     event.preventDefault();
                     select(item);
                     var parent = item.parentElement;
+                    var parentRect = parent ? parent.getBoundingClientRect() : null;
                     var resizeHandle = event.target.closest('[data-layout-resize]');
                     active = {
                         item: item, pointerId: event.pointerId,
+                        scaleX: parent && parent.offsetWidth ? parentRect.width / parent.offsetWidth : 1,
+                        scaleY: parent && parent.offsetHeight ? parentRect.height / parent.offsetHeight : 1,
                         resizeMode: resizeHandle ? resizeHandle.dataset.layoutResize : '',
                         absolute: item.dataset.layoutPosition === 'absolute',
                         lockAspect: item.dataset.layoutLockAspect === '1',
@@ -1090,7 +1093,9 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 var finish = function (event) {
                     if (!active || active.pointerId !== event.pointerId) return;
                     if (frame !== null) window.cancelAnimationFrame(frame);
-                    renderPointer(event.clientX, event.clientY, event.shiftKey);
+                    // Cancelled/capture-lost events may report (0,0); keep the last real drag position.
+                    if (event.type === 'pointerup') renderPointer(event.clientX, event.clientY, event.shiftKey);
+                    else if (pendingPointer) renderPointer(pendingPointer.x, pendingPointer.y, pendingPointer.shift);
                     frame = null; pendingPointer = null;
                     var changes = {};
                     if (active.item.dataset.layoutXKey && active.item.dataset.layoutYKey) {
@@ -1107,6 +1112,7 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 };
                 document.addEventListener('pointerup', finish);
                 document.addEventListener('pointercancel', finish);
+                document.addEventListener('lostpointercapture', finish);
                 document.querySelectorAll('[data-preprint-setting]').forEach(function (item) {
                     item.setAttribute('title', 'คลิกเพื่อแก้ข้อความ · Enter เพิ่มบรรทัด · Tab ย่อหน้า · Esc ยกเลิก');
                     item.addEventListener('click', function (event) {
@@ -1167,9 +1173,18 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                     var changes = {}; changes[item.dataset.layoutXKey] = String(x); changes[item.dataset.layoutYKey] = String(y); notify(item, changes);
                 });
                 window.addEventListener('message', function (event) {
-                    if (event.source !== window.parent || event.data?.source !== 'sena-pdf-layout-patch' || !event.data.changes) return;
+                    if (event.source !== window.parent) return;
+                    if (event.data?.source === 'sena-pdf-layout-select') {
+                        var target = Array.from(document.querySelectorAll('[data-layout-kind]')).find(function (item) {
+                            return event.data.imageId ? item.dataset.layoutImageId === String(event.data.imageId) : item.dataset.layoutLabel === event.data.label;
+                        });
+                        if (target) select(target);
+                        return;
+                    }
+                    if (event.data?.source !== 'sena-pdf-layout-patch' || !event.data.changes) return;
                     var changes = event.data.changes;
                     document.querySelectorAll('[data-layout-kind]').forEach(function (item) {
+                        if (active && active.item === item) return;
                         var pairs = [
                             ['layoutXKey', 'layoutX', 'left'], ['layoutYKey', 'layoutY', 'top'],
                             ['layoutWidthKey', 'layoutWidth', 'width'], ['layoutHeightKey', 'layoutHeight', 'height']
