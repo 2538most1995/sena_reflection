@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use InvalidArgumentException;
 
 class RecordDocumentOptions
 {
@@ -25,7 +26,7 @@ class RecordDocumentOptions
         'pdf_margin_top_px', 'pdf_margin_right_px', 'pdf_margin_bottom_px', 'pdf_margin_left_px',
         'show_image_page', 'show_attendance_page', 'image_layout_mode',
         'image_width_px', 'image_height_px', 'image_offset_x', 'image_offset_y', 'image_gap_px',
-        'image_layout_by_id',
+        'image_layout_by_id', 'document_rich_text',
         'image_1_width_px', 'image_1_height_px', 'image_1_offset_x', 'image_1_offset_y', 'image_1_x_px', 'image_1_y_px', 'image_1_object_fit', 'image_1_rotation_deg', 'image_1_lock_aspect',
         'image_2_width_px', 'image_2_height_px', 'image_2_offset_x', 'image_2_offset_y', 'image_2_x_px', 'image_2_y_px', 'image_2_object_fit', 'image_2_rotation_deg', 'image_2_lock_aspect',
         'image_3_width_px', 'image_3_height_px', 'image_3_offset_x', 'image_3_offset_y', 'image_3_x_px', 'image_3_y_px', 'image_3_object_fit', 'image_3_rotation_deg', 'image_3_lock_aspect',
@@ -35,6 +36,12 @@ class RecordDocumentOptions
     public const CONTENT_KEYS = [
         'record_subject', 'record_subject_code', 'record_class_group_code', 'record_class_name',
         'record_result', 'record_problem', 'record_suggestion', 'record_supervisor_comment',
+    ];
+
+    public const RICH_TEXT_KEYS = [
+        ...self::CONTENT_KEYS,
+        'record_section1_title', 'record_section2_title', 'record_section3_title',
+        'sig1_name', 'sig1_pos', 'sig2_title', 'sig2_name', 'sig2_pos', 'sig3_title', 'sig3_name', 'sig3_pos',
     ];
 
     private const DEFAULTS = [
@@ -51,7 +58,7 @@ class RecordDocumentOptions
         'pdf_margin_top_px' => '57', 'pdf_margin_right_px' => '76', 'pdf_margin_bottom_px' => '38', 'pdf_margin_left_px' => '94',
         'show_image_page' => '1', 'show_attendance_page' => '1', 'image_layout_mode' => 'free',
         'image_width_px' => '300', 'image_height_px' => '225', 'image_offset_x' => '0', 'image_offset_y' => '0', 'image_gap_px' => '16',
-        'image_layout_by_id' => '{}',
+        'image_layout_by_id' => '{}', 'document_rich_text' => '{}',
         'image_1_width_px' => '300', 'image_1_height_px' => '225', 'image_1_offset_x' => '0', 'image_1_offset_y' => '0', 'image_1_x_px' => '0', 'image_1_y_px' => '8', 'image_1_object_fit' => 'contain', 'image_1_rotation_deg' => '0', 'image_1_lock_aspect' => '1',
         'image_2_width_px' => '300', 'image_2_height_px' => '225', 'image_2_offset_x' => '0', 'image_2_offset_y' => '0', 'image_2_x_px' => '316', 'image_2_y_px' => '8', 'image_2_object_fit' => 'contain', 'image_2_rotation_deg' => '0', 'image_2_lock_aspect' => '1',
         'image_3_width_px' => '300', 'image_3_height_px' => '225', 'image_3_offset_x' => '0', 'image_3_offset_y' => '0', 'image_3_x_px' => '0', 'image_3_y_px' => '249', 'image_3_object_fit' => 'contain', 'image_3_rotation_deg' => '0', 'image_3_lock_aspect' => '1',
@@ -145,7 +152,22 @@ class RecordDocumentOptions
     {
         $validator = Validator::make($payload, [
             'settings' => ['required', 'array'],
-            'settings.*' => ['nullable', 'string', 'max:10000'],
+            'settings.*' => ['nullable', 'string', function (string $attribute, mixed $value, \Closure $fail): void {
+                $maximum = $attribute === 'settings.document_rich_text' ? DocumentRichText::MAX_JSON_BYTES : 10000;
+                if (is_string($value) && mb_strlen($value) > $maximum) {
+                    $fail('ข้อมูลข้อความมีขนาดใหญ่เกินไป');
+                }
+            }],
+            'settings.document_rich_text' => ['sometimes', 'required', 'string', function (string $attribute, mixed $value, \Closure $fail): void {
+                if (! is_string($value)) {
+                    return;
+                }
+                try {
+                    DocumentRichText::normalizeMap($value, self::RICH_TEXT_KEYS);
+                } catch (InvalidArgumentException $exception) {
+                    $fail($exception->getMessage());
+                }
+            }],
             'content' => ['required', 'array'],
             'content.*' => ['nullable', 'string', 'max:10000'],
         ]);
@@ -154,6 +176,7 @@ class RecordDocumentOptions
         $imageIds = $record->images->pluck('id')->map(fn ($id): string => (string) $id)->all();
         $validated['settings']['image_layout_by_id'] = $this->stableImageLayoutFromSlots($validated['settings'], $imageIds);
         $settings = $this->settings($validated['settings'], $imageIds, $record->tambon);
+        $settings['document_rich_text'] = DocumentRichText::normalizeMap($settings['document_rich_text'], self::RICH_TEXT_KEYS);
         $content = $this->content($record, $validated['content']);
 
         Validator::make($settings, [

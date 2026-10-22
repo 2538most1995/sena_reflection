@@ -1,12 +1,16 @@
 {
   "version": 1,
   "style": {
-    "file": "assets/fonts-CSopqIGH.css",
+    "file": "assets/fonts-CUQUo1tp.css",
     "familyStyles": {
-      "noto-sans-thai": "@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-400-normal-BaWBrqFP.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-400-normal-Dh_FJjOB.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-500-normal-fyBKClF1.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-500-normal-BC04jsmm.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 600;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-600-normal-CemcjnVR.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 600;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-600-normal-Dbc-dNO6.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-700-normal-_dn-40wb.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-700-normal-C4AMFKt5.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n.font-noto-sans-thai {\n  font-family: var(--font-noto-sans-thai);\n}"
+      "noto-sans-thai": "@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-400-normal-BaWBrqFP.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-400-normal-Dh_FJjOB.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-500-normal-fyBKClF1.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-500-normal-BC04jsmm.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 600;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-600-normal-CemcjnVR.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 600;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-600-normal-Dbc-dNO6.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-700-normal-_dn-40wb.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Noto Sans Thai\";\n  font-style: normal;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/noto-sans-thai-700-normal-C4AMFKt5.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n.font-noto-sans-thai {\n  font-family: var(--font-noto-sans-thai);\n}",
+      "anuphan": "@font-face {\n  font-family: \"Anuphan\";\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/anuphan-400-normal-BQH10Ma6.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Anuphan\";\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/anuphan-400-normal-BDYevJ6X.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Anuphan\";\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/anuphan-500-normal-DE4mzdQz.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Anuphan\";\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/anuphan-500-normal-B9L7_HnD.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Anuphan\";\n  font-style: normal;\n  font-weight: 600;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/anuphan-600-normal-C3byZ5Vp.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Anuphan\";\n  font-style: normal;\n  font-weight: 600;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/anuphan-600-normal-DSdXqWS_.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Anuphan\";\n  font-style: normal;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/anuphan-700-normal-WxQNlaBM.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Anuphan\";\n  font-style: normal;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/anuphan-700-normal-D1LjmPNx.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n.font-anuphan {\n  font-family: var(--font-anuphan);\n}",
+      "sarabun": "@font-face {\n  font-family: \"Sarabun\";\n  font-style: italic;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/sarabun-400-italic-BPGfQtqk.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Sarabun\";\n  font-style: italic;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/sarabun-400-italic-Cdg7qLKl.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Sarabun\";\n  font-style: italic;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/sarabun-700-italic-CdZhVXpc.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Sarabun\";\n  font-style: italic;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/sarabun-700-italic-DsyfMTQC.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Sarabun\";\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/sarabun-400-normal-URPBxl-K.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Sarabun\";\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/sarabun-400-normal-DmguIS-7.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Sarabun\";\n  font-style: normal;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/sarabun-700-normal-DQKyWxHq.woff2\") format(\"woff2\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n@font-face {\n  font-family: \"Sarabun\";\n  font-style: normal;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"/sena_reflection/build/assets/sarabun-700-normal-DUuqj4Ju.woff\") format(\"woff\");\n  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;\n}\n\n.font-sarabun {\n  font-family: var(--font-sarabun);\n}"
     },
     "variables": {
-      "noto-sans-thai": "--font-noto-sans-thai: \"Noto Sans Thai\";"
+      "noto-sans-thai": "--font-noto-sans-thai: \"Noto Sans Thai\";",
+      "anuphan": "--font-anuphan: \"Anuphan\";",
+      "sarabun": "--font-sarabun: \"Sarabun\";"
     }
   },
   "preloads": [
@@ -46,6 +50,86 @@
       "weight": 700,
       "style": "normal",
       "file": "assets/noto-sans-thai-700-normal-_dn-40wb.woff2",
+      "as": "font",
+      "type": "font/woff2",
+      "crossorigin": "anonymous"
+    },
+    {
+      "alias": "anuphan",
+      "family": "Anuphan",
+      "weight": 400,
+      "style": "normal",
+      "file": "assets/anuphan-400-normal-BQH10Ma6.woff2",
+      "as": "font",
+      "type": "font/woff2",
+      "crossorigin": "anonymous"
+    },
+    {
+      "alias": "anuphan",
+      "family": "Anuphan",
+      "weight": 500,
+      "style": "normal",
+      "file": "assets/anuphan-500-normal-DE4mzdQz.woff2",
+      "as": "font",
+      "type": "font/woff2",
+      "crossorigin": "anonymous"
+    },
+    {
+      "alias": "anuphan",
+      "family": "Anuphan",
+      "weight": 600,
+      "style": "normal",
+      "file": "assets/anuphan-600-normal-C3byZ5Vp.woff2",
+      "as": "font",
+      "type": "font/woff2",
+      "crossorigin": "anonymous"
+    },
+    {
+      "alias": "anuphan",
+      "family": "Anuphan",
+      "weight": 700,
+      "style": "normal",
+      "file": "assets/anuphan-700-normal-WxQNlaBM.woff2",
+      "as": "font",
+      "type": "font/woff2",
+      "crossorigin": "anonymous"
+    },
+    {
+      "alias": "sarabun",
+      "family": "Sarabun",
+      "weight": 400,
+      "style": "italic",
+      "file": "assets/sarabun-400-italic-BPGfQtqk.woff2",
+      "as": "font",
+      "type": "font/woff2",
+      "crossorigin": "anonymous"
+    },
+    {
+      "alias": "sarabun",
+      "family": "Sarabun",
+      "weight": 700,
+      "style": "italic",
+      "file": "assets/sarabun-700-italic-CdZhVXpc.woff2",
+      "as": "font",
+      "type": "font/woff2",
+      "crossorigin": "anonymous"
+    },
+    {
+      "alias": "sarabun",
+      "family": "Sarabun",
+      "weight": 400,
+      "style": "normal",
+      "file": "assets/sarabun-400-normal-URPBxl-K.woff2",
+      "as": "font",
+      "type": "font/woff2",
+      "crossorigin": "anonymous"
+    },
+    {
+      "alias": "sarabun",
+      "family": "Sarabun",
+      "weight": 700,
+      "style": "normal",
+      "file": "assets/sarabun-700-normal-DQKyWxHq.woff2",
       "as": "font",
       "type": "font/woff2",
       "crossorigin": "anonymous"
@@ -107,6 +191,130 @@
             },
             {
               "file": "assets/noto-sans-thai-700-normal-C4AMFKt5.woff",
+              "format": "woff",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            }
+          ]
+        }
+      }
+    },
+    "anuphan": {
+      "family": "Anuphan",
+      "variable": "--font-anuphan",
+      "variants": {
+        "400:normal": {
+          "files": [
+            {
+              "file": "assets/anuphan-400-normal-BQH10Ma6.woff2",
+              "format": "woff2",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            },
+            {
+              "file": "assets/anuphan-400-normal-BDYevJ6X.woff",
+              "format": "woff",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            }
+          ]
+        },
+        "500:normal": {
+          "files": [
+            {
+              "file": "assets/anuphan-500-normal-DE4mzdQz.woff2",
+              "format": "woff2",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            },
+            {
+              "file": "assets/anuphan-500-normal-B9L7_HnD.woff",
+              "format": "woff",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            }
+          ]
+        },
+        "600:normal": {
+          "files": [
+            {
+              "file": "assets/anuphan-600-normal-C3byZ5Vp.woff2",
+              "format": "woff2",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            },
+            {
+              "file": "assets/anuphan-600-normal-DSdXqWS_.woff",
+              "format": "woff",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            }
+          ]
+        },
+        "700:normal": {
+          "files": [
+            {
+              "file": "assets/anuphan-700-normal-WxQNlaBM.woff2",
+              "format": "woff2",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            },
+            {
+              "file": "assets/anuphan-700-normal-D1LjmPNx.woff",
+              "format": "woff",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            }
+          ]
+        }
+      }
+    },
+    "sarabun": {
+      "family": "Sarabun",
+      "variable": "--font-sarabun",
+      "variants": {
+        "400:italic": {
+          "files": [
+            {
+              "file": "assets/sarabun-400-italic-BPGfQtqk.woff2",
+              "format": "woff2",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            },
+            {
+              "file": "assets/sarabun-400-italic-Cdg7qLKl.woff",
+              "format": "woff",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            }
+          ]
+        },
+        "700:italic": {
+          "files": [
+            {
+              "file": "assets/sarabun-700-italic-CdZhVXpc.woff2",
+              "format": "woff2",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            },
+            {
+              "file": "assets/sarabun-700-italic-DsyfMTQC.woff",
+              "format": "woff",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            }
+          ]
+        },
+        "400:normal": {
+          "files": [
+            {
+              "file": "assets/sarabun-400-normal-URPBxl-K.woff2",
+              "format": "woff2",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            },
+            {
+              "file": "assets/sarabun-400-normal-DmguIS-7.woff",
+              "format": "woff",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            }
+          ]
+        },
+        "700:normal": {
+          "files": [
+            {
+              "file": "assets/sarabun-700-normal-DQKyWxHq.woff2",
+              "format": "woff2",
+              "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+            },
+            {
+              "file": "assets/sarabun-700-normal-DUuqj4Ju.woff",
               "format": "woff",
               "unicodeRange": "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
             }

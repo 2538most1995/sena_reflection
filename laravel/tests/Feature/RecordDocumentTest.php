@@ -9,6 +9,7 @@ use App\Models\Setting;
 use App\Models\Tambon;
 use App\Models\TeachingRecord;
 use App\Models\User;
+use App\Services\DocumentRichText;
 use App\Services\DraftImagePath;
 use App\Services\LegacyPrintService;
 use App\Services\RecordDocumentOptions;
@@ -118,6 +119,67 @@ class RecordDocumentTest extends TestCase
         foreach ($settings as $key => $value) {
             $this->assertSame($value, $snapshot['settings'][$key]);
         }
+    }
+
+    public function test_word_formatting_is_sanitized_saved_and_reopened_without_putting_html_in_the_record(): void
+    {
+        $text = "ผลการเรียนรู้\nบรรทัดถัดไป";
+        $richText = json_encode([
+            'record_result' => ['text' => $text, 'html' => '<b onclick="alert(1)">ผลการเรียนรู้</b><br><span style="color:#ff0000;position:fixed">บรรทัดถัดไป</span><script>alert(1)</script>'],
+            'record_section1_title' => ['text' => 'หัวข้อที่แก้', 'html' => '<u>หัวข้อที่แก้</u>'],
+            'unsupported_field' => ['text' => 'other', 'html' => '<b>other</b>'],
+        ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $this->actingAs($this->teacher)->putJson(route('records.document.update', $this->record), [
+            'settings' => ['document_rich_text' => $richText, 'record_section1_title' => 'หัวข้อที่แก้'],
+            'content' => ['record_result' => $text],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $saved = $this->record->fresh();
+        $json = $saved->documentLayout->settings['document_rich_text'];
+        $map = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame($text, $saved->result);
+        $this->assertSame([], $saved->documentLayout->content);
+        $this->assertSame('<b>ผลการเรียนรู้</b><br><span style="color:#ff0000">บรรทัดถัดไป</span>', $map['record_result']['html']);
+        $this->assertArrayNotHasKey('unsupported_field', $map);
+        $this->get(route('records.document.edit', $saved))->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('content.record_result', $text)->where('settings.document_rich_text', $json));
+        $snapshot = app(LegacyPrintService::class)->savedSnapshot($saved, $this->teacher);
+        $this->assertSame($json, $snapshot['settings']['document_rich_text']);
+        $this->assertSame($map['record_result']['html'], DocumentRichText::render($snapshot['content']['record_result'], 'record_result', $json));
+
+        $saved->update(['result' => 'ข้อความที่แก้จากหน้าบันทึก']);
+        $current = app(LegacyPrintService::class)->savedSnapshot($saved, $this->teacher);
+        $this->assertSame('ข้อความที่แก้จากหน้าบันทึก', DocumentRichText::render($current['content']['record_result'], 'record_result', $current['settings']['document_rich_text']));
+    }
+
+    public function test_invalid_rich_text_never_overwrites_the_saved_record_or_layout(): void
+    {
+        $this->actingAs($this->teacher);
+        foreach (['{invalid', '[]', '{"record_result":{"text":"text","html":42}}', str_repeat(' ', DocumentRichText::MAX_JSON_BYTES + 1)] as $richText) {
+            $this->putJson(route('records.document.update', $this->record), [
+                'settings' => ['document_rich_text' => $richText],
+                'content' => ['record_result' => 'ต้องไม่บันทึก'],
+            ])->assertUnprocessable()->assertJsonValidationErrors('settings.document_rich_text');
+        }
+
+        $this->assertSame('ผลเดิม', $this->record->fresh()->result);
+        $this->assertDatabaseCount('record_document_layouts', 0);
+        $this->assertDatabaseCount('record_revisions', 0);
+    }
+
+    public function test_word_formatting_can_exceed_the_ordinary_setting_limit_for_valid_document_content(): void
+    {
+        $text = str_repeat('ผล ', 2000);
+        $richText = json_encode(['record_result' => ['text' => $text, 'html' => '<b>'.$text.'</b>']], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $this->assertGreaterThan(10000, mb_strlen($richText));
+
+        $this->actingAs($this->teacher)->putJson(route('records.document.update', $this->record), [
+            'settings' => ['document_rich_text' => $richText], 'content' => ['record_result' => $text],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $saved = $this->record->fresh();
+        $this->assertSame($text, $saved->result);
+        $this->assertSame('<b>'.$text.'</b>', DocumentRichText::render($text, 'record_result', $saved->documentLayout->settings['document_rich_text']));
     }
 
     public function test_document_defaults_preserve_legacy_and_explicit_signature_spacing(): void

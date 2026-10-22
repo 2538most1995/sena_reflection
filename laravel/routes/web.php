@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Route;
 require __DIR__.'/exports.php';
 require __DIR__.'/workspace.php';
 require __DIR__.'/draft-documents.php';
+require __DIR__.'/documents.php';
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'create'])->name('login');

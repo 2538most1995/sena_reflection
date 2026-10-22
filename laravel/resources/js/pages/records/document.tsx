@@ -13,6 +13,9 @@ import {
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { AppShell } from '@/components/app-shell'
 import { FlashMessages } from '@/components/flash-messages'
+import { DocumentRibbon, type DocumentSelection } from '@/components/document-ribbon'
+import { documentRequest } from '@/lib/document-api'
+import type { WebDocument } from '@/lib/document-model'
 import { FormField } from '@/components/form-field'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -35,7 +38,7 @@ type Props = {
 
 type DocumentState = { settings: Record<string, string>; content: Record<string, string> }
 
-type PageGeometry = { pageWidth: number; documentHeight: number; pageCount: number }
+type PageGeometry = { pageWidth: number; documentHeight: number; pageCount: number; pages?: { top: number; height: number; width: number }[] }
 
 type LayoutTarget = 'sig1' | 'sig2' | 'sig3' | 'image1' | 'image2' | 'image3' | 'image4'
 
@@ -98,6 +101,10 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   const [target, setTarget] = useState<LayoutTarget>(record.images?.length ? 'image1' : 'sig1')
   const [step, setStep] = useState(1)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [advancedLoading, setAdvancedLoading] = useState(false)
+  const [toolsTab, setToolsTab] = useState('content')
+  const [textSelection, setTextSelection] = useState<DocumentSelection | null>(null)
+  const [currentPage, setCurrentPage] = useState(0)
   const [zoom, setZoom] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640 ? Math.max(0.4, Math.min(0.72, (window.innerWidth - 56) / 794)) : 0.72)
   const [preview, setPreview] = useState('')
   const [previewing, setPreviewing] = useState(true)
@@ -110,6 +117,8 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   const [historyIndex, setHistoryIndex] = useState(0)
   const [pageGeometry, setPageGeometry] = useState<PageGeometry>(() => ({ pageWidth: settings.paper_orientation === 'landscape' ? 1123 : 794, documentHeight: 1220, pageCount: 1 }))
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const saveRef = useRef<() => void>(() => {})
   const printFrameRef = useRef<HTMLIFrameElement>(null)
   const locallyRenderedKeyRef = useRef<string | null>(null)
   const renderedDocumentRef = useRef<string | null>(null)
@@ -123,6 +132,13 @@ export default function RecordDocument({ record, settings, content, canonicalCon
 
   const postSelection = (key: LayoutTarget) => iframeRef.current?.contentWindow?.postMessage({ source: 'sena-pdf-layout-select', imageId: key.startsWith('image') ? String(record.images?.[Number(key.replace('image', '')) - 1]?.id || '') : '', label: layoutTargets[key].label }, '*')
   const postLocalPatch = (changes: Record<string, string>) => iframeRef.current?.contentWindow?.postMessage({ source: 'sena-pdf-layout-patch', changes }, '*')
+  const openTools = (tab: 'content' | 'paper' | 'elements') => { setToolsTab(tab); setToolsOpen(true) }
+  const formatText = (command: string, value?: string) => iframeRef.current?.contentWindow?.postMessage({ source: 'sena-document-format', command, value }, '*')
+  const goToPage = (index: number) => {
+    setPreviewMode('editor')
+    setCurrentPage(index)
+    canvasRef.current?.scrollTo({ top: (pageGeometry.pages?.[index]?.top || 0) * zoom, behavior: 'instant' })
+  }
   const commitDocument = (next: DocumentState, localChanges: Record<string, string> = {}, resolution?: 'document' | 'record') => {
     next = { ...next, settings: synchronizeImageLayouts(next.settings, record.images || []) }
     if (JSON.stringify(next) === JSON.stringify(latestDocumentRef.current)) return
@@ -147,6 +163,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   const restoreHistory = (index: number) => {
     const snapshot = historyRef.current[index]
     if (!snapshot) return
+    locallyRenderedKeyRef.current = null
     latestDocumentRef.current = snapshot
     historyIndexRef.current = index
     setHistoryIndex(index)
@@ -264,10 +281,12 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   useEffect(() => {
     const receiveLayoutChange = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return
+      if (event.data?.source === 'sena-document-selection') { setTextSelection(event.data as DocumentSelection); return }
+      if (event.data?.source === 'sena-document-save') { saveRef.current(); return }
       if (event.data?.source === 'sena-pdf-geometry') {
         const geometry = event.data as Partial<PageGeometry> & { safeWarnings?: unknown }
         if (Number.isFinite(geometry.pageWidth) && Number.isFinite(geometry.documentHeight) && Number.isFinite(geometry.pageCount) && Number(geometry.pageWidth) > 0 && Number(geometry.documentHeight) > 0 && Number(geometry.pageCount) > 0) {
-          setPageGeometry({ pageWidth: Number(geometry.pageWidth), documentHeight: Number(geometry.documentHeight), pageCount: Number(geometry.pageCount) })
+          setPageGeometry({ pageWidth: Number(geometry.pageWidth), documentHeight: Number(geometry.documentHeight), pageCount: Number(geometry.pageCount), pages: Array.isArray(geometry.pages) ? geometry.pages.filter((page) => Number.isFinite(page.top) && Number.isFinite(page.height)) : [] })
         }
         setSafeWarnings(Array.isArray(geometry.safeWarnings) ? geometry.safeWarnings.filter((warning): warning is string => typeof warning === 'string') : [])
         return
@@ -285,6 +304,12 @@ export default function RecordDocument({ record, settings, content, canonicalCon
       const textChanges = Object.fromEntries(Object.entries(event.data?.textChanges || {}).filter(([, value]) => typeof value === 'string')) as Record<string, string>
       const contentChanges = Object.fromEntries(Object.entries(textChanges).filter(([key]) => documentContentKeys.has(key)))
       const textSettingChanges = Object.fromEntries(Object.entries(textChanges).filter(([key]) => key in current.settings))
+      const richChanges = Object.fromEntries(Object.entries(event.data?.richTextChanges || {}).filter(([key, value]) => (documentContentKeys.has(key) || key in current.settings) && value && typeof value === 'object' && typeof (value as { text?: unknown }).text === 'string' && typeof (value as { html?: unknown }).html === 'string'))
+      if (Object.keys(richChanges).length) {
+        let stored = {}
+        try { stored = JSON.parse(current.settings.document_rich_text || '{}') || {} } catch { /* A missing legacy map starts empty. */ }
+        textSettingChanges.document_rich_text = JSON.stringify({ ...stored, ...richChanges })
+      }
       if (Object.keys(settingChanges).length || Object.keys(textSettingChanges).length || Object.keys(contentChanges).length) {
         const next = {
           settings: { ...current.settings, ...settingChanges, ...textSettingChanges },
@@ -314,9 +339,10 @@ export default function RecordDocument({ record, settings, content, canonicalCon
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (form.processing || printPreviewLoading) return
+      const modifier = event.metaKey || event.ctrlKey
+      if (modifier && event.key.toLowerCase() === 's') { event.preventDefault(); saveRef.current(); return }
       const element = event.target as HTMLElement | null
       if (element?.matches('input, textarea, select, [contenteditable="true"]')) return
-      const modifier = event.metaKey || event.ctrlKey
       if (!modifier) return
       if (event.key.toLowerCase() === 'z') {
         event.preventDefault()
@@ -430,8 +456,16 @@ export default function RecordDocument({ record, settings, content, canonicalCon
       router.delete(documentBase, { preserveScroll: true })
     }
   }
+  const openAdvancedEditor = async () => {
+    setAdvancedLoading(true)
+    try {
+      const result = await documentRequest<{ document: WebDocument }>(`/api/documents/from-record/${record.id}`, { method: 'POST', body: '{}' })
+      router.visit(`/documents/${result.document.id}/edit`)
+    } catch (error) { setPreviewError(error instanceof Error ? error.message : 'เปิดตัวแก้ไขขั้นสูงไม่สำเร็จ'); setAdvancedLoading(false) }
+  }
+  saveRef.current = () => { if (!form.processing && !printPreviewLoading) void save() }
 
-  const tabTrigger = 'focus-ring flex min-h-10 items-center justify-center gap-2 rounded-lg px-2 text-xs font-semibold text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm'
+  const tabTrigger = 'focus-ring flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs font-semibold text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm'
 
   return <AppShell>
     <Head title={`จัดเอกสาร ${record.subject}`} />
@@ -445,35 +479,42 @@ export default function RecordDocument({ record, settings, content, canonicalCon
           </div>
           <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
             <Badge variant={previewError ? 'outline' : 'secondary'} className={previewError ? 'border-destructive/30 text-destructive' : undefined}>{previewing ? 'กำลังอัปเดตตัวอย่าง' : previewError ? 'ตัวอย่างมีปัญหา' : form.isDirty ? 'มีการแก้ไขที่ยังไม่บันทึก' : 'บันทึกแล้ว'}</Badge>
+            {!draftContext && <Button type="button" variant="outline" size="sm" disabled={advancedLoading || form.processing} onClick={openAdvancedEditor}><NotePencil size={17} />{advancedLoading ? 'กำลังเปิด…' : 'ตัวแก้ไขขั้นสูง / DOCX'}</Button>}
             <div className="flex items-center rounded-lg border bg-background p-0.5" aria-label="ประวัติการแก้ไข">
               <Button type="button" variant="ghost" size="icon" disabled={form.processing || printPreviewLoading || historyIndex <= 0} onClick={undo} aria-label="ย้อนกลับ"><ArrowCounterClockwise size={17} /></Button>
               <Button type="button" variant="ghost" size="icon" disabled={form.processing || printPreviewLoading || historyIndex >= historyRef.current.length - 1} onClick={redo} aria-label="ทำซ้ำ"><ArrowClockwise size={17} /></Button>
             </div>
             {hasSavedLayout && !draftContext && <Button type="button" variant="ghost" size="sm" disabled={form.processing || printPreviewLoading} onClick={restoreDefault}><Trash size={16} />คืนค่าเริ่มต้น</Button>}
-            <Button type="submit" variant="outline" disabled={form.processing || printPreviewLoading || previewing || (contentConflicts.length > 0 && !form.data.content_resolution)}><FloppyDisk size={17} />บันทึก</Button>
+            <Button type="submit" variant="outline" disabled={form.processing || printPreviewLoading || (contentConflicts.length > 0 && !form.data.content_resolution)}><FloppyDisk size={17} />บันทึก</Button>
             <Button type="button" disabled={form.processing || printPreviewLoading || previewing || (contentConflicts.length > 0 && !form.data.content_resolution)} onClick={() => save(undefined, true)}><Printer size={18} />{draftContext ? 'บันทึกและกลับรีวิว' : 'บันทึกและพิมพ์'}</Button>
           </div>
         </div>
       </header>
 
       <FlashMessages />
-      {Object.keys(form.errors).length > 0 && <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive" role="alert"><WarningCircle size={20} className="mt-0.5 shrink-0" /><div><b>ยังบันทึกเอกสารไม่ได้</b><p className="mt-1">ตรวจค่าที่กรอกในแถบเครื่องมือ แล้วลองอีกครั้ง</p></div></div>}
+      {Object.keys(form.errors).length > 0 && <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive" role="alert"><WarningCircle size={20} className="mt-0.5 shrink-0" /><div><b>ยังบันทึกเอกสารไม่ได้</b><p className="mt-1">{form.errors['settings.document_rich_text'] || 'ตรวจค่าที่กรอกในแถบเครื่องมือ แล้วลองอีกครั้ง'}</p></div></div>}
       {contentConflicts.length > 0 && !form.data.content_resolution && <div className="grid gap-3 rounded-xl border border-amber-300/70 bg-amber-50 p-4 text-sm text-amber-950 sm:grid-cols-[1fr_auto] sm:items-center" role="alert">
         <div className="flex items-start gap-2"><WarningCircle size={20} className="mt-0.5 shrink-0" /><div><b>เนื้อหาเอกสารต่างจากข้อมูลหลัก</b><p className="mt-1 text-amber-900/80">พบ {contentConflicts.length} ช่องที่เคยแก้จากหน้าจัดเอกสาร กรุณาเลือกฉบับที่จะใช้ก่อนบันทึก ระบบจะไม่ทับข้อมูลให้อัตโนมัติ</p></div></div>
         <div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => resolveContentConflict('record')}>ใช้ข้อมูลหลัก</Button><Button type="button" size="sm" onClick={() => resolveContentConflict('document')}>ใช้ฉบับเอกสาร</Button></div>
       </div>}
       {safeWarnings.length > 0 && <div className="flex items-start gap-2 rounded-xl border border-amber-300/70 bg-amber-50 p-4 text-sm text-amber-950" role="status"><WarningCircle size={20} className="mt-0.5 shrink-0" /><div><b>มีรูปอยู่นอกพื้นที่ปลอดภัย {safeWarnings.length} รูป</b><p className="mt-1 text-amber-900/80">วางรูปข้ามเส้นประได้ หากต้องการให้เห็นครบ ควรเก็บรูปไว้ภายในขอบกระดาษ A4</p></div></div>}
 
-      <Tabs.Root defaultValue="content" className="grid gap-3">
+      <DocumentRibbon selection={textSelection} disabled={form.processing || printPreviewLoading || previewing || previewMode !== 'editor'} onCommand={formatText} onOpenTools={openTools} />
+
+      <Tabs.Root value={toolsTab} onValueChange={setToolsTab} className="grid gap-3">
         <Button type="button" variant="outline" className="lg:hidden" aria-controls="document-tools" aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}><TextT size={18} />{toolsOpen ? 'ซ่อนเครื่องมือแก้ไข' : 'เปิดเครื่องมือแก้ไขข้อความและรูป'}</Button>
 
 
-        <div className="grid min-w-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <aside id="document-tools" inert={form.processing || printPreviewLoading} className={cn("h-fit overflow-hidden rounded-xl border bg-card lg:sticky lg:top-[138px] lg:max-h-[calc(100dvh-154px)] lg:overflow-y-auto", !toolsOpen && "hidden lg:block")}>
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[116px_minmax(0,1fr)_290px]">
+          <nav aria-label="หน้าเอกสาร" className="order-1 hidden max-h-[calc(100dvh-370px)] space-y-3 overflow-y-auto rounded-xl border bg-muted/30 p-3 xl:block">
+            <h2 className="pb-1 text-xs font-semibold">หน้าเอกสาร</h2>
+            {Array.from({ length: pageGeometry.pageCount }, (_, index) => <button key={index} type="button" aria-label={`ไปหน้า ${index + 1}`} aria-current={currentPage === index ? 'page' : undefined} onClick={() => goToPage(index)} className={cn('focus-ring w-full rounded-lg border-2 p-1.5 text-left transition-colors', currentPage === index ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-muted')}><span className="grid aspect-[210/297] gap-1 overflow-hidden rounded-sm border bg-white p-2 shadow-sm" aria-hidden="true"><span className="mx-auto mt-1 h-1 w-3/4 rounded bg-slate-400" /><span className="space-y-1">{Array.from({ length: index === 0 ? 9 : 6 }, (_, line) => <span key={line} className={cn('block h-px bg-slate-200', line % 3 === 0 && 'mr-3')} />)}</span>{index > 0 && imageCount > 0 && <span className="grid grid-cols-2 gap-1">{record.images?.slice(0, 4).map((image) => <span key={image.id} className="aspect-square rounded-sm bg-slate-100" />)}</span>}</span><span className="mt-1.5 block text-center text-[11px]">หน้า {index + 1}</span></button>)}
+          </nav>
+          <aside id="document-tools" inert={form.processing || printPreviewLoading} className={cn("order-1 h-fit overflow-hidden rounded-xl border bg-card lg:order-3 lg:sticky lg:top-[138px] lg:max-h-[calc(100dvh-370px)] lg:overflow-y-auto", !toolsOpen && "hidden lg:block")}>
         <Tabs.List className="grid grid-cols-3 gap-1 sticky top-0 z-10 rounded-none border-b bg-muted p-1">
           <Tabs.Trigger value="content" className={tabTrigger}><TextT size={18} />เนื้อหา</Tabs.Trigger>
           <Tabs.Trigger value="paper" className={tabTrigger}><FilePdf size={18} />กระดาษ</Tabs.Trigger>
-          <Tabs.Trigger value="elements" className={tabTrigger}><ArrowsOutCardinal size={18} />องค์ประกอบ</Tabs.Trigger>
+          <Tabs.Trigger value="elements" className={tabTrigger}><ArrowsOutCardinal size={18} />จัดวาง</Tabs.Trigger>
         </Tabs.List>
             <Tabs.Content value="content" className="outline-none">
               <ToolSection title="ข้อมูลบนหัวเอกสาร">
@@ -558,7 +599,7 @@ export default function RecordDocument({ record, settings, content, canonicalCon
             </Tabs.Content>
           </aside>
 
-          <section className="min-w-0 overflow-hidden rounded-xl border bg-card">
+          <section className="order-2 h-fit min-w-0 overflow-hidden rounded-xl border bg-card">
             <header className="flex flex-col gap-3 border-b p-3 sm:flex-row sm:items-center sm:justify-between">
               <div><h2 className="flex items-center gap-2 text-sm font-semibold"><NotePencil size={18} className="text-primary" />{previewMode === 'editor' ? 'แก้ไขบนกระดาษ' : 'ตรวจหน้าพิมพ์ / PDF'}</h2><p className="mt-1 text-xs text-muted-foreground">{previewMode === 'editor' ? 'คลิกข้อความเพื่อพิมพ์ · Enter ขึ้นบรรทัด · ลากรูปเพื่อจัดวาง' : 'ใช้หน้ากระดาษที่จัดวางล่าสุด · เลือกพิมพ์หรือ Save as PDF'}</p></div>
               <div className="flex flex-wrap items-center gap-1">
@@ -568,12 +609,13 @@ export default function RecordDocument({ record, settings, content, canonicalCon
             </header>
             {previewError && <div className="m-4 flex items-start gap-2 rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive"><WarningCircle size={19} className="mt-0.5 shrink-0" />{previewError}</div>}
             {previewMode === 'print' && printPreviewStale && printPreviewUrl && <div className="m-4 flex items-center justify-between gap-3 rounded-xl border border-amber-300/70 bg-amber-50 p-3 text-sm text-amber-950"><span>เอกสารถูกแก้ไขแล้ว กรุณาอัปเดตหน้าพิมพ์</span><Button type="button" size="sm" variant="outline" disabled={printPreviewLoading || previewing} onClick={loadPrintPreview}>อัปเดตตัวอย่าง</Button></div>}
-            <div className="relative h-[calc(100dvh-220px)] min-h-[480px] overflow-auto bg-muted/55 p-3">
+            <div ref={canvasRef} onScroll={(event) => { const top = event.currentTarget.scrollTop / zoom; const pages = pageGeometry.pages || []; const index = pages.findIndex((page, i) => top < (pages[i + 1]?.top ?? Infinity) - 30); if (index >= 0) setCurrentPage(index) }} className="relative h-[calc(100dvh-460px)] min-h-[480px] overflow-auto bg-muted/55 p-3">
               {previewMode === 'editor' && previewing && <div className="sticky left-4 right-4 top-0 z-10 h-1.5 overflow-hidden rounded-full bg-muted"><span className="block h-full w-1/2 animate-pulse rounded-full bg-primary" /></div>}
-              {preview && <div inert={form.processing || printPreviewLoading} hidden={previewMode !== 'editor'} className="mx-auto" style={{ width: `${pageGeometry.pageWidth * zoom}px`, height: `${pageGeometry.documentHeight * zoom}px` }}><iframe ref={iframeRef} title="ตัวจัดเอกสารก่อนพิมพ์" srcDoc={preview} sandbox="allow-scripts" onLoad={() => { postLocalPatch(Object.fromEntries(Object.entries(latestDocumentRef.current.settings).filter(([key]) => localPreviewKey.test(key)))); postSelection(target) }} className="origin-top-left border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" style={{ width: `${pageGeometry.pageWidth + 4}px`, height: `${pageGeometry.documentHeight}px`, transform: `scale(${zoom})` }} /></div>}
+              {preview && <div inert={form.processing || printPreviewLoading} hidden={previewMode !== 'editor'} className="mx-auto" style={{ width: `${pageGeometry.pageWidth * zoom}px`, height: `${pageGeometry.documentHeight * zoom}px` }}><iframe ref={iframeRef} title="ตัวจัดเอกสารก่อนพิมพ์" srcDoc={preview} sandbox="allow-scripts" onLoad={() => { setTextSelection(null); postLocalPatch(Object.fromEntries(Object.entries(latestDocumentRef.current.settings).filter(([key]) => localPreviewKey.test(key)))); postSelection(target) }} className="origin-top-left border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" style={{ width: `${pageGeometry.pageWidth + 4}px`, height: `${pageGeometry.documentHeight}px`, transform: `scale(${zoom})` }} /></div>}
               {previewMode === 'print' && printPreviewUrl && <iframe ref={printFrameRef} title="หน้าพิมพ์และบันทึก PDF" sandbox="allow-scripts allow-modals allow-top-navigation-by-user-activation" src={printPreviewUrl} className="h-full min-h-[650px] w-full rounded-lg border-0 bg-background shadow-[0_18px_50px_rgba(20,58,55,0.14)]" />}
               {previewMode === 'print' && !printPreviewUrl && <div className="grid min-h-[620px] place-items-center text-center"><div><FilePdf size={44} className="mx-auto text-muted-foreground" /><p className="mt-3 text-sm font-semibold">ยังไม่ได้เตรียมหน้าพิมพ์</p><Button type="button" className="mt-3" disabled={printPreviewLoading || previewing} onClick={loadPrintPreview}>เตรียมหน้าพิมพ์จากกระดาษปัจจุบัน</Button></div></div>}
             </div>
+            <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t px-4 py-2 text-[11px] text-muted-foreground"><span>หน้า {Math.min(currentPage + 1, pageGeometry.pageCount)} จาก {pageGeometry.pageCount}</span><span>{Object.values(form.data.content).join('').length.toLocaleString('th-TH')} ตัวอักษร</span><span>ภาษาไทย</span><span className="ml-auto">A4 · {form.data.settings.paper_orientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'} · {Math.round(zoom * 100)}%</span></footer>
           </section>
         </div>
       </Tabs.Root>

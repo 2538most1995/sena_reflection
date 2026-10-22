@@ -71,16 +71,19 @@ class TeachingDraftController extends Controller
             (int) $validated['lock_version'],
         );
 
-        $pdf = $print->snapshotPdf($snapshot, $request->user());
+        $browser = ($validated['format'] ?? 'pdf') === 'browser';
+        $content = $browser
+            ? $print->browserSnapshotHtml($snapshot, $request->user(), route('records.create', ['draft' => $teachingDraft->id, 'review' => 1]))
+            : $print->snapshotPdf($snapshot, $request->user());
         Cache::put(
             DraftService::reviewCacheKey($teachingDraft->id, (int) $validated['lock_version'], $validated['level_code']),
             $snapshot['settings'],
             now()->addDay(),
         );
 
-        return response($pdf, 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="draft-preview.pdf"',
+        return response($content, 200, [
+            'Content-Type' => $browser ? 'text/html; charset=UTF-8' : 'application/pdf',
+            'Content-Disposition' => $browser ? 'inline' : 'inline; filename="draft-preview.pdf"',
             'Cache-Control' => 'private, no-store',
             'X-Content-Type-Options' => 'nosniff',
         ]);

@@ -25,6 +25,7 @@ class PreviewTeachingDraftRequest extends FormRequest
         return [
             'lock_version' => ['required', 'integer', 'min:1'],
             'level_code' => ['required', Rule::in(['1', '2', '3'])],
+            'format' => ['sometimes', Rule::in(['pdf', 'browser'])],
             'document' => ['nullable', 'array'],
             'document.settings' => ['nullable', 'array'],
             'document.settings.*' => ['nullable', 'string', 'max:10000'],

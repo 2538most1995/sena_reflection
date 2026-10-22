@@ -61,6 +61,10 @@ type ReviewProps = {
   previewing: boolean
   previewStale: boolean
   previewedLevels: LevelCode[]
+  previewFormat: 'pdf' | 'browser'
+  rendererUnavailable: boolean
+  onBrowserPreview: () => Promise<void>
+  onBrowserPreviewLoaded: (frame: HTMLIFrameElement, level: LevelCode, url: string) => Promise<void>
   finalizing: boolean
   busy: boolean
   onBack: () => void
@@ -71,7 +75,7 @@ type ReviewProps = {
   onFinalize: () => Promise<void>
 }
 
-export function RecordReview({ payload, images, previewLevel, previewUrl, previewing, previewStale, previewedLevels, finalizing, busy, onBack, onFix, onPreviewLevel, onPreview, onEditDocument, onFinalize }: ReviewProps) {
+export function RecordReview({ payload, images, previewLevel, previewUrl, previewing, previewStale, previewedLevels, previewFormat, rendererUnavailable, onBrowserPreview, onBrowserPreviewLoaded, finalizing, busy, onBack, onFix, onPreviewLevel, onPreview, onEditDocument, onFinalize }: ReviewProps) {
   const issues = reviewIssues(payload, images)
   const selectedLevels = selectedTeachingLevels(payload)
   const totalLevels = selectedLevels.length
@@ -108,14 +112,16 @@ export function RecordReview({ payload, images, previewLevel, previewUrl, previe
       })}</div>
     </section>
 
-    <section className="grid gap-4 rounded-xl border bg-card p-4 sm:p-5" aria-labelledby="pdf-review-heading">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 id="pdf-review-heading" className="flex items-center gap-2 font-semibold"><FilePdf size={20} className="text-primary" />PDF ที่จะได้จริง</h2><p className="mt-1 text-xs text-muted-foreground">ตรวจข้อความ รูป และเค้าโครงก่อนยืนยัน · ตรวจแล้ว {previewedLevels.length}/{totalLevels} ระดับ</p></div><div className="flex flex-wrap gap-2">{selectedLevels.map((item) => <Button key={item.code} type="button" size="sm" disabled={previewing || finalizing} variant={previewLevel === item.code ? 'secondary' : 'ghost'} onClick={() => onPreviewLevel(item.code)}>{previewedLevels.includes(item.code) && <CheckCircle size={15} weight="fill" />}{item.shortName}</Button>)}<Button type="button" size="sm" variant="outline" disabled={previewing || finalizing || busy} onClick={() => void onEditDocument(previewLevel)}><NotePencil size={17} />จัดเอกสารและรูปภาพ</Button><Button type="button" size="sm" disabled={previewing || finalizing || busy} onClick={() => void onPreview()}>{previewing ? 'กำลังสร้าง...' : previewUrl && !previewStale ? 'สร้างตัวอย่างใหม่' : 'สร้างตัวอย่าง PDF'}</Button></div></div>
-      {previewUrl && previewStale && <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-800 dark:text-amber-200">ร่างมีการแก้ไขหลังสร้างตัวอย่าง กรุณาสร้าง PDF ใหม่ก่อนยืนยัน</div>}
-      {previewUrl ? <iframe src={appUrl(previewUrl)} title={`ตัวอย่าง PDF ${teachingLevels.find((item) => item.code === previewLevel)?.name}`} className="h-[70vh] min-h-[560px] w-full rounded-xl border bg-white" /> : <div className="grid min-h-[420px] place-items-center rounded-xl border border-dashed bg-muted/20 text-center"><div><FilePdf size={38} className="mx-auto text-muted-foreground" /><b className="mt-3 block">ยังไม่ได้สร้างตัวอย่าง PDF</b><p className="mt-1 text-sm text-muted-foreground">เลือกประเภทระดับ แล้วสร้างตัวอย่างก่อนยืนยัน</p></div></div>}
+    <section id="document-review" className="grid scroll-mt-28 gap-4 rounded-xl border bg-card p-4 sm:p-5" aria-labelledby="pdf-review-heading">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 id="pdf-review-heading" className="flex items-center gap-2 font-semibold"><FilePdf size={20} className="text-primary" />ตรวจเอกสารก่อนยืนยัน</h2><p className="mt-1 text-xs text-muted-foreground">ตรวจข้อความ รูป และเค้าโครงก่อนยืนยัน · ตรวจแล้ว {previewedLevels.length}/{totalLevels} ระดับ</p></div><div className="flex flex-wrap gap-2">{selectedLevels.map((item) => <Button key={item.code} type="button" size="sm" disabled={previewing || finalizing} variant={previewLevel === item.code ? 'secondary' : 'ghost'} onClick={() => onPreviewLevel(item.code)}>{previewedLevels.includes(item.code) && <CheckCircle size={15} weight="fill" />}{item.shortName}</Button>)}<Button type="button" size="sm" variant="outline" disabled={previewing || finalizing || busy} onClick={() => void onEditDocument(previewLevel)}><NotePencil size={17} />จัดเอกสารและรูปภาพ</Button><Button type="button" size="sm" disabled={previewing || finalizing || busy} onClick={() => void onPreview()}>{previewing ? 'กำลังสร้าง...' : previewFormat === 'browser' || rendererUnavailable ? 'ลองสร้าง PDF อีกครั้ง' : previewUrl && !previewStale ? 'สร้างตัวอย่างใหม่' : 'สร้างตัวอย่าง PDF'}</Button></div></div>
+      {rendererUnavailable && <div role="status" className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"><p>ระบบสร้าง PDF บนเซิร์ฟเวอร์ยังไม่พร้อม คุณสามารถตรวจเอกสารผ่านเบราว์เซอร์ให้ครบทุกระดับ แล้วยืนยันบันทึกได้</p><Button type="button" variant="outline" disabled={previewing || finalizing || busy} onClick={() => void onBrowserPreview()}>ตรวจเอกสารผ่านเบราว์เซอร์</Button></div>}
+      {previewUrl && previewFormat === 'browser' && <p className="text-xs text-muted-foreground">ตัวอย่างนี้เป็นเอกสารผ่านเบราว์เซอร์ ใช้ข้อความ รูป และเค้าโครงฉบับเดียวกับที่บันทึก · ปุ่มพิมพ์ / บันทึก PDF อยู่ในตัวอย่าง</p>}
+      {previewUrl && previewStale && <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-800 dark:text-amber-200">เอกสารยังไม่พร้อมหรือร่างมีการแก้ไข กรุณารอให้โหลดครบ หรือสร้างตัวอย่างใหม่ก่อนยืนยัน</div>}
+      {previewUrl ? <iframe key={previewUrl} id="workspace-document-preview" src={appUrl(previewUrl)} onLoad={(event) => { if (previewFormat === 'browser') void onBrowserPreviewLoaded(event.currentTarget, previewLevel, previewUrl) }} title={`ตัวอย่างเอกสาร ${teachingLevels.find((item) => item.code === previewLevel)?.name}`} className="h-[70vh] min-h-[560px] w-full rounded-xl border bg-white" /> : <div className="grid min-h-[420px] place-items-center rounded-xl border border-dashed bg-muted/20 text-center"><div><FilePdf size={38} className="mx-auto text-muted-foreground" /><b className="mt-3 block">ยังไม่ได้สร้างตัวอย่าง PDF</b><p className="mt-1 text-sm text-muted-foreground">เลือกประเภทระดับ แล้วสร้างตัวอย่างก่อนยืนยัน</p></div></div>}
     </section>
 
     <div className="sticky bottom-3 z-10 flex flex-col gap-3 rounded-xl border bg-background/95 p-4 shadow-[0_16px_46px_rgba(20,58,55,.18)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-      <div className="text-sm">{issues.length ? <span className="font-medium text-amber-700 dark:text-amber-200">แก้ไขอีก {issues.length} จุดก่อนยืนยัน</span> : previewedLevels.length < totalLevels ? <span className="font-medium text-amber-700 dark:text-amber-200">ตรวจ PDF ฉบับล่าสุดให้ครบทั้ง {totalLevels} ระดับ</span> : <span className="flex items-center gap-2 font-medium text-primary"><CheckCircle size={19} weight="fill" />ข้อมูลและ PDF พร้อมยืนยัน</span>}</div>
+      <div className="text-sm">{issues.length ? <span className="font-medium text-amber-700 dark:text-amber-200">แก้ไขอีก {issues.length} จุดก่อนยืนยัน</span> : previewedLevels.length < totalLevels ? <button type="button" className="focus-ring text-left font-medium text-amber-700 underline underline-offset-4 dark:text-amber-200" onClick={() => document.getElementById('document-review')?.scrollIntoView({ block: 'start' })}>ตรวจเอกสารฉบับล่าสุดให้ครบทั้ง {totalLevels} ระดับ ({previewedLevels.length}/{totalLevels})</button> : <span className="flex items-center gap-2 font-medium text-primary"><CheckCircle size={19} weight="fill" />ข้อมูลและเอกสารพร้อมยืนยัน</span>}</div>
       <Button type="button" size="lg" disabled={issues.length > 0 || previewedLevels.length < totalLevels || finalizing || previewing || busy} onClick={() => void onFinalize()}>{finalizing ? `กำลังยืนยัน ${totalLevels} ระดับ...` : `ยืนยันบันทึก ${totalLevels} ระดับ`}<CheckCircle size={19} weight="bold" /></Button>
     </div>
   </div>

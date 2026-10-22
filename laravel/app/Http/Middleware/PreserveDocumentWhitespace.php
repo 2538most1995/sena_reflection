@@ -13,7 +13,10 @@ class PreserveDocumentWhitespace extends TrimStrings
     public function handle($request, Closure $next): Response
     {
         $original = $this->except;
-        if ($request->is('records/*/document', 'records/*/document/*', 'teaching-drafts/*/document/*')) {
+        if ($request->is('api/documents', 'api/documents/*')) {
+            $this->except[] = '*';
+        }
+        if ($request->is('records/*/document', 'records/*/document/*', 'teaching-drafts/*/document/*', 'api/documents', 'api/documents/*')) {
             $this->except[] = 'content.*';
             $this->except[] = 'settings.sig1_pos';
             $this->except[] = 'settings.sig2_pos';

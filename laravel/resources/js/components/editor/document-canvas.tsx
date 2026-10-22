@@ -1,0 +1,501 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { EditorContent, useEditor, type Editor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import { TextStyleKit } from '@tiptap/extension-text-style'
+import Highlight from '@tiptap/extension-highlight'
+import Subscript from '@tiptap/extension-subscript'
+import Superscript from '@tiptap/extension-superscript'
+import TextAlign from '@tiptap/extension-text-align'
+import Image from '@tiptap/extension-image'
+import { PaginationPlus } from 'tiptap-pagination-plus'
+import { TableKitPlus } from 'tiptap-table-plus'
+import interact from 'interactjs'
+import { Copy, Grip, RotateCw, Trash2 } from 'lucide-react'
+import { MM_TO_PX, PAGE_GAP, pageDimensions, type DocumentObject, type WebDocument } from '@/lib/document-model'
+import { canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectCanvasTop, snapMillimeters, type CanvasPage } from '@/lib/document-layout'
+import { hasDocumentContent, ObjectTextFlow, objectFlowKey, PageBreak, ParagraphFormatting, type FlowReservation } from './document-extensions'
+
+export type { CanvasPage } from '@/lib/document-layout'
+
+type DocumentCanvasProps = {
+  document: WebDocument
+  onChange: (changes: Partial<WebDocument>) => void
+  onEditor: (editor: Editor | null) => void
+  selectedObjectId: string | null
+  onSelectObject: (id: string | null) => void
+  zoom: number
+  showRuler: boolean
+  showGrid: boolean
+  showMarks: boolean
+  onPages: (pages: CanvasPage[]) => void
+  readOnly?: boolean
+}
+
+const canvasStyles = `
+.document-canvas{position:relative;isolation:isolate;color:#172033;font-family:Sarabun,"Noto Sans Thai",sans-serif;font-size:16pt;line-height:1.5;text-wrap:wrap}
+.document-page{position:absolute;left:0;pointer-events:none;box-shadow:0 3px 16px #0f172a18;box-sizing:border-box;z-index:-1}
+.document-editor-surface{position:relative;z-index:1}
+.document-body-editor{outline:none;box-sizing:border-box!important;border:0!important;background:transparent;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;caret-color:#2563eb}
+.document-body-editor p,.document-textbox-editor p{margin:0 0 8pt;min-height:1.5em;word-break:normal;line-break:auto}
+.document-body-editor h1,.document-textbox-editor h1{font-size:30pt;font-weight:700;line-height:1.3;margin:14pt 0 10pt}
+.document-body-editor h2,.document-textbox-editor h2{font-size:23pt;font-weight:700;line-height:1.35;margin:12pt 0 8pt}
+.document-body-editor h3,.document-textbox-editor h3{font-size:19pt;font-weight:700;line-height:1.4;margin:10pt 0 6pt}
+.document-body-editor ul,.document-textbox-editor ul{list-style:disc;padding-left:1.5em}.document-body-editor ol,.document-textbox-editor ol{list-style:decimal;padding-left:1.5em}
+.document-body-editor blockquote{border-left:3px solid #cbd5e1;margin:10pt 0;padding-left:12pt;color:#64748b}
+.document-body-editor a,.document-textbox-editor a{color:#2563eb;text-decoration:underline;cursor:pointer}
+.document-body-editor img{max-width:100%;height:auto;display:inline-block;vertical-align:middle}
+.document-body-editor img.ProseMirror-selectednode{outline:2px solid #2563eb}
+.document-body-editor .table-plus{width:100%;border-collapse:collapse;table-layout:fixed;margin:8pt 0}
+.document-body-editor .table-plus td,.document-body-editor .table-plus th,.document-body-editor td,.document-body-editor th{border:1px solid #94a3b8;padding:5pt 7pt;vertical-align:top;position:relative;word-break:normal!important;min-width:40px}
+.document-body-editor th{background:#f1f5f9;font-weight:700}.document-body-editor .selectedCell:after{background:#2563eb18;content:"";inset:0;pointer-events:none;position:absolute;z-index:2}
+.document-body-editor .column-resize-handle{position:absolute;right:-2px;top:0;bottom:-2px;width:4px;background:#2563eb;pointer-events:none}
+.document-body-editor .rm-page-header,.document-body-editor .rm-page-footer{font-size:10pt;line-height:1.25;color:#64748b;box-sizing:content-box}
+.document-body-editor .rm-pagination-gap{box-sizing:border-box;border:0!important}
+.document-body-editor .rm-pages-wrapper{pointer-events:none;user-select:none}.document-body-editor .rm-first-page-header{pointer-events:none;user-select:none}
+.document-body-editor .document-manual-page-break{min-height:2px;position:relative;pointer-events:none}
+.document-canvas.show-marks .document-body-editor p:after{content:"¶";color:#94a3b8;font-size:.8em;pointer-events:none}
+.document-canvas.show-marks .document-manual-page-break:after{content:"ตัวแบ่งหน้า";position:absolute;top:0;left:0;width:100%;border-top:1px dashed #94a3b8;font-family:inherit;font-size:10px;color:#94a3b8}
+.document-object-layer{position:absolute;inset:0;pointer-events:none;z-index:3}.document-object{position:absolute;box-sizing:border-box;pointer-events:auto;outline:none;touch-action:none;transform-origin:center}
+.document-object.is-selected:after{content:"";position:absolute;inset:-1px;border:1.5px solid #2563eb;pointer-events:none}
+.document-object-body{width:100%;height:100%;box-sizing:border-box;overflow:hidden}.document-object img{width:100%;height:100%;object-fit:cover;pointer-events:none;user-select:none}
+.document-object-toolbar{position:absolute;top:-64px;left:0;display:flex;align-items:center;gap:2px;white-space:nowrap;height:29px;padding:2px 3px;border:1px solid #dbe5f1;background:white;box-shadow:0 2px 6px #0f172a12;border-radius:6px;color:#475569;font-family:inherit;font-size:10px;z-index:5}
+.document-object-toolbar button{border:0;background:transparent;padding:3px;cursor:pointer;display:flex;align-items:center;border-radius:3px}.document-object-toolbar button:hover{background:#eff6ff}.document-object-move{cursor:move;display:flex;align-items:center;gap:3px;padding:2px 5px}
+.document-resize-handle{position:absolute;width:8px;height:8px;border:1.5px solid #2563eb;background:white;border-radius:1px;z-index:8;pointer-events:auto;touch-action:none}
+.document-rotation-handle{position:absolute;left:calc(50% - 8px);top:-28px;width:16px;height:16px;border:1.5px solid #2563eb;background:white;border-radius:50%;color:#2563eb;display:flex;align-items:center;justify-content:center;z-index:9;cursor:grab;touch-action:none}
+.document-rotation-handle:after{content:"";position:absolute;left:6px;top:14px;height:11px;border-left:1px solid #2563eb;pointer-events:none}
+.document-textbox-editor{outline:none;width:100%;min-height:100%;overflow-wrap:anywhere;white-space:pre-wrap;cursor:text;touch-action:auto}.document-textbox-editor p:last-child{margin-bottom:0}.document-textbox-editor[contenteditable=false]{cursor:move}
+.document-page-grid{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(to right,#2563eb0d 1px,transparent 1px),linear-gradient(to bottom,#2563eb0d 1px,transparent 1px);background-size:${5 * MM_TO_PX}px ${5 * MM_TO_PX}px}
+.document-alignment-guide{position:absolute;top:0;bottom:0;border-left:1px dashed #f43f5e;z-index:10;pointer-events:none}
+.document-ruler{position:relative;height:24px;background:#fbfdff;color:#7c8da6;font-size:9px;font-family:Arial,sans-serif;border-bottom:1px solid #dbe3ed;user-select:none}.document-ruler span{position:absolute;bottom:0;border-left:1px solid #cbd5e1;height:7px;padding-left:3px;line-height:8px}.document-ruler span:nth-child(even){height:12px}
+.document-vertical-ruler{position:absolute;left:-28px;top:0;width:23px;height:100%;background:#f8fafc;border-right:1px solid #dbe3ed;color:#94a3b8;font-size:9px;font-family:Arial,sans-serif;user-select:none;pointer-events:none}.document-vertical-ruler span{position:absolute;left:0;width:100%;border-top:1px solid #cbd5e1;padding-top:2px;padding-left:4px}
+@media print{.document-canvas [data-print-hidden],.document-object-toolbar,.document-resize-handle,.document-rotation-handle{display:none!important}.document-object.is-selected:after,.document-body-editor img.ProseMirror-selectednode{border:0!important;outline:0!important}.document-page{box-shadow:none!important}.document-body-editor{caret-color:transparent}.document-canvas.show-marks .document-body-editor p:after,.document-canvas.show-marks .document-manual-page-break:after{display:none!important}}
+`
+
+function commonExtensions() {
+  return [StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }), TextStyleKit, Highlight.configure({ multicolor: true }), Subscript, Superscript, TextAlign.configure({ types: ['heading', 'paragraph'] }), ParagraphFormatting]
+}
+
+type ParagraphLocation = { id: string; position: number; nodeSize: number; top: number; bottom: number }
+type ResolvedObject = DocumentObject & { canvasTop: number }
+
+export function DocumentCanvas(props: DocumentCanvasProps) {
+  const { document: model, selectedObjectId, zoom, showRuler, showGrid, showMarks, readOnly = false } = props
+  const callbacks = useRef(props)
+  callbacks.current = props
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const paragraphLocations = useRef<ParagraphLocation[]>([])
+  const [pageCount, setPageCount] = useState(1)
+  const [paragraphVersion, setParagraphVersion] = useState(0)
+  const [centerGuide, setCenterGuide] = useState(false)
+  const layoutRequest = useRef<number>(0)
+  const layoutTick = useRef<() => void>(() => {})
+  const lastContent = useRef(JSON.stringify(model.content))
+  const lastFlow = useRef('')
+  const settings = model.pageSettings
+  const dimensions = pageDimensions(settings)
+  const physicalWidth = dimensions.width * MM_TO_PX
+  const physicalHeight = dimensions.height * MM_TO_PX
+  const scheduleLayout = useCallback(() => {
+    cancelAnimationFrame(layoutRequest.current)
+    layoutRequest.current = requestAnimationFrame(() => layoutTick.current())
+  }, [])
+  const extensions = useMemo(() => [...commonExtensions(), Image.configure({ inline: true, allowBase64: false }), TableKitPlus.configure({ table: { resizable: true, HTMLAttributes: { class: 'table-plus' } } }), PageBreak, ObjectTextFlow, PaginationPlus.configure({
+    pageWidth: physicalWidth, pageHeight: physicalHeight, pageGap: PAGE_GAP, pageGapBorderSize: 0,
+    pageBreakBackground: '#eaf0f6', marginTop: settings.margins.top * MM_TO_PX, marginBottom: settings.margins.bottom * MM_TO_PX,
+    marginLeft: settings.margins.left * MM_TO_PX, marginRight: settings.margins.right * MM_TO_PX,
+    contentMarginTop: 0, contentMarginBottom: 0, headerLeft: escapeHeaderText(settings.header), headerRight: '',
+    footerLeft: escapeHeaderText(settings.footer), footerRight: settings.pageNumbers ? '{page}' : '',
+  })], [model.id]) // Extensions are configured dynamically below without resetting the document or IME selection.
+
+  const editor = useEditor({
+    extensions,
+    content: hasDocumentContent(model.content),
+    editable: !readOnly,
+    immediatelyRender: false,
+    shouldRerenderOnTransaction: false,
+    editorProps: { attributes: { class: 'document-body-editor', lang: 'th', 'aria-label': 'เนื้อหาเอกสาร', spellcheck: 'true' } },
+    onUpdate: ({ editor: current }) => {
+      const content = current.getJSON()
+      lastContent.current = JSON.stringify(content)
+      callbacks.current.onChange({ content })
+      scheduleLayout()
+    },
+    onSelectionUpdate: () => scheduleLayout(),
+    onFocus: ({ editor: current }) => {
+      callbacks.current.onEditor(current)
+      callbacks.current.onSelectObject(null)
+    },
+    onCreate: () => scheduleLayout(),
+    onTransaction: () => scheduleLayout(),
+  }, [model.id])
+
+  useEffect(() => {
+    if (!editor) return
+    callbacks.current.onEditor(editor)
+    return () => { callbacks.current.onEditor(null) }
+  }, [editor])
+
+  useEffect(() => { editor?.setEditable(!readOnly) }, [editor, readOnly])
+  useEffect(() => {
+    if (!editor) return
+    const incoming = JSON.stringify(model.content)
+    if (incoming === lastContent.current) return
+    const replace = () => {
+      lastContent.current = incoming
+      editor.commands.setContent(hasDocumentContent(model.content), { emitUpdate: false })
+      scheduleLayout()
+    }
+    if (editor.view.composing) {
+      editor.view.dom.addEventListener('compositionend', replace, { once: true })
+      return () => editor.view.dom.removeEventListener('compositionend', replace)
+    }
+    replace()
+  }, [editor, model.content, scheduleLayout])
+
+  useEffect(() => {
+    if (!editor) return
+    editor.chain().updatePageWidth(physicalWidth).updatePageHeight(physicalHeight)
+      .updateMargins({ top: settings.margins.top * MM_TO_PX, right: settings.margins.right * MM_TO_PX, bottom: settings.margins.bottom * MM_TO_PX, left: settings.margins.left * MM_TO_PX })
+      .updateHeaderContent(escapeHeaderText(settings.header), '')
+      .updateFooterContent(escapeHeaderText(settings.footer), settings.pageNumbers ? '{page}' : '').run()
+    scheduleLayout()
+  }, [editor, settings, physicalWidth, physicalHeight, scheduleLayout])
+
+  const resolvedObjects = useMemo(() => model.objects.map(object => {
+    let canvasTop = objectCanvasTop(object, settings)
+    if (object.anchor.kind === 'paragraph') {
+      const anchor = object.anchor
+      const paragraph = paragraphLocations.current.find(location => location.id === anchor.id)
+      if (paragraph) canvasTop = paragraph.top + (object.anchor.offsetY ?? 0) * MM_TO_PX
+    }
+    const position = canvasPositionToPage(canvasTop, settings)
+    return { ...object, ...position, canvasTop }
+  }), [model.objects, settings, paragraphVersion])
+  const actualPageCount = Math.max(pageCount, ...resolvedObjects.map(object => object.page), 1)
+  const pages = useMemo(() => canvasPages(settings, actualPageCount), [settings, actualPageCount])
+  const canvasHeight = actualPageCount * physicalHeight + (actualPageCount - 1) * PAGE_GAP
+
+  layoutTick.current = () => {
+    if (!editor || editor.isDestroyed || !canvasRef.current) return
+    const root = editor.view.dom
+    const rootRect = root.getBoundingClientRect()
+    const factor = rootRect.width / physicalWidth || 1
+    const locations: ParagraphLocation[] = []
+    editor.state.doc.descendants((node, position) => {
+      if (!['paragraph', 'heading'].includes(node.type.name)) return
+      const element = editor.view.nodeDOM(position)
+      if (!(element instanceof HTMLElement)) return
+      const rectangle = element.getBoundingClientRect()
+      const top = (rectangle.top - rootRect.top) / factor
+      locations.push({ id: node.attrs.id || '', position, nodeSize: node.nodeSize, top, bottom: (rectangle.bottom - rootRect.top) / factor })
+    })
+    const previous = paragraphLocations.current
+    if (JSON.stringify(previous) !== JSON.stringify(locations)) {
+      paragraphLocations.current = locations
+      setParagraphVersion(version => version + 1)
+    }
+    const breaks = root.querySelectorAll('[data-rm-pagination] > .rm-page-break')
+    setPageCount(Math.max(1, breaks.length))
+    let changedBreak = false
+    root.querySelectorAll<HTMLElement>('[data-page-break]').forEach(element => {
+      const top = (element.getBoundingClientRect().top - rootRect.top) / factor
+      const page = Math.floor((top + 1) / (physicalHeight + PAGE_GAP))
+      const header = root.querySelector<HTMLElement>('.rm-first-page-header')
+      const headerHeight = header?.offsetHeight || settings.margins.top * MM_TO_PX
+      const height = Math.max(2, (page + 1) * (physicalHeight + PAGE_GAP) + headerHeight - top)
+      if (Math.abs((parseFloat(element.style.height) || 0) - height) > 1) {
+        element.style.height = `${height}px`
+        changedBreak = true
+      }
+    })
+    if (changedBreak) editor.view.dispatch(editor.state.tr.setMeta('document-layout', true).setMeta('addToHistory', false))
+    const contentWidth = physicalWidth - (settings.margins.left + settings.margins.right) * MM_TO_PX
+    const flow: FlowReservation[] = []
+    for (const object of resolvedObjects) {
+      if (object.wrap === 'inline') continue
+      const anchor = object.anchor
+      const candidate = anchor.kind === 'paragraph'
+        ? locations.find(location => location.id === anchor.id)
+        : [...locations].reverse().find(location => location.top <= object.canvasTop + 1)
+      const paragraph = candidate || locations[0]
+      if (!paragraph) continue
+      const relativeX = object.x * MM_TO_PX - settings.margins.left * MM_TO_PX
+      const side = relativeX + object.width * MM_TO_PX / 2 <= contentWidth / 2 ? 'left' : 'right'
+      const width = side === 'left' ? relativeX + object.width * MM_TO_PX + 8 : contentWidth - relativeX + 8
+      flow.push({ id: object.id, position: paragraph.position, nodeSize: paragraph.nodeSize, side, width: Math.min(contentWidth, Math.max(1, width)), height: object.height * MM_TO_PX + 6, offset: Math.max(0, object.canvasTop - paragraph.top), wrap: width > contentWidth * 0.75 ? 'top-bottom' : object.wrap })
+    }
+    for (const reservation of flow) {
+      const siblings = flow.filter(item => item.position === reservation.position && item.wrap === 'square')
+      const left = Math.max(0, ...siblings.filter(item => item.side === 'left').map(item => item.width))
+      const right = Math.max(0, ...siblings.filter(item => item.side === 'right').map(item => item.width))
+      if (left + right > contentWidth * 0.8) for (const sibling of siblings) sibling.wrap = 'top-bottom'
+    }
+    const flowFingerprint = JSON.stringify(flow.map(item => ({ ...item, offset: Math.round(item.offset) })))
+    if (!editor.view.composing && lastFlow.current !== flowFingerprint) {
+      lastFlow.current = flowFingerprint
+      editor.view.dispatch(editor.state.tr.setMeta(objectFlowKey, flow).setMeta('addToHistory', false))
+    }
+  }
+
+  useEffect(() => {
+    if (!editor) return
+    const observer = new ResizeObserver(scheduleLayout)
+    observer.observe(editor.view.dom)
+    editor.view.dom.addEventListener('load', scheduleLayout, true)
+    editor.view.dom.addEventListener('compositionend', scheduleLayout)
+    document.fonts.ready.then(scheduleLayout)
+    scheduleLayout()
+    return () => {
+      observer.disconnect()
+      editor.view.dom.removeEventListener('load', scheduleLayout, true)
+      editor.view.dom.removeEventListener('compositionend', scheduleLayout)
+      cancelAnimationFrame(layoutRequest.current)
+    }
+  }, [editor, scheduleLayout])
+  useEffect(scheduleLayout, [model.objects, settings, zoom, paragraphVersion, scheduleLayout])
+  useEffect(() => { callbacks.current.onPages(pages) }, [pages])
+
+  const changeObject = useCallback((id: string, changes: Partial<DocumentObject>) => {
+    const current = callbacks.current.document
+    callbacks.current.onChange({ objects: current.objects.map(object => object.id === id ? { ...object, ...changes } : object) })
+  }, [])
+  const deleteObject = useCallback((id: string) => {
+    callbacks.current.onChange({ objects: callbacks.current.document.objects.filter(object => object.id !== id) })
+    callbacks.current.onSelectObject(null)
+    callbacks.current.onEditor(editor)
+  }, [editor])
+  const duplicateObject = useCallback((id: string) => {
+    const current = callbacks.current.document
+    const object = current.objects.find(candidate => candidate.id === id)
+    if (!object) return
+    const duplicate = { ...structuredClone(object), id: crypto.randomUUID(), x: object.x + 5, y: object.y + 5, zIndex: Math.max(1, ...current.objects.map(candidate => candidate.zIndex)) + 1 }
+    callbacks.current.onChange({ objects: [...current.objects, duplicate] })
+    callbacks.current.onSelectObject(duplicate.id)
+  }, [])
+  useEffect(() => {
+    if (readOnly) return
+    const isTextInput = (target: EventTarget | null) => target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof Element && Boolean(target.closest('[contenteditable=true]')))
+    const copy = (event: ClipboardEvent) => {
+      if (isTextInput(event.target) || !event.clipboardData) return
+      const object = callbacks.current.document.objects.find(candidate => candidate.id === callbacks.current.selectedObjectId)
+      if (!object) return
+      event.preventDefault()
+      event.clipboardData.setData('application/x-sena-document-object', JSON.stringify(object))
+      event.clipboardData.setData('text/plain', object.type === 'textbox' ? textboxPlainText(object.content) : 'วัตถุในเอกสาร')
+      if (event.type === 'cut') deleteObject(object.id)
+    }
+    const paste = (event: ClipboardEvent) => {
+      if (isTextInput(event.target)) return
+      const json = event.clipboardData?.getData('application/x-sena-document-object')
+      if (!json || json.length > 2_000_000) return
+      try {
+        const object = JSON.parse(json) as DocumentObject
+        if (!['textbox', 'image', 'shape', 'line'].includes(object.type) || ![object.x, object.y, object.width, object.height, object.page].every(Number.isFinite)) return
+        if (object.src && !/^(https?:\/\/|\/)/i.test(object.src)) return
+        event.preventDefault()
+        const current = callbacks.current.document
+        const geometry = constrainObject({ ...object, x: object.x + 5, y: object.y + 5 }, current.pageSettings)
+        const duplicate: DocumentObject = { ...object, ...geometry, id: crypto.randomUUID(), anchor: { kind: 'page', page: geometry.page }, zIndex: Math.max(1, ...current.objects.map(candidate => candidate.zIndex)) + 1 }
+        callbacks.current.onChange({ objects: [...current.objects, duplicate] })
+        callbacks.current.onSelectObject(duplicate.id)
+      } catch { /* The ordinary browser paste remains available for unrelated clipboard data. */ }
+    }
+    document.addEventListener('copy', copy)
+    document.addEventListener('cut', copy)
+    document.addEventListener('paste', paste)
+    return () => { document.removeEventListener('copy', copy); document.removeEventListener('cut', copy); document.removeEventListener('paste', paste) }
+  }, [readOnly, deleteObject])
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (readOnly || !callbacks.current.selectedObjectId || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target instanceof Element && event.target.closest('[contenteditable=true]'))) return
+      const object = callbacks.current.document.objects.find(candidate => candidate.id === callbacks.current.selectedObjectId)
+      if (!object) return
+      if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteObject(object.id) }
+      if (event.key === 'Escape') { callbacks.current.onSelectObject(null); callbacks.current.onEditor(editor) }
+      const moves: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+      if (moves[event.key]) {
+        event.preventDefault()
+        const [x, y] = moves[event.key]
+        const step = event.shiftKey ? 5 : 1
+        const geometry = constrainObject({ ...object, x: object.x + x * step, y: object.y + y * step }, callbacks.current.document.pageSettings)
+        changeObject(object.id, { ...geometry, anchor: { kind: 'page', page: geometry.page } })
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') { event.preventDefault(); duplicateObject(object.id) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [readOnly, changeObject, deleteObject, duplicateObject, editor])
+
+  return <div className="document-canvas-zoom-space" style={{ width: physicalWidth * zoom, minWidth: physicalWidth * zoom, height: (canvasHeight + (showRuler ? 24 : 0)) * zoom, position: 'relative', margin: '0 auto' }}>
+    <div className="document-canvas-scale" style={{ width: physicalWidth, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
+      {showRuler && <div className="document-ruler" data-print-hidden>{Array.from({ length: Math.floor(dimensions.width / 5) + 1 }, (_, index) => <span key={index} style={{ left: index * 5 * MM_TO_PX }}>{index % 2 === 0 ? index / 2 : ''}</span>)}</div>}
+      <div ref={canvasRef} data-document-canvas data-page-width={physicalWidth} data-page-height={physicalHeight} data-page-gap={PAGE_GAP} className={`document-canvas${showMarks ? ' show-marks' : ''}`} style={{ width: physicalWidth, minHeight: canvasHeight, height: canvasHeight }} onPointerDown={event => {
+        if (!(event.target instanceof Element) || event.target.closest('.document-object')) return
+        callbacks.current.onSelectObject(null)
+        if (editor) callbacks.current.onEditor(editor)
+      }}>
+        <style>{canvasStyles}</style>
+        {pages.map(page => <div key={page.index} className="document-page" data-page-number={page.index + 1} style={{ top: page.top, width: page.width, height: page.height, background: settings.background, border: settings.border === 'none' ? undefined : `1px solid ${settings.border}` }}>
+          {showGrid && <div className="document-page-grid" data-print-hidden />}
+          {showRuler && <div className="document-vertical-ruler" data-print-hidden>{Array.from({ length: Math.floor(dimensions.height / 10) }, (_, index) => <span key={index} style={{ top: index * 10 * MM_TO_PX }}>{index}</span>)}</div>}
+        </div>)}
+        <div className="document-editor-surface"><EditorContent editor={editor} /></div>
+        <div className="document-object-layer">
+          {resolvedObjects.map(object => <FloatingObject key={object.id} object={object} selected={selectedObjectId === object.id} readOnly={readOnly} zoom={zoom} grid={showGrid} pageSettings={settings} onChange={changes => changeObject(object.id, changes)} onSelect={() => callbacks.current.onSelectObject(object.id)} onEditor={active => callbacks.current.onEditor(active || editor)} onDelete={() => deleteObject(object.id)} onDuplicate={() => duplicateObject(object.id)} onGuide={setCenterGuide} />)}
+        </div>
+        {centerGuide && <div className="document-alignment-guide" data-print-hidden style={{ left: physicalWidth / 2 }} />}
+      </div>
+    </div>
+  </div>
+}
+
+function textboxPlainText(content: DocumentObject['content']): string {
+  if (!content) return ''
+  if (content.type === 'text') return content.text || ''
+  return (content.content || []).map(node => textboxPlainText(node)).join(content.type === 'doc' ? '\n' : '')
+}
+
+type FloatingObjectProps = {
+  object: ResolvedObject; selected: boolean; readOnly: boolean; zoom: number; grid: boolean; pageSettings: WebDocument['pageSettings']
+  onChange: (changes: Partial<DocumentObject>) => void; onSelect: () => void; onEditor: (editor: Editor | null) => void; onDelete: () => void; onDuplicate: () => void; onGuide: (visible: boolean) => void
+}
+
+function FloatingObject(props: FloatingObjectProps) {
+  const { object, selected, readOnly, pageSettings } = props
+  const latest = useRef(props)
+  latest.current = props
+  const elementRef = useRef<HTMLDivElement>(null)
+  const rotationRef = useRef<HTMLButtonElement>(null)
+  const [editing, setEditing] = useState(false)
+  const lastContent = useRef(JSON.stringify(object.content))
+  const textbox = useEditor({
+    extensions: commonExtensions(), content: hasDocumentContent(object.content), editable: false,
+    immediatelyRender: false, shouldRerenderOnTransaction: false,
+    editorProps: { attributes: { class: 'document-textbox-editor', lang: 'th', 'aria-label': 'ข้อความในกล่องข้อความ' } },
+    onUpdate: ({ editor }) => { const content = editor.getJSON(); lastContent.current = JSON.stringify(content); latest.current.onChange({ content }) },
+    onFocus: ({ editor }) => latest.current.onEditor(editor),
+  }, [object.id])
+  useEffect(() => {
+    if (!textbox) return
+    textbox.setEditable(editing && !readOnly)
+    if (editing && !readOnly) { textbox.commands.focus(); latest.current.onEditor(textbox) }
+  }, [textbox, editing, readOnly])
+  useEffect(() => { if (!selected) setEditing(false) }, [selected])
+  useEffect(() => {
+    const next = JSON.stringify(object.content)
+    if (textbox && next !== lastContent.current && !textbox.view.composing) {
+      lastContent.current = next
+      textbox.commands.setContent(hasDocumentContent(object.content), { emitUpdate: false })
+    }
+  }, [textbox, object.content])
+
+  useEffect(() => {
+    if (!elementRef.current || readOnly) return
+    const element = elementRef.current
+    let gesture = { x: object.x, top: object.canvasTop, width: object.width, height: object.height }
+    const start = () => {
+      const current = latest.current.object
+      gesture = { x: current.x, top: current.canvasTop, width: current.width, height: current.height }
+      latest.current.onSelect()
+    }
+    const commit = () => {
+      const current = latest.current
+      const size = pageDimensions(current.pageSettings)
+      let x = snapMillimeters(gesture.x, current.grid)
+      const center = Math.abs(x + gesture.width / 2 - size.width / 2) < 1.5
+      if (center) x = (size.width - gesture.width) / 2
+      current.onGuide(center)
+      const position = canvasPositionToPage(gesture.top, current.pageSettings)
+      const geometry = constrainObject({ x, y: snapMillimeters(position.y, current.grid), page: position.page, width: gesture.width, height: gesture.height }, current.pageSettings)
+      current.onChange({ ...geometry, anchor: { kind: 'page', page: geometry.page } })
+    }
+    const target = interact(element).draggable({
+      allowFrom: '.document-object-move, .document-object-body', ignoreFrom: '[contenteditable=true], .document-resize-handle, .document-rotation-handle',
+      listeners: {
+        start,
+        move(event) { gesture.x += event.dx / latest.current.zoom / MM_TO_PX; gesture.top += event.dy / latest.current.zoom; commit() },
+        end() { latest.current.onGuide(false) },
+      },
+    }).resizable({
+      edges: { left: '.document-resize-w', right: '.document-resize-e', top: '.document-resize-n', bottom: '.document-resize-s' },
+      listeners: {
+        start,
+        move(event) {
+          const current = latest.current
+          const radians = current.object.rotation * Math.PI / 180
+          const cosine = Math.cos(radians), sine = Math.sin(radians)
+          const localX = (event.dx * cosine + event.dy * sine) / current.zoom / MM_TO_PX
+          const localY = (-event.dx * sine + event.dy * cosine) / current.zoom / MM_TO_PX
+          const previousWidth = gesture.width, previousHeight = gesture.height
+          let width = previousWidth + (event.edges.right ? localX : 0) - (event.edges.left ? localX : 0)
+          let height = previousHeight + (event.edges.bottom ? localY : 0) - (event.edges.top ? localY : 0)
+          if (current.object.lockAspectRatio) {
+            const ratio = current.object.width / current.object.height
+            if (event.edges.left || event.edges.right) height = width / ratio
+            else width = height * ratio
+          }
+          gesture.width = Math.max(2, width)
+          gesture.height = Math.max(0.5, height)
+          const widthChange = gesture.width - previousWidth, heightChange = gesture.height - previousHeight
+          const localCenterX = event.edges.left ? -widthChange / 2 : event.edges.right ? widthChange / 2 : 0
+          const localCenterY = event.edges.top ? -heightChange / 2 : event.edges.bottom ? heightChange / 2 : 0
+          gesture.x += localCenterX * cosine - localCenterY * sine - widthChange / 2
+          gesture.top += (localCenterX * sine + localCenterY * cosine - heightChange / 2) * MM_TO_PX
+          commit()
+        },
+        end() { latest.current.onGuide(false) },
+      },
+    })
+    return () => { target.unset() }
+  }, [object.id, readOnly])
+
+  useEffect(() => {
+    if (!rotationRef.current || readOnly || !selected) return
+    const rotate = interact(rotationRef.current).draggable({ listeners: {
+      start() { latest.current.onSelect() },
+      move(event) {
+        const rectangle = elementRef.current?.getBoundingClientRect()
+        if (!rectangle) return
+        const angle = Math.atan2(event.clientY - (rectangle.top + rectangle.height / 2), event.clientX - (rectangle.left + rectangle.width / 2)) * 180 / Math.PI + 90
+        latest.current.onChange({ rotation: event.shiftKey ? Math.round(angle / 15) * 15 : Math.round(angle) })
+      },
+    } })
+    return () => { rotate.unset() }
+  }, [selected, readOnly])
+
+  const border = `${object.borderWidth ?? 1}px solid ${object.border || 'transparent'}`
+  const bodyStyle: CSSProperties = { background: object.type === 'image' || object.type === 'line' ? undefined : object.fill || 'transparent', border: object.type === 'line' ? undefined : border, padding: object.type === 'textbox' ? (object.padding ?? 3) * MM_TO_PX : 0, opacity: object.opacity }
+  if (object.type === 'shape' && object.shape === 'ellipse') bodyStyle.borderRadius = '50%'
+  if (object.type === 'shape' && object.shape === 'triangle') bodyStyle.clipPath = 'polygon(50% 0,100% 100%,0 100%)'
+  if (object.type === 'line') { bodyStyle.background = object.border || '#2563eb'; bodyStyle.height = Math.max(1, object.borderWidth || 1); bodyStyle.position = 'absolute'; bodyStyle.top = '50%' }
+  const handles = [
+    { key: 'nw', left: '-4px', top: '-4px', cursor: 'nwse-resize', classes: 'document-resize-n document-resize-w' },
+    { key: 'n', left: 'calc(50% - 4px)', top: '-4px', cursor: 'ns-resize', classes: 'document-resize-n' },
+    { key: 'ne', left: 'calc(100% - 4px)', top: '-4px', cursor: 'nesw-resize', classes: 'document-resize-n document-resize-e' },
+    { key: 'e', left: 'calc(100% - 4px)', top: 'calc(50% - 4px)', cursor: 'ew-resize', classes: 'document-resize-e' },
+    { key: 'se', left: 'calc(100% - 4px)', top: 'calc(100% - 4px)', cursor: 'nwse-resize', classes: 'document-resize-s document-resize-e' },
+    { key: 's', left: 'calc(50% - 4px)', top: 'calc(100% - 4px)', cursor: 'ns-resize', classes: 'document-resize-s' },
+    { key: 'sw', left: '-4px', top: 'calc(100% - 4px)', cursor: 'nesw-resize', classes: 'document-resize-s document-resize-w' },
+    { key: 'w', left: '-4px', top: 'calc(50% - 4px)', cursor: 'ew-resize', classes: 'document-resize-w' },
+  ]
+  return <div ref={elementRef} tabIndex={readOnly ? -1 : 0} role="group" aria-label={object.type === 'textbox' ? 'กล่องข้อความ' : object.type === 'image' ? 'รูปภาพ' : object.type === 'line' ? 'เส้น' : 'รูปทรง'} data-object-id={object.id} data-page-number={object.page} className={`document-object${selected && !readOnly ? ' is-selected' : ''}`} style={{ left: object.x * MM_TO_PX, top: object.canvasTop, width: object.width * MM_TO_PX, height: object.height * MM_TO_PX, transform: `rotate(${object.rotation}deg)`, zIndex: Math.max(0, object.zIndex) }} onPointerDown={event => {
+    if (readOnly) return
+    props.onSelect()
+    const typing = editing && event.target instanceof Element && event.target.closest('[contenteditable=true]')
+    if (!typing) { event.preventDefault(); elementRef.current?.focus({ preventScroll: true }); props.onEditor(null) }
+  }} onDoubleClick={event => { if (object.type === 'textbox' && !readOnly) { event.stopPropagation(); setEditing(true) } }} onKeyDown={(event: ReactKeyboardEvent) => { if (event.key === 'Escape') { setEditing(false); elementRef.current?.focus(); props.onEditor(null) } }}>
+    <div className="document-object-body" style={bodyStyle}>
+      {object.type === 'image' && <img src={object.src} alt="รูปภาพในเอกสาร" draggable={false} />}
+      {object.type === 'textbox' && <EditorContent editor={textbox} />}
+    </div>
+    {selected && !readOnly && <>
+      <div className="document-object-toolbar" data-print-hidden>
+        <span className="document-object-move"><Grip size={12} />{Math.round(object.x * 10) / 10}, {Math.round(object.y * 10) / 10} มม.</span>
+        <button type="button" title="ทำสำเนาวัตถุ (Ctrl+D)" onClick={props.onDuplicate}><Copy size={13} /></button>
+        <button type="button" title="ลบวัตถุ" onClick={props.onDelete}><Trash2 size={13} /></button>
+      </div>
+      {handles.map(handle => <span key={handle.key} data-print-hidden className={`document-resize-handle ${handle.classes}`} style={{ left: handle.left, top: handle.top, cursor: handle.cursor }} />)}
+      <button ref={rotationRef} data-print-hidden className="document-rotation-handle" title="ลากเพื่อหมุน · Shift ล็อกทุก 15°" type="button"><RotateCw size={10} /></button>
+    </>}
+  </div>
+}

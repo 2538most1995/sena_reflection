@@ -19,6 +19,8 @@ export default defineConfig(({ mode }) => {
                 bunny('Noto Sans Thai', {
                     weights: [400, 500, 600, 700],
                 }),
+                bunny('Anuphan', { weights: [400, 500, 600, 700] }),
+                bunny('Sarabun', { weights: [400, 700], styles: ['normal', 'italic'] }),
             ],
         }),
         tailwindcss(),

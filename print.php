@@ -28,6 +28,7 @@ register_shutdown_function(function () {
 });
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/laravel/app/Services/DocumentRichText.php';
 
 
 $id = $_GET['id'] ?? null;
@@ -552,7 +553,7 @@ function pathToLocalFileUrl($path)
 
 function outputPrintableHtmlPreview($contentHtml, $filename)
 {
-    global $recordTextAlign, $pdfPageMarginTopPx, $pdfPageMarginRightPx, $pdfPageMarginBottomPx, $pdfPageMarginLeftPx, $isClientPdfExport, $isLayoutEditorPreview;
+    global $recordTextAlign, $pdfPageMarginTopPx, $pdfPageMarginRightPx, $pdfPageMarginBottomPx, $pdfPageMarginLeftPx, $isClientPdfExport, $isLayoutEditorPreview, $isRecordDocumentEditor;
 
     if (ob_get_length()) {
         ob_clean();
@@ -685,10 +686,10 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 .dotted-text-content p.official-para,
                 .dotted-text-content p,
                 .official-line {
-                    text-align: ' . $recordTextAlign . ' !important;
+                    text-align: ' . $recordTextAlign . ';
                     text-justify: inter-character !important;
-                    -webkit-text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ' !important;
-                    text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ' !important;
+                    -webkit-text-align-last: auto;
+                    text-align-last: auto;
                     letter-spacing: 0 !important;
                     word-spacing: normal !important;
                     font-kerning: none !important;
@@ -909,12 +910,19 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 var notifyGeometry = function () {
                     var pages = Array.from(document.querySelectorAll('.page')).filter(function (page) { return page.getBoundingClientRect().height > 0; });
                     if (!pages.length) return;
+                    var sheets = pages.flatMap(function (page) {
+                        var rect = page.getBoundingClientRect();
+                        var sheetHeight = parseFloat(window.getComputedStyle(page).minHeight) || 1123;
+                        return Array.from({ length: Math.max(1, Math.ceil((rect.height - 1) / sheetHeight)) }, function (_, index) {
+                            return { width: Math.round(rect.width), height: Math.round(sheetHeight), top: Math.round(rect.top + index * sheetHeight) };
+                        });
+                    });
                     window.parent.postMessage({
                         source: 'sena-pdf-geometry',
                         pageWidth: pages.reduce(function (width, page) { return Math.max(width, page.getBoundingClientRect().width); }, 0),
                         documentHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
-                        pageCount: pages.length,
-                        pages: pages.map(function (page) { var rect = page.getBoundingClientRect(); return { width: Math.round(rect.width), height: Math.round(rect.height), top: Math.round(rect.top) }; }),
+                        pageCount: sheets.length,
+                        pages: sheets,
                         safeWarnings: warningIds()
                     }, '*');
                 };
@@ -1115,6 +1123,7 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                 document.addEventListener('pointerup', finish);
                 document.addEventListener('pointercancel', finish);
                 document.addEventListener('lostpointercapture', finish);
+                if (!window.senaRichTextEnabled) {
                 document.querySelectorAll('[data-preprint-setting]').forEach(function (item) {
                     item.setAttribute('title', 'คลิกเพื่อแก้ข้อความ · Enter เพิ่มบรรทัด · Tab ย่อหน้า · Esc ยกเลิก');
                     item.addEventListener('click', function (event) {
@@ -1157,6 +1166,7 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
                         }
                     });
                 });
+                }
                 document.addEventListener('keydown', function (event) {
                     if (event.target.closest('[data-preprint-setting], input, textarea, select')) return;
                     var item = event.target.closest('[data-layout-kind]');
@@ -1250,6 +1260,11 @@ function outputPrintableHtmlPreview($contentHtml, $filename)
             }());
         </script>
 HTML;
+    }
+
+    if ($isRecordDocumentEditor) {
+        $settingsEditorScript = '<script>window.senaRichTextEnabled = true;</script>' . $settingsEditorScript;
+        $settingsEditorScript .= '<script>' . file_get_contents(__DIR__ . '/assets/js/document-rich-editor.js') . '</script>';
     }
 
     $htmlClass = $isClientPdfExport ? ' class="client-pdf-export"' : '';
@@ -1469,12 +1484,19 @@ function textToHtmlWithLineBreaks($text)
 
 function preprintEditableHtml($settingKey, $html, $allowBr = false, $doubleClick = false)
 {
-    $settingKey = htmlspecialchars((string) $settingKey, ENT_QUOTES, 'UTF-8');
+    global $settings;
+    $rawSettingKey = (string) $settingKey;
+    $settingKey = htmlspecialchars($rawSettingKey, ENT_QUOTES, 'UTF-8');
     $allowBrAttr = $allowBr ? ' data-preprint-allow-br="1"' : '';
     $parsedHtml = parseManualPageBreaks($html);
     $doubleClickAttr = $doubleClick ? ' data-preprint-dblclick="1"' : '';
     $plainHtml = preg_replace('/<\/div>\s*<div[^>]*>/i', "\n", $html);
     $plainText = htmlspecialchars(html_entity_decode(strip_tags(preg_replace('/<br\s*\/?>/i', "\n", $plainHtml)), ENT_QUOTES | ENT_HTML5, 'UTF-8'), ENT_QUOTES, 'UTF-8');
+    $richHtml = \App\Services\DocumentRichText::render(html_entity_decode($plainText, ENT_QUOTES, 'UTF-8'), $rawSettingKey, (string) ($settings['document_rich_text'] ?? '{}'));
+    $richMap = json_decode((string) ($settings['document_rich_text'] ?? '{}'), true);
+    if (is_array($richMap) && isset($richMap[$rawSettingKey]) && \App\Services\DocumentRichText::normalize((string) ($richMap[$rawSettingKey]['text'] ?? '')) === \App\Services\DocumentRichText::normalize(html_entity_decode($plainText, ENT_QUOTES, 'UTF-8'))) {
+        $parsedHtml = parseManualPageBreaks($richHtml);
+    }
     return '<span class="preprint-live-editable" data-preprint-text="' . $plainText . '" data-preprint-setting="' . $settingKey . '"' . $allowBrAttr . $doubleClickAttr . '>' . $parsedHtml . '</span>';
 }
 
@@ -1523,6 +1545,7 @@ function hasPrintSettingValue(array $settings, $key)
 
 function buildInfoRow(array $segments)
 {
+    global $isRecordDocument;
     $html = '<table class="row-table"><tr>';
     $usedPercent = 0.0;
 
@@ -1542,7 +1565,11 @@ function buildInfoRow(array $segments)
         $usedPercent += extractPercentWidth($width);
         $valueClass = 'dotted-line' . ($nowrap ? ' nowrap' : '');
         $widthStyle = $width ? ' style="width:' . htmlspecialchars($width, ENT_QUOTES, 'UTF-8') . ';"' : '';
-        $html .= '<td class="' . $valueClass . '"' . $widthStyle . '>' . escapeTextPreserveSpaces($value) . '</td>';
+        $valueHtml = escapeTextPreserveSpaces($value);
+        if ($isRecordDocument && !empty($segment['editable_key'])) {
+            $valueHtml = preprintEditableHtml($segment['editable_key'], $valueHtml);
+        }
+        $html .= '<td class="' . $valueClass . '"' . $widthStyle . '>' . $valueHtml . '</td>';
     }
 
     if ($usedPercent > 0 && $usedPercent < 99) {
@@ -1565,7 +1592,7 @@ function extractPercentWidth($width)
 
 function buildDottedTextArea($text, $minLines, $maxLines = null, $settingKey = '')
 {
-    global $pdfLineSpacing;
+    global $pdfLineSpacing, $settings;
     $spacing = isset($pdfLineSpacing) ? (int)$pdfLineSpacing : 26;
     $normalized = str_replace(["\r\n", "\r"], "\n", (string) ($text ?? ''));
 
@@ -1604,6 +1631,10 @@ function buildDottedTextArea($text, $minLines, $maxLines = null, $settingKey = '
         $contentParts[] = '<p class="official-para official-para-first">&nbsp;</p>';
     }
     $content = implode('', $contentParts);
+    $richMap = json_decode((string) ($settings['document_rich_text'] ?? '{}'), true);
+    if ($settingKey !== '' && is_array($richMap) && isset($richMap[$settingKey]) && \App\Services\DocumentRichText::normalize((string) ($richMap[$settingKey]['text'] ?? '')) === \App\Services\DocumentRichText::normalize($editableText)) {
+        $content = parseManualPageBreaks(\App\Services\DocumentRichText::render($editableText, $settingKey, (string) $settings['document_rich_text']));
+    }
 
     // Style: NO min-height so no empty dotted lines remain after text ends
     $style = '';
@@ -2200,19 +2231,19 @@ $styles = '
         }
         .dotted-text-content p.official-para,
         .dotted-text-content p {
-            text-align: ' . $recordTextAlign . ' !important;
+            text-align: ' . $recordTextAlign . ';
             text-justify: inter-character !important;
-            -webkit-text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ' !important;
-            text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ' !important;
+            -webkit-text-align-last: auto;
+            text-align-last: auto;
             white-space: break-spaces !important;
             overflow: visible !important;
             overflow-wrap: break-word !important;
             word-break: break-word !important;
         }
         .official-line {
-            text-align: ' . $recordTextAlign . ' !important;
+            text-align: ' . $recordTextAlign . ';
             text-justify: inter-character !important;
-            text-align-last: ' . ($recordTextAlign === 'justify' ? 'left' : $recordTextAlign) . ' !important;
+            text-align-last: auto;
             white-space: break-spaces !important;
             overflow: visible !important;
             overflow-wrap: break-word !important;
@@ -2321,6 +2352,7 @@ $styles = '
     }
     .dotted-text-area { margin-bottom: ' . $recordParagraphSpacing . 'px; }
     .preprint-live-editable { tab-size: 4; }
+    .page .preprint-live-editable, .page .preprint-live-editable * { font-synthesis: style !important; }
     .sig-box-line .preprint-live-editable[data-preprint-allow-br],
     .sig-box-line-tight .preprint-live-editable[data-preprint-allow-br] { display:block; min-height:1em; }
     .preprint-live-editable[data-preprint-allow-br="1"] { white-space: break-spaces; }
@@ -2350,6 +2382,9 @@ $styles = '
         width: 100%;
         box-sizing: border-box;
     }
+    .dotted-text-content > p:first-child { text-indent: ' . officialFirstLineIndentPx() . 'px; }
+    .dotted-text-content ul, .dotted-text-content ol { margin: 0; padding-left: 32px; text-indent: 0; }
+    .dotted-text-content li { text-indent: 0; }
     .official-para-first {
         text-indent: ' . officialFirstLineIndentPx() . 'px;
     }
@@ -2778,13 +2813,13 @@ $page1Html .= buildInfoRow([
 
 if (!empty($record['class_name']) || !empty($record['class_group_code'])) {
     $page1Html .= buildInfoRow([
-        ['label' => 'กลุ่มเรียน', 'label_width' => '12%', 'value' => $record['class_name'] ?: $record['class_group_code'], 'width' => '88%'],
+    ['label' => 'กลุ่มเรียน', 'label_width' => '12%', 'value' => $record['class_name'] ?: $record['class_group_code'], 'width' => '88%', 'editable_key' => !empty($record['class_name']) ? 'record_class_name' : 'record_class_group_code'],
     ]);
 }
 
 $page1Html .= buildInfoRow([
-    ['label' => 'รายวิชา :', 'label_width' => '10%', 'value' => $record['subject'] ?? '', 'width' => '36%'],
-    ['label' => 'รหัสวิชา :', 'label_width' => '11%', 'value' => $record['subject_code'] ?? '', 'width' => '28%'],
+    ['label' => 'รายวิชา :', 'label_width' => '10%', 'value' => $record['subject'] ?? '', 'width' => '36%', 'editable_key' => 'record_subject'],
+    ['label' => 'รหัสวิชา :', 'label_width' => '11%', 'value' => $record['subject_code'] ?? '', 'width' => '28%', 'editable_key' => 'record_subject_code'],
 ]);
 
 $page1Html .= buildInfoRow([

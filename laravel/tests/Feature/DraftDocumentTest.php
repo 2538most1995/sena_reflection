@@ -54,6 +54,33 @@ class DraftDocumentTest extends TestCase
         $this->assertSame('ผลเดิม', $draft->fresh()->payload['levels']['1']['result']);
     }
 
+    public function test_rich_text_survives_private_draft_save_reopen_and_preview_without_publishing(): void
+    {
+        [$teacher, $draft] = $this->draft();
+        $route = [$draft->id, '1'];
+        $text = 'ผลการเรียนรู้ที่จัดรูปแบบ';
+        $richText = json_encode(['record_result' => ['text' => $text, 'html' => '<b onclick="alert(1)">'.$text.'</b><script>alert(1)</script>']], JSON_THROW_ON_ERROR);
+
+        $this->actingAs($teacher)->putJson(route('teaching-drafts.document.update', $route), [
+            'lock_version' => 1, 'settings' => ['document_rich_text' => $richText], 'content' => ['record_result' => $text],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $saved = $draft->fresh();
+        $json = $saved->payload['levels']['1']['document']['settings']['document_rich_text'];
+        $this->assertSame('<b>'.$text.'</b>', json_decode($json, true, flags: JSON_THROW_ON_ERROR)['record_result']['html']);
+        $this->assertSame($text, $saved->payload['levels']['1']['result']);
+        $this->get(route('teaching-drafts.document.edit', $route))->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('settings.document_rich_text', $json)->where('content.record_result', $text));
+        $print = $this->mock(LegacyPrintService::class);
+        $print->shouldReceive('snapshotPdf')->once()->withArgs(fn (array $snapshot, User $user): bool => $snapshot['settings']['document_rich_text'] === $json
+            && $snapshot['content']['record_result'] === $text && $user->is($teacher))->andReturn('%PDF-rich-draft');
+        $this->postJson(route('teaching-drafts.document.pdf-preview', $route), [
+            'lock_version' => 2, 'settings' => ['document_rich_text' => $json], 'content' => ['record_result' => $text],
+        ])->assertOk()->assertContent('%PDF-rich-draft');
+        $this->assertSame(2, $saved->fresh()->lock_version);
+        $this->assertDatabaseCount('records', 0);
+    }
+
     public function test_private_editor_rejects_other_teachers_guests_and_invalid_levels(): void
     {
         [$teacher, $draft] = $this->draft();

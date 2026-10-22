@@ -1,1 +1,0 @@
-import{t as e}from"./app-QDizr3Wx.js";import{t}from"./teaching-workspace-CLsL5qEN.js";var n=e();function r({record:e,...r}){return(0,n.jsx)(t,{...r,mode:`edit`,sourceRecord:e})}export{r as default};

@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { draftRequestError, waitForBrowserDocument } from '@/lib/browser-document-review'
 import type { SharedProps } from '@/types'
 import { RecordReview, WorkspaceSummary, reviewIssues } from './record-review'
 import { TeachingDetailsForm } from './teaching-details-form'
@@ -126,6 +127,10 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const [previewLevel, setPreviewLevel] = useState<LevelCode>(activeLevel)
   const [previewUrls, setPreviewUrls] = useState<Record<LevelCode, string | null>>({ '1': null, '2': null, '3': null })
   const [previewRevisions, setPreviewRevisions] = useState<Record<LevelCode, string | null>>({ '1': null, '2': null, '3': null })
+  const [previewVersions, setPreviewVersions] = useState<Record<LevelCode, number | null>>({ '1': null, '2': null, '3': null })
+  const [previewFormats, setPreviewFormats] = useState<Record<LevelCode, 'pdf' | 'browser'>>({ '1': 'pdf', '2': 'pdf', '3': 'pdf' })
+  const [rendererUnavailable, setRendererUnavailable] = useState(false)
+  const browserPreviewRequests = useRef<Record<string, string>>({})
   const [changeVersion, setChangeVersion] = useState(0)
   const payloadRef = useRef(payload)
   const draftRef = useRef(draft)
@@ -206,7 +211,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       if (details.length) envelope.message = details.join(' · ')
       return envelope
     } catch {
-      return { message: `การเชื่อมต่อล้มเหลว (${response.status})` }
+      return { message: draftRequestError(response.status) }
     }
   }
 
@@ -333,6 +338,25 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }
 
   useEffect(() => () => { Object.values(previewUrlsRef.current).forEach((url) => { if (url) URL.revokeObjectURL(url) }) }, [])
+
+  useEffect(() => {
+    const url = previewUrls[previewLevel]
+    if (url && browserPreviewRequests.current[url] && browserPreviewRequests.current[url] !== fingerprint(payload, images)) {
+      document.querySelector<HTMLIFrameElement>('#workspace-document-preview')?.contentWindow?.postMessage({ source: 'sena-print-invalidated' }, '*')
+    }
+  }, [payload, images, previewLevel, previewUrls])
+
+  useEffect(() => {
+    const receive = (event: MessageEvent) => {
+      const frame = document.querySelector<HTMLIFrameElement>('#workspace-document-preview')
+      if (!frame?.contentWindow || event.source !== frame.contentWindow || event.data?.source !== 'sena-print-edit-request') return
+      setActiveLevelState(previewLevel)
+      markChanged((current) => ({ ...current, active_level_code: previewLevel }))
+      setEditorMode('edit')
+    }
+    window.addEventListener('message', receive)
+    return () => window.removeEventListener('message', receive)
+  }, [previewLevel, markChanged])
 
   useEffect(() => {
     if (!district || !payload.scope.tambon) return
@@ -523,7 +547,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     }
   }
 
-  const previewPdf = async () => {
+  const previewPdf = async (format: 'pdf' | 'browser' = 'pdf') => {
     setPreviewing(true)
     setPageError(null)
     try {
@@ -531,27 +555,53 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       const requestedFingerprint = savedFingerprintRef.current
       const response = await fetch(`/teaching-drafts/${currentDraft.id}/preview`, {
         method: 'POST',
-        headers: { Accept: 'application/pdf, application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
-        body: JSON.stringify({ lock_version: currentDraft.lock_version, level_code: previewLevel, document: currentDraft.payload.document || {} }),
+        headers: { Accept: 'application/json, application/pdf', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+        body: JSON.stringify({ lock_version: currentDraft.lock_version, level_code: previewLevel, document: currentDraft.payload.document || {}, format }),
       })
       if (!response.ok) {
         const envelope = await parseError(response)
         if (response.status === 409) handleConflict(envelope)
+        if (response.status === 503 && format === 'pdf') setRendererUnavailable(true)
         throw new Error(envelope.message || 'สร้างตัวอย่าง PDF ไม่สำเร็จ')
       }
+      const expectedType = format === 'browser' ? 'text/html' : 'application/pdf'
+      if (!response.headers.get('Content-Type')?.includes(expectedType)) throw new Error('เซิร์ฟเวอร์ตอบกลับเป็นเอกสารไม่ถูกต้อง กรุณาเข้าสู่ระบบแล้วลองใหม่')
       const blob = await response.blob()
       const objectUrl = URL.createObjectURL(blob)
+      if (format === 'browser') browserPreviewRequests.current[objectUrl] = requestedFingerprint
+      else setRendererUnavailable(false)
+      setPreviewFormats((current) => ({ ...current, [previewLevel]: format }))
+      setPreviewVersions((current) => ({ ...current, [previewLevel]: currentDraft.lock_version }))
       setPreviewUrls((current) => {
-        if (current[previewLevel]) URL.revokeObjectURL(current[previewLevel]!)
+        if (current[previewLevel]) {
+          delete browserPreviewRequests.current[current[previewLevel]!]
+          URL.revokeObjectURL(current[previewLevel]!)
+        }
         const next = { ...current, [previewLevel]: objectUrl }
         previewUrlsRef.current = next
         return next
       })
-      setPreviewRevisions((current) => ({ ...current, [previewLevel]: requestedFingerprint }))
+      setPreviewRevisions((current) => ({ ...current, [previewLevel]: format === 'pdf' ? requestedFingerprint : null }))
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'สร้างตัวอย่าง PDF ไม่สำเร็จ')
     } finally {
       setPreviewing(false)
+    }
+  }
+
+  const browserPreviewLoaded = async (frame: HTMLIFrameElement, level: LevelCode, url: string) => {
+    const requestedFingerprint = browserPreviewRequests.current[url]
+    if (!requestedFingerprint) return
+    try {
+      await waitForBrowserDocument(frame.contentDocument)
+      if (previewUrlsRef.current[level] !== url) return
+      if (fingerprint(payloadRef.current, imagesRef.current) !== requestedFingerprint) {
+        frame.contentWindow?.postMessage({ source: 'sena-print-invalidated' }, '*')
+        return
+      }
+      setPreviewRevisions((current) => ({ ...current, [level]: requestedFingerprint }))
+    } catch (error) {
+      if (previewUrlsRef.current[level] === url) setPageError(error instanceof Error ? error.message : 'โหลดเอกสารไม่สำเร็จ กรุณาสร้างตัวอย่างใหม่')
     }
   }
 
@@ -583,8 +633,8 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const selectedLevels = selectedTeachingLevels(payload)
   const totalSelectedLevels = selectedLevels.length
   const previewUrl = previewUrls[previewLevel]
-  const previewStale = previewRevisions[previewLevel] === null || previewRevisions[previewLevel] !== currentFingerprint
-  const previewedLevels = selectedLevels.filter((level) => previewUrls[level.code] && previewRevisions[level.code] === currentFingerprint).map((level) => level.code)
+  const previewStale = previewRevisions[previewLevel] === null || previewRevisions[previewLevel] !== currentFingerprint || previewVersions[previewLevel] !== draft?.lock_version
+  const previewedLevels = selectedLevels.filter((level) => previewUrls[level.code] && previewRevisions[level.code] === currentFingerprint && previewVersions[level.code] === draft?.lock_version).map((level) => level.code)
   const title = mode === 'edit' ? 'แก้ไขบันทึกประจำสัปดาห์' : 'สร้างบันทึกประจำสัปดาห์'
 
   if (bootstrapping) {
@@ -647,7 +697,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       </CardContent>
     </Card>
 
-    {editorMode === 'review' ? <RecordReview payload={payload} images={images} previewLevel={previewLevel} previewUrl={previewUrl} previewing={previewing} previewStale={previewStale} previewedLevels={previewedLevels} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} onBack={() => setEditorMode('edit')} onFix={fixReviewIssue} onPreviewLevel={setPreviewLevel} onPreview={previewPdf} onEditDocument={editDocument} onFinalize={finalize} /> : <div className="grid items-start gap-5 xl:grid-cols-[180px_minmax(0,1fr)] 2xl:grid-cols-[180px_minmax(0,1fr)_260px]">
+    {editorMode === 'review' ? <RecordReview payload={payload} images={images} previewLevel={previewLevel} previewUrl={previewUrl} previewing={previewing} previewStale={previewStale} previewedLevels={previewedLevels} previewFormat={previewFormats[previewLevel]} rendererUnavailable={rendererUnavailable} onBrowserPreview={() => previewPdf('browser')} onBrowserPreviewLoaded={browserPreviewLoaded} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} onBack={() => setEditorMode('edit')} onFix={fixReviewIssue} onPreviewLevel={setPreviewLevel} onPreview={previewPdf} onEditDocument={editDocument} onFinalize={finalize} /> : <div className="grid items-start gap-5 xl:grid-cols-[180px_minmax(0,1fr)] 2xl:grid-cols-[180px_minmax(0,1fr)_260px]">
       <aside className="rounded-xl border bg-card p-3 xl:sticky xl:top-24"><p className="mb-3 px-2 text-xs font-semibold text-muted-foreground">เลือกระดับชั้น</p><WeeklyLevelNavigation activeLevel={activeLevel} levels={payload.levels} enabledLevelCodes={payload.enabled_level_codes ?? ['1', '2', '3']} onChange={setActiveLevel} /><Button type="button" className="mt-3 w-full" disabled={imageBusy || saveState === 'conflict'} onClick={() => { setPreviewLevel(activeLevel); setEditorMode('review') }}>ตรวจและยืนยัน<CheckCircle size={18} /></Button></aside>
       <Card className="min-w-0"><CardContent className="p-4 sm:p-6"><TeachingDetailsForm key={activeLevel} levelCode={activeLevel} value={payload.levels[activeLevel]} groups={availableGroups} subjects={availableSubjects} loadState={loadStates[activeLevel]} images={images.filter((image) => image.level_code === activeLevel).sort((a, b) => a.sort_order - b.sort_order)} imageBusy={imageBusy} sourceLabel={sourceLabel(loadStates[activeLevel].source)} onChange={(value) => editLevel(activeLevel, value)} onSelectGroup={(group) => loadStudents(activeLevel, group)} onUploadImages={(files) => uploadImages(activeLevel, files)} onDeleteImage={(image) => mutateImages('DELETE', activeLevel, image.id)} onReorderImages={(imageIds) => mutateImages('PATCH', activeLevel, undefined, imageIds)} /></CardContent></Card>
       <aside className="grid gap-4 rounded-xl border bg-card p-4 xl:col-span-2 2xl:sticky 2xl:top-24 2xl:col-span-1"><WorkspaceSummary payload={payload} images={images} activeLevel={activeLevel} onSelectLevel={setActiveLevel} /><div className="border-t pt-4"><Button type="button" size="lg" className="w-full" disabled={imageBusy || saveState === 'conflict'} onClick={() => { setPreviewLevel(activeLevel); setEditorMode('review') }}>ตรวจและยืนยัน {totalSelectedLevels} ระดับ<CheckCircle size={19} /></Button><p className="mt-2 text-center text-[11px] leading-5 text-muted-foreground">{issues.length ? `ยังมี ${issues.length} จุดให้ตรวจ ระบบจะแสดงตำแหน่งในขั้นถัดไป` : 'ข้อมูลพร้อมเข้าสู่หน้าตรวจและดู PDF จริง'}</p></div></aside>

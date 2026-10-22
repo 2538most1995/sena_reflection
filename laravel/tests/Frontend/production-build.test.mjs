@@ -25,7 +25,24 @@ test('the production editor includes the image placement fixes instead of the st
   const editor = manifest['resources/js/pages/records/document.tsx']
   assert.ok(editor)
   const source = readFileSync(resolve(build, editor.file), 'utf8')
-  for (const feature of ['จัดรูปไม่ให้ซ้อนกัน', 'sena-pdf-layout-select', 'image_layout_by_id']) assert.ok(source.includes(feature), `Missing editor feature: ${feature}`)
+  for (const feature of ['จัดรูปไม่ให้ซ้อนกัน', 'sena-pdf-layout-select', 'image_layout_by_id', 'sena-document-format', 'document_rich_text', 'เครื่องมือจัดเอกสาร']) assert.ok(source.includes(feature), `Missing editor feature: ${feature}`)
   const app = readFileSync(resolve(build, manifest['resources/js/app.tsx'].file), 'utf8')
   assert.ok(app.includes('/sena_reflection/build/'), 'Vite imports must stay inside this application mount')
+})
+
+test('the production build ships the advanced document editor and its export engine', () => {
+  for (const page of ['resources/js/pages/documents/index.tsx', 'resources/js/pages/documents/edit.tsx']) {
+    assert.ok(manifest[page], `Missing document page: ${page}`)
+  }
+  const seen = new Set()
+  const chunks = key => {
+    if (seen.has(key)) return ''
+    seen.add(key)
+    const entry = manifest[key]
+    return readFileSync(resolve(build, entry.file), 'utf8') + [...entry.imports || [], ...entry.dynamicImports || []].map(chunks).join('\n')
+  }
+  const source = chunks('resources/js/pages/documents/edit.tsx')
+  for (const feature of ['data-document-canvas', 'document-body-editor', 'schemaVersion', 'พิมพ์ / PDF', 'DOCX', '/versions', '/duplicate']) {
+    assert.ok(source.includes(feature), `Missing advanced editor feature: ${feature}`)
+  }
 })

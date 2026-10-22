@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\DocumentRuntimeUnavailableException;
 use App\Models\RecordRevision;
 use App\Models\Setting;
 use App\Models\Tambon;
@@ -446,6 +447,84 @@ class TeachingDraftControllerTest extends TestCase
 
         $this->assertDatabaseCount('records', 0);
         $this->assertDatabaseCount('weekly_submissions', 0);
+    }
+
+    public function test_unavailable_pdf_returns_json_for_workspace_and_does_not_approve_review(): void
+    {
+        $user = $this->createTeacher('u1', 't1');
+        $id = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $this->draftPayload()])->json('data.draft.id');
+        $this->mock(LegacyPrintService::class)->shouldReceive('snapshotPdf')->once()->andThrow(new DocumentRuntimeUnavailableException);
+
+        $this->postJson(route('teaching-drafts.preview', $id), ['lock_version' => 1, 'level_code' => '1'], ['Accept' => 'application/json, application/pdf'])
+            ->assertServiceUnavailable()->assertJsonPath('code', 'document_renderer_unavailable')
+            ->assertJsonPath('message', DocumentRuntimeUnavailableException::PUBLIC_MESSAGE);
+
+        $this->assertNull(Cache::get(DraftService::reviewCacheKey($id, 1, '1')));
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $id, 'status' => 'active', 'lock_version' => 1]);
+        $this->assertDatabaseCount('records', 0);
+    }
+
+    public function test_explicit_browser_review_saves_all_levels_with_reviewed_settings_without_chrome(): void
+    {
+        Storage::fake('public');
+        $user = $this->createTeacher('u1', 't1');
+        Setting::create(['setting_key' => 'pdf_margin_left_px', 'setting_value' => '94']);
+        $id = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $this->draftPayload()])->json('data.draft.id');
+        $print = $this->mock(LegacyPrintService::class);
+        $print->shouldNotReceive('snapshotPdf');
+        $print->shouldReceive('browserSnapshotHtml')->times(3)
+            ->withArgs(fn (array $snapshot, User $viewer, string $back): bool => $viewer->is($user)
+                && $snapshot['settings']['pdf_margin_left_px'] === '94'
+                && str_contains($back, 'draft='.$id))
+            ->andReturn('<!doctype html><html><body><section class="page">ตรวจเอกสาร</section></body></html>');
+
+        foreach (['1', '2', '3'] as $code) {
+            $this->postJson(route('teaching-drafts.preview', $id), ['lock_version' => 1, 'level_code' => $code, 'format' => 'browser'])
+                ->assertOk()->assertHeader('Content-Type', 'text/html; charset=UTF-8')
+                ->assertSee('ตรวจเอกสาร');
+        }
+        Setting::where('setting_key', 'pdf_margin_left_px')->update(['setting_value' => '150']);
+        $this->postJson(route('teaching-drafts.finalize', $id), [
+            'lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'reviewed_level_codes' => ['1', '2', '3'],
+        ])->assertOk()->assertJsonCount(3, 'data.record_ids');
+
+        $this->assertDatabaseCount('records', 3);
+        $this->assertDatabaseCount('record_revisions', 3);
+        foreach (TeachingRecord::all() as $record) {
+            $this->assertSame('94', $record->documentLayout->settings['pdf_margin_left_px']);
+        }
+    }
+
+    public function test_browser_review_rejects_unowned_disabled_invalid_and_stale_requests(): void
+    {
+        $owner = $this->createTeacher('u1', 't1');
+        $other = $this->createTeacher('u2', 't2');
+        $payload = $this->draftPayload();
+        $payload['enabled_level_codes'] = ['1'];
+        $id = $this->actingAs($owner)->postJson(route('teaching-drafts.store'), ['payload' => $payload])->json('data.draft.id');
+        $url = route('teaching-drafts.preview', $id);
+        $data = ['lock_version' => 1, 'level_code' => '1', 'format' => 'browser'];
+        $this->mock(LegacyPrintService::class)->shouldNotReceive('browserSnapshotHtml');
+
+        $this->actingAs($other)->postJson($url, $data)->assertNotFound();
+        $this->actingAs($owner)->postJson($url, [...$data, 'level_code' => '2'])->assertUnprocessable();
+        $this->postJson($url, [...$data, 'format' => 'invalid'])->assertUnprocessable();
+        $this->patchJson(route('teaching-drafts.update', $id), ['lock_version' => 1, 'payload' => $payload])->assertOk();
+        $this->postJson($url, $data)->assertConflict();
+        $this->assertNull(Cache::get(DraftService::reviewCacheKey($id, 1, '1')));
+        $this->assertDatabaseCount('records', 0);
+    }
+
+    public function test_failed_browser_render_never_approves_the_draft_and_unrelated_errors_stay_errors(): void
+    {
+        config()->set('app.debug', false);
+        $user = $this->createTeacher('u1', 't1');
+        $id = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $this->draftPayload()])->json('data.draft.id');
+        $this->mock(LegacyPrintService::class)->shouldReceive('browserSnapshotHtml')->once()->andThrow(new \RuntimeException('HTML render failed'));
+
+        $this->postJson(route('teaching-drafts.preview', $id), ['lock_version' => 1, 'level_code' => '1', 'format' => 'browser'])->assertInternalServerError();
+        $this->assertNull(Cache::get(DraftService::reviewCacheKey($id, 1, '1')));
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $id, 'status' => 'active']);
     }
 
     private function createTeacher(string $id, string $tambon): User

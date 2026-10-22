@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->replace(TrimStrings::class, PreserveDocumentWhitespace::class);
+        $middleware->convertEmptyStringsToNull(except: [fn (Request $request): bool => $request->is('api/documents', 'api/documents/*')]);
         $middleware->validateCsrfTokens(except: ['api/*.php']);
         $middleware->web(append: [HandleInertiaRequests::class]);
     })

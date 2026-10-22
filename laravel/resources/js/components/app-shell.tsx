@@ -3,7 +3,7 @@ import { appRouter as router } from '@/lib/app-router'
 import { usePage } from '@inertiajs/react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Buildings, CaretDown, ChartBar, List, Plus, SignOut, Student, UserCircle, UserList, X } from '@phosphor-icons/react'
+import { Buildings, CaretDown, ChartBar, FileText, List, Plus, SignOut, Student, UserCircle, UserList, X } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -13,6 +13,7 @@ import type { SharedProps } from '@/types'
 
 const items = [
   { href: '/', label: 'ภาพรวม', icon: ChartBar, match: (url: string) => url === '/' || url.startsWith('/records') },
+  { href: '/documents', label: 'เอกสาร', icon: FileText, match: (url: string) => url.startsWith('/documents') },
   { href: '/students', label: 'ข้อมูลนักศึกษา', icon: Student, match: (url: string) => url.startsWith('/students') },
   { href: '/attendance-analysis', label: 'การเข้าเรียน', icon: UserList, match: (url: string) => url.startsWith('/attendance-analysis') },
 ]
@@ -36,7 +37,7 @@ function NavLinks({ mobile = false, close }: { mobile?: boolean; close?: () => v
   </nav>
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   const { props } = usePage<SharedProps>()
   const user = props.auth.user
   const [open, setOpen] = useState(false)
@@ -83,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     </header>
-    <main id="main-content" className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8">{children}</main>
+    <main id="main-content" className={cn('mx-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8', wide ? 'max-w-none' : 'max-w-[1440px]')}>{children}</main>
   </div>
 }
 

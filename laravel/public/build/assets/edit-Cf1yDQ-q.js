@@ -1,0 +1,1 @@
+import{t as e}from"./app-CSki5vAT.js";import{t}from"./teaching-workspace-DQZiC6I7.js";var n=e();function r({record:e,...r}){return(0,n.jsx)(t,{...r,mode:`edit`,sourceRecord:e})}export{r as default};
