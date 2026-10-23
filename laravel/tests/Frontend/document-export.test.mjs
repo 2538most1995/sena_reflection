@@ -230,3 +230,148 @@ test('DOCX explains line-height formatting that Word cannot represent on individ
   assert.match(xml, /ข้อความยังอยู่/)
   assert.ok(warnings.some(warning => warning.includes('ระยะบรรทัดเฉพาะบางคำ')))
 })
+
+function recordTemplateFixture() {
+  const inline = text => text ? [{ type: 'text', text }] : []
+  const cell = (text, width, attrs = {}) => ({ type: 'recordInfoCell', attrs: { width, unit: 'percent', ...attrs }, content: inline(text) })
+  const info = cells => ({ type: 'recordInfoRow', content: cells })
+  const section = (text, field) => ({ type: 'recordSectionTitle', attrs: { field, spaceBefore: 8, offsetX: 0, offsetY: 0 }, content: inline(text) })
+  const body = (text, field, minLines) => ({ type: 'recordBody', attrs: { field, minLines, lineSpacing: 26, firstIndent: 42, align: 'justify', spaceAfter: 0 }, content: [paragraph(text, { id: field, field })] })
+  const signature = (index, name, position) => ({
+    type: 'recordSignature', attrs: { index, align: 'right', width: 430, marginTop: 16, offsetX: 0, offsetY: 0 }, content: [
+      { type: 'recordInfoRow', attrs: { compact: true }, content: [
+        cell('(ลงชื่อ)', 0, { unit: 'px', nowrap: true, label: true }),
+        cell('', 180, { unit: 'px', dotted: true, field: `sig${index}_line` }),
+        cell(index === 1 ? 'ผู้บันทึก' : '', 0, { unit: 'px', nowrap: true, label: true }),
+      ] },
+      paragraph(`( ${name} )`, { role: 'signatureName', field: `sig${index}_name`, offsetX: 0, offsetY: 0 }),
+      paragraph(position, { role: 'signaturePosition', field: `sig${index}_pos` }),
+    ],
+  })
+  return fixture({ content: { type: 'doc', content: [
+    paragraph('บันทึกหลังการจัดการเรียนรู้', { role: 'recordTitle', field: 'record_header_title' }),
+    info([cell('รายวิชา', 10, { label: true, nowrap: true }), cell('ภาษาไทยเพื่อการสื่อสาร', 50, { dotted: true, field: 'course_name' }), cell('รหัสวิชา', 12, { label: true, nowrap: true }), cell('พท11001', 28, { dotted: true, field: 'course_code' })]),
+    info([cell('กลุ่มเรียน', 12, { label: true }), cell('กลุ่มตำบลเสนา', 38, { dotted: true, field: 'group_name' }), cell('ระดับ', 10, { label: true }), cell('ประถมศึกษา', 40, { dotted: true, field: 'level_name' })]),
+    info([cell('สัปดาห์ที่', 13, { label: true }), cell('4', 12, { dotted: true, field: 'week_no' }), cell('วันที่', 10, { label: true }), cell('23 ตุลาคม 2569', 30, { dotted: true, field: 'teach_date' }), cell('ภาคเรียน', 15, { label: true }), cell('1/2569', 20, { dotted: true, field: 'semester' })]),
+    info([cell('ตำบล', 10, { label: true }), cell('เสนา', 40, { dotted: true, field: 'tambon' }), cell('ผู้เรียน', 10, { label: true }), cell('3 คน มาเรียน 2 คน', 40, { dotted: true, field: 'attendance' })]),
+    section('๑. ผลการจัดการเรียนการสอน', 'record_section1_title'),
+    body('ผู้เรียนสามารถอ่านและเขียนภาษาไทยได้ถูกต้อง', 'learning_result', 3),
+    section('๒. สภาพปัญหาและอุปสรรค', 'record_section2_title'),
+    body('ผู้เรียนบางส่วนยังอ่านคำควบกล้ำไม่คล่อง', 'problem', 2),
+    section('๓. ข้อเสนอแนะ / แนวทางแก้ไขปัญหา', 'record_section3_title'),
+    body('เพิ่มการฝึกอ่านออกเสียงเป็นรายบุคคล', 'recommendation', 2),
+    signature(1, 'นายครูทดสอบ ใจดี', 'ครูผู้สอน'),
+    { type: 'recordGroup', attrs: { spaceBefore: 16, offsetX: 0, offsetY: 0 }, content: [
+      section('ความคิดเห็นของหัวหน้างานการจัดการเรียนรู้คุณวุฒิตามระดับ', 'supervisor_title'),
+      body('จัดกิจกรรมได้เหมาะสมกับผู้เรียน', 'supervisor_comment', 2),
+      signature(2, 'นางหัวหน้างาน เรียนรู้', 'หัวหน้างานการจัดการเรียนรู้คุณวุฒิตามระดับ'),
+    ] },
+    { type: 'recordGroup', attrs: { spaceBefore: 16, borderTop: true }, content: [
+      section('ข้อคิดเห็นของผู้อำนวยการสถานศึกษา', 'director_title'),
+      body('เห็นชอบแนวทางการจัดการเรียนรู้', 'director_comment', 2),
+      signature(3, 'นายผู้อำนวยการ พัฒนา', 'ผู้อำนวยการสถานศึกษา'),
+    ] },
+  ] } })
+}
+
+function paragraphWith(xml, text) {
+  const found = (xml.match(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g) || []).find(paragraph => paragraph.includes(text))
+  assert.ok(found, `Expected an editable Word paragraph containing ${text}`)
+  return found
+}
+
+test('the complete record template exports native header fields, ruled bodies and all three signature blocks', async () => {
+  const model = recordTemplateFixture()
+  const { xml, zip, warnings } = await archive(model)
+  const styles = await zip.file('word/styles.xml').async('string')
+  assert.match(styles, /w:ascii="THSarabunNew"/)
+  assert.match(styles, /w:sz w:val="32"/)
+  const title = paragraphWith(xml, 'บันทึกหลังการจัดการเรียนรู้')
+  assert.match(title, /w:jc w:val="center"/)
+  assert.match(title, /w:sz w:val="40"/)
+  assert.match(title, /<w:b\/>/)
+  assert.match(title, /w:after="120"/)
+  const heading = paragraphWith(xml, '๑. ผลการจัดการเรียนการสอน')
+  assert.match(heading, /w:sz w:val="34"/)
+  assert.match(heading, /<w:keepNext\/>/)
+  assert.match(heading, /w:before="120"/)
+  const body = paragraphWith(xml, 'ผู้เรียนสามารถอ่านและเขียนภาษาไทยได้ถูกต้อง')
+  assert.match(body, /w:jc w:val="both"/)
+  assert.match(body, /w:firstLine="630"/)
+  assert.match(body, /w:line="390" w:lineRule="atLeast"/)
+  assert.match(body, /w:after="0"/)
+  assert.match(body, /w:bottom w:val="dotted"/)
+  assert.match(xml, /w:trHeight w:val="1170" w:hRule="atLeast"/)
+  for (const value of ['ภาษาไทยเพื่อการสื่อสาร', 'พท11001', 'กลุ่มตำบลเสนา', 'ประถมศึกษา', '23 ตุลาคม 2569', '1/2569', '3 คน มาเรียน 2 คน']) assert.ok(xml.includes(value))
+  const tableBorders = xml.match(/<w:tblBorders>[\s\S]*?<\/w:tblBorders>/g) || []
+  assert.ok(tableBorders.length >= 15)
+  assert.ok(tableBorders.every(borders => !borders.includes('w:val="single"') && !borders.includes('w:val="dotted"')), 'the native layout tables must have no visible grid')
+  assert.equal((xml.match(/w:tblW w:type="dxa" w:w="6450"/g) || []).length, 3, 'each signature is an editable 430 px block')
+  assert.equal((xml.match(/w:tblLayout w:type="autofit"/g) || []).length, 3, 'signature line labels stay in compact nested tables')
+  assert.equal((xml.match(/w:tcW w:type="dxa" w:w="2700"/g) || []).length, 3, 'the signature dot widths remain 180 px')
+  for (const name of ['นายครูทดสอบ ใจดี', 'นางหัวหน้างาน เรียนรู้', 'นายผู้อำนวยการ พัฒนา']) {
+    const paragraph = paragraphWith(xml, name)
+    assert.match(paragraph, /w:jc w:val="center"/)
+    assert.equal((xml.match(new RegExp(name, 'g')) || []).length, 1, 'signature names must not be duplicated or omitted')
+  }
+  assert.equal((xml.match(/\(ลงชื่อ\)/g) || []).length, 3)
+  assert.match(xml, /w:top w:val="single" w:color="000000" w:sz="4"/)
+  assert.ok(warnings.some(warning => warning.includes('เส้นบรรทัดซ้ำ')))
+  assert.ok(!warnings.some(warning => warning.includes('รูปแบบ record')), 'every canonical template node has a native mapping')
+  assert.deepEqual(model, recordTemplateFixture(), 'export must not mutate the canonical document JSON')
+})
+
+test('record paragraph overrides and shifted signature parts keep all text and disclose positioning limits', async () => {
+  const model = recordTemplateFixture()
+  const body = model.content.content.find(node => node.type === 'recordBody')
+  body.content[0].attrs = { ...body.content[0].attrs, firstIndent: 20, lineHeight: 2, spaceAfter: 4, textAlign: 'left' }
+  body.content[0].content[0].marks = [{ type: 'textStyle', attrs: { fontSize: '18pt', color: '#123abc' } }]
+  const signature = model.content.content.find(node => node.type === 'recordSignature')
+  signature.attrs.offsetX = 12
+  signature.content[1].attrs.offsetY = -4
+  const { xml, warnings } = await archive(model)
+  const bodyParagraph = paragraphWith(xml, 'ผู้เรียนสามารถอ่านและเขียนภาษาไทยได้ถูกต้อง')
+  assert.match(bodyParagraph, /w:firstLine="300"/)
+  assert.match(bodyParagraph, /w:line="480" w:lineRule="auto"/)
+  assert.match(bodyParagraph, /w:after="80"/)
+  assert.match(bodyParagraph, /w:jc w:val="left"/)
+  assert.match(bodyParagraph, /w:sz w:val="36"/)
+  assert.match(bodyParagraph, /w:color w:val="123ABC"/)
+  assert.ok(xml.includes('นายครูทดสอบ ใจดี'))
+  assert.equal(warnings.filter(warning => warning.includes('ตำแหน่งเลื่อนเฉพาะส่วน')).length, 1)
+})
+
+test('page breaks inside semantic record groups retain subsequent page-based image anchors', async () => {
+  const model = fixture({
+    content: { type: 'doc', content: [{ type: 'recordGroup', content: [paragraph('หน้าแรก'), { type: 'pageBreak' }, paragraph('ภาพกิจกรรมหน้าถัดไป')] }] },
+    objects: [object('image', { page: 2, anchor: { kind: 'page', page: 2 }, src: '/assets/photo.png' })],
+  })
+  const { xml, warnings } = await archive(model, options)
+  assert.match(xml, /w:br w:type="page"/)
+  assert.match(xml, /<wp:anchor /)
+  assert.ok(!warnings.some(warning => warning.includes('ท้ายเอกสาร')))
+})
+
+test('a record template pasted into a floating text box retains header values, bodies and all signatures', async () => {
+  const model = fixture({ objects: [object('textbox', { content: recordTemplateFixture().content })] })
+  const { xml, warnings } = await archive(model)
+  for (const value of ['ภาษาไทยเพื่อการสื่อสาร', 'พท11001', 'ผู้เรียนสามารถอ่านและเขียนภาษาไทยได้ถูกต้อง', 'นายครูทดสอบ ใจดี', 'นางหัวหน้างาน เรียนรู้', 'นายผู้อำนวยการ พัฒนา']) {
+    assert.ok(xml.includes(value), `Text boxes must retain ${value}`)
+    assert.equal((xml.match(new RegExp(value, 'g')) || []).length, 2, 'text is present once in editable text and once in its accessibility description')
+  }
+  assert.ok(warnings.some(warning => warning.includes('แม่แบบภายในกล่องข้อความ')))
+})
+
+test('manual page breaks within a record body remain outside native Word tables', async () => {
+  const model = fixture({ content: { type: 'doc', content: [
+    { type: 'recordBody', attrs: { lineSpacing: 26, minLines: 2 }, content: [paragraph('เนื้อหาก่อนขึ้นหน้า'), { type: 'pageBreak' }, paragraph('เนื้อหาหลังขึ้นหน้า')] },
+  ] } })
+  const { xml } = await archive(model)
+  assert.ok(xml.indexOf('เนื้อหาก่อนขึ้นหน้า') < xml.indexOf('w:br w:type="page"'))
+  assert.ok(xml.indexOf('เนื้อหาหลังขึ้นหน้า') > xml.indexOf('w:br w:type="page"'))
+  const tables = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) || []
+  assert.equal(tables.length, 2)
+  assert.ok(tables.every(table => !table.includes('w:br w:type="page"')), 'Word may ignore page breaks nested in a cell')
+  assert.match(tables[0], /w:trHeight w:val="780"/)
+  assert.match(tables[1], /w:trHeight w:val="390"/)
+})

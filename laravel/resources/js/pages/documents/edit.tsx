@@ -13,7 +13,7 @@ import { useDocumentAutosave } from '@/hooks/use-document-autosave'
 import { documentRequest } from '@/lib/document-api'
 import { appRouter } from '@/lib/app-router'
 import { appUrl } from '@/lib/app-url'
-import { createDocumentObject, pageDimensions, MM_TO_PX, type DocumentAsset, type DocumentObject, type DocumentVersion, type WebDocument } from '@/lib/document-model'
+import { createDocumentObject, pageDimensions, MM_TO_PX, type DocumentAsset, type DocumentEditorContext, type DocumentObject, type DocumentVersion, type WebDocument } from '@/lib/document-model'
 import { openDocumentPrint } from '@/lib/document-print'
 import { createDocumentThumbnails, type DocumentPageView } from '@/lib/document-thumbnails'
 import { constrainObject } from '@/lib/document-layout'
@@ -27,9 +27,10 @@ function plainDocumentText(document: WebDocument): string {
 type Snapshot = Pick<WebDocument, 'title' | 'content' | 'pageSettings' | 'objects'>
 const snapshot = (document: WebDocument): Snapshot => ({ title: document.title, content: document.content, pageSettings: document.pageSettings, objects: document.objects })
 
-export default function DocumentEdit({ document: initial }: { document: WebDocument }) {
+export default function DocumentEdit({ document: initial, editorContext }: { document: WebDocument; editorContext?: DocumentEditorContext }) {
   const autosave = useDocumentAutosave(initial)
   const doc = autosave.document
+  const context = doc.editorContext || editorContext
   const [editor, setEditor] = useState<Editor | null>(null)
   const [, selectionTick] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -161,7 +162,13 @@ export default function DocumentEdit({ document: initial }: { document: WebDocum
     const canvas = canvasHost.current?.querySelector<HTMLElement>('[data-document-canvas]')
     if (!canvas) return
     setNotice('')
-    try { const popup = await openDocumentPrint(autosave.latest.current, canvas); if (!popup) setNotice('เบราว์เซอร์ปิดกั้นหน้าพิมพ์ กรุณาอนุญาตป๊อปอัปสำหรับเว็บไซต์นี้') }
+    const preview = context ? window.open('', '_blank', 'popup,width=1100,height=850') : undefined
+    if (context && !preview) { setNotice('เบราว์เซอร์ปิดกั้นหน้าพิมพ์ กรุณาอนุญาตป๊อปอัปสำหรับเว็บไซต์นี้'); return }
+    try {
+      if (context && (autosave.status === 'conflict' || !await autosave.save())) { preview?.close(); return }
+      const popup = await openDocumentPrint(autosave.latest.current, canvas, preview)
+      if (!popup) setNotice('เบราว์เซอร์ปิดกั้นหน้าพิมพ์ กรุณาอนุญาตป๊อปอัปสำหรับเว็บไซต์นี้')
+    }
     catch (error) { setNotice(error instanceof Error ? error.message : 'เปิดหน้าพิมพ์ไม่สำเร็จ') }
   }
   const docx = async () => {
@@ -213,9 +220,14 @@ export default function DocumentEdit({ document: initial }: { document: WebDocum
     catch (error) { setNotice(error instanceof Error ? error.message : 'โหลดรุ่นล่าสุดไม่สำเร็จ') }
     finally { setBusy(false) }
   }
+  const leaveEditor = async () => {
+    if (autosave.status === 'conflict' || !await autosave.save()) return
+    appRouter.visit(context?.returnUrl || '/documents')
+  }
   return <AppShell wide><Head title={doc.title} /><div className="de-workspace">
-    <header className="de-header"><AppLink href={appUrl('/documents')} className="de-back" aria-label="กลับรายการเอกสาร"><ArrowLeft size={20} /></AppLink><span className="de-document-icon"><FileText size={24} /></span><div className="de-title-wrap"><input aria-label="ชื่อเอกสาร" className="de-title" value={doc.title} maxLength={200} onChange={(event) => commit({ title: event.target.value })} /><span className="de-save-status" role="status">{autosave.status === 'saved' ? <Check size={13} /> : autosave.status === 'saving' ? <LoaderCircle size={13} className="animate-spin" /> : null}{({ saved: 'บันทึกอัตโนมัติแล้ว', pending: 'มีการแก้ไข · รอบันทึก', saving: 'กำลังบันทึก…', error: 'บันทึกไม่สำเร็จ', conflict: 'เอกสารมีรุ่นใหม่จากอีกหน้าต่าง' })[autosave.status]}</span></div><div className="de-header-actions"><Button type="button" size="icon" variant="ghost" aria-label="ย้อนกลับ" disabled={historyIndex <= 0} onClick={() => restoreHistory(historyPosition.current - 1)}><Undo2 size={19} /></Button><Button type="button" size="icon" variant="ghost" aria-label="ทำซ้ำ" disabled={historyIndex >= history.current.length - 1} onClick={() => restoreHistory(historyPosition.current + 1)}><Redo2 size={19} /></Button><Button type="button" size="icon" variant="ghost" aria-label="ประวัติเอกสาร" onClick={loadVersions}><History size={20} /></Button><Button type="button" variant="outline" disabled={busy || autosave.status === 'saving' || autosave.status === 'conflict'} onClick={() => autosave.save()}><Save size={17} /><span className="hidden sm:inline">บันทึก</span></Button><Button type="button" disabled={busy} onClick={print}><Printer size={17} /><span>พิมพ์ / PDF</span></Button><Button type="button" variant="outline" disabled={busy} onClick={docx}><Download size={17} /><span className="hidden sm:inline">DOCX</span></Button></div></header>
-    {doc.sourceRecordId && <p className="de-source-note">เอกสารสำเนาจาก <AppLink href={appUrl(`/records/${doc.sourceRecordId}`)}>บันทึกหลังสอน</AppLink> · บันทึกการแก้ไขและประวัติรุ่นไว้ในเอกสารฉบับนี้</p>}
+    <header className="de-header"><AppLink href={appUrl(context?.returnUrl || '/documents')} onClick={event => { event.preventDefault(); void leaveEditor() }} className="de-back" aria-label={context ? 'กลับหน้าบันทึก' : 'กลับรายการเอกสาร'}><ArrowLeft size={20} /></AppLink><span className="de-document-icon"><FileText size={24} /></span><div className="de-title-wrap"><input aria-label="ชื่อเอกสาร" className="de-title" value={doc.title} maxLength={200} onChange={(event) => commit({ title: event.target.value })} /><span className="de-save-status" role="status">{autosave.status === 'saved' ? <Check size={13} /> : autosave.status === 'saving' ? <LoaderCircle size={13} className="animate-spin" /> : null}{({ saved: 'บันทึกอัตโนมัติแล้ว', pending: 'มีการแก้ไข · รอบันทึก', saving: 'กำลังบันทึก…', error: 'บันทึกไม่สำเร็จ', conflict: 'เอกสารมีรุ่นใหม่จากอีกหน้าต่าง' })[autosave.status]}</span></div><div className="de-header-actions"><Button type="button" size="icon" variant="ghost" aria-label="ย้อนกลับ" disabled={historyIndex <= 0} onClick={() => restoreHistory(historyPosition.current - 1)}><Undo2 size={19} /></Button><Button type="button" size="icon" variant="ghost" aria-label="ทำซ้ำ" disabled={historyIndex >= history.current.length - 1} onClick={() => restoreHistory(historyPosition.current + 1)}><Redo2 size={19} /></Button><Button type="button" size="icon" variant="ghost" aria-label="ประวัติเอกสาร" onClick={loadVersions}><History size={20} /></Button><Button type="button" variant="outline" disabled={busy || autosave.status === 'saving' || autosave.status === 'conflict'} onClick={() => autosave.save()}><Save size={17} /><span className="hidden sm:inline">บันทึก</span></Button><Button type="button" disabled={busy} onClick={print}><Printer size={17} /><span>{context ? 'บันทึกและพิมพ์' : 'พิมพ์ / PDF'}</span></Button><Button type="button" variant="outline" disabled={busy} onClick={docx}><Download size={17} /><span className="hidden sm:inline">DOCX</span></Button></div></header>
+    {context && <p className="de-source-note"><b>จัดเอกสารก่อนพิมพ์</b> · เริ่มจากรูปแบบเอกสารเดิม แก้ข้อความ รูปภาพ และจัดวางได้จากแถบเครื่องมือ{context.kind === 'draft' ? ' · บันทึกลงฉบับร่าง' : ''}</p>}
+    {!context && doc.sourceRecordId && <p className="de-source-note">เอกสารสำเนาจาก <AppLink href={appUrl(`/records/${doc.sourceRecordId}`)}>บันทึกหลังสอน</AppLink> · บันทึกการแก้ไขและประวัติรุ่นไว้ในเอกสารฉบับนี้</p>}
     <EditorRibbon editor={editor} document={doc} onChange={commit} insertObject={insertObject} uploadImage={uploadImage} zoom={zoom} setZoom={setZoom} fit={fit} view={view} setView={setView} onFind={() => setModal('find')} onPrint={print} onDocx={docx} onVersions={loadVersions} busy={busy} wordCount={wordCount} onReview={() => setModal('review')} />
     {(notice || autosave.error) && <div className="de-notice" role="alert"><span>{notice || autosave.error}</span><button aria-label="ปิดข้อความแจ้งเตือน" onClick={() => { setNotice(''); autosave.clearError() }}><X size={16} /></button></div>}
     {autosave.status === 'conflict' && <div className="de-notice"><span>ระบบหยุดบันทึกอัตโนมัติเพื่อเก็บฉบับที่คุณกำลังแก้ไข</span><Button size="sm" variant="outline" onClick={keepCopy} disabled={busy}><Copy size={15} />เก็บเป็นเอกสารใหม่</Button><Button size="sm" variant="outline" disabled={busy} onClick={loadLatest}>โหลดรุ่นล่าสุด</Button></div>}

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Document;
 use App\Models\RecordDocumentLayout;
 use App\Models\RecordImage;
 use App\Models\RecordRevision;
@@ -50,13 +51,13 @@ class RecordDocumentTest extends TestCase
         $this->actingAs($this->teacher)->get(route('records.document.edit', $this->record))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->component('records/document')
-                ->where('record.id', $this->record->id)
-                ->where('settings.paper_orientation', 'portrait')
-                ->where('settings.image_layout_mode', 'free')
-                ->where('settings.image_1_lock_aspect', '1')
-                ->where('content.record_result', 'ผลเดิม')
-                ->where('hasSavedLayout', false));
+                ->component('documents/edit')
+                ->where('editorContext.recordId', $this->record->id)
+                ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'paper_orientation') === 'portrait')
+                ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_layout_mode') === 'free')
+                ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_1_lock_aspect') === '1')
+                ->where('document.content', fn ($content): bool => $this->fieldText($content->toArray(), 'record_result') === 'ผลเดิม')
+                ->where('editorContext.kind', 'record'));
 
         $this->put(route('records.document.update', $this->record), [
             'settings' => [
@@ -142,7 +143,7 @@ class RecordDocumentTest extends TestCase
         $this->assertSame('<b>ผลการเรียนรู้</b><br><span style="color:#ff0000">บรรทัดถัดไป</span>', $map['record_result']['html']);
         $this->assertArrayNotHasKey('unsupported_field', $map);
         $this->get(route('records.document.edit', $saved))->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->where('content.record_result', $text)->where('settings.document_rich_text', $json));
+            ->where('document.content', fn ($content): bool => $this->fieldText($content->toArray(), 'record_result') === $text)->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'document_rich_text') === $json));
         $snapshot = app(LegacyPrintService::class)->savedSnapshot($saved, $this->teacher);
         $this->assertSame($json, $snapshot['settings']['document_rich_text']);
         $this->assertSame($map['record_result']['html'], DocumentRichText::render($snapshot['content']['record_result'], 'record_result', $json));
@@ -239,7 +240,7 @@ class RecordDocumentTest extends TestCase
         $this->assertSame($reviewed, $unchangedRevision->snapshot);
 
         $this->actingAs($this->teacher)->get(route('records.document.edit', $this->record))->assertOk()
-            ->assertInertia(fn (Assert $page) => $page->where('settings.pdf_font_size_pt', '16')->where('settings.image_layout_mode', 'free')->where('settings.image_1_x_px', '79'));
+            ->assertInertia(fn (Assert $page) => $page->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'pdf_font_size_pt') === '16')->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_layout_mode') === 'free')->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_1_x_px') === '79'));
     }
 
     public function test_printing_without_attendance_changes_only_a_snapshot_copy(): void
@@ -306,8 +307,8 @@ class RecordDocumentTest extends TestCase
         $this->actingAs($this->teacher)->get(route('records.document.edit', $this->record))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('settings.image_1_x_px', '34')
-                ->where('settings.image_1_y_px', '20'));
+                ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_1_x_px') === '34')
+                ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_1_y_px') === '20'));
     }
 
     public function test_private_draft_image_requires_snapshot_membership_and_its_storage_subtree(): void
@@ -339,11 +340,11 @@ class RecordDocumentTest extends TestCase
             Setting::query()->create(['setting_key' => $key, 'setting_value' => $value]);
         }
         $this->actingAs($this->teacher)->get(route('records.document.edit', $this->record))
-            ->assertOk()->assertInertia(fn (Assert $page) => $page->where('settings.sig1_name', 'ชื่อครูเฉพาะบัญชี'));
+            ->assertOk()->assertInertia(fn (Assert $page) => $page->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'sig1_name') === 'ชื่อครูเฉพาะบัญชี'));
 
         RecordDocumentLayout::query()->create(['record_id' => $this->record->id, 'settings' => ['sig1_name' => 'ชื่อฉบับเอกสาร'], 'content' => [], 'updated_by' => $this->teacher->id]);
         $this->get(route('records.document.edit', $this->record))
-            ->assertOk()->assertInertia(fn (Assert $page) => $page->where('settings.sig1_name', 'ชื่อฉบับเอกสาร'));
+            ->assertOk()->assertInertia(fn (Assert $page) => $page->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'sig1_name') === 'ชื่อฉบับเอกสาร'));
         $district = User::query()->create(['id' => 'district-scope', 'username' => 'district-scope', 'name' => 'ผู้ดูแล', 'password' => Hash::make('secret'), 'role' => 'district']);
         $resolved = app(RecordDocumentOptions::class)->legacySettings('t1', $district);
         $this->assertSame('ชื่อประจำตำบล', $resolved['sig1_name']);
@@ -514,9 +515,9 @@ class RecordDocumentTest extends TestCase
             }
             $this->get(route('records.document.edit', $this->record))->assertOk()
                 ->assertInertia(fn (Assert $page) => $page
-                    ->where('settings.image_layout_by_id', $stored['image_layout_by_id'])
-                    ->where('settings.image_1_x_px', $settings['image_1_x_px'])
-                    ->where('settings.image_4_y_px', $settings['image_4_y_px']));
+                    ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_layout_by_id') === $stored['image_layout_by_id'])
+                    ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_1_x_px') === $settings['image_1_x_px'])
+                    ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_4_y_px') === $settings['image_4_y_px']));
             if ($round === 1) {
                 $this->postJson(route('records.document.pdf-preview', $this->record), $payload)->assertOk();
                 $this->assertSame($stored['image_layout_by_id'], $capturedPdf['settings']['image_layout_by_id']);
@@ -552,7 +553,7 @@ class RecordDocumentTest extends TestCase
         $positions = array_map(fn (array $layout): string => $layout['x_px'].':'.$layout['y_px'], $map);
         $this->assertCount(4, array_unique($positions));
         $this->actingAs($this->teacher)->get(route('records.document.edit', $this->record))->assertOk()
-            ->assertInertia(fn (Assert $page) => $page->where('settings.image_4_x_px', '0')->where('settings.image_4_y_px', '8'));
+            ->assertInertia(fn (Assert $page) => $page->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_4_x_px') === '0')->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_4_y_px') === '8'));
     }
 
     public function test_free_image_geometry_beyond_the_inner_canvas_survives_save_and_reopen(): void
@@ -580,8 +581,8 @@ class RecordDocumentTest extends TestCase
             }
         }
         $this->get(route('records.document.edit', $this->record))->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->where('settings.image_1_x_px', '-2400')->where('settings.image_1_width_px', '10')
-            ->where('settings.image_2_width_px', '2400')->where('settings.image_2_y_px', '-2400'));
+            ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_1_x_px') === '-2400')->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_1_width_px') === '10')
+            ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_2_width_px') === '2400')->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_2_y_px') === '-2400'));
     }
 
     public function test_free_image_bounds_are_checked_in_slots_and_the_stable_map(): void
@@ -635,8 +636,8 @@ class RecordDocumentTest extends TestCase
             }
         }
         $this->actingAs($this->teacher)->get(route('records.document.edit', $this->record))->assertOk()
-            ->assertInertia(fn (Assert $page) => $page->where('settings.image_layout_by_id', $snapshot['settings']['image_layout_by_id'])
-                ->where('settings.image_1_x_px', '-29')->where('settings.image_4_y_px', '204'));
+            ->assertInertia(fn (Assert $page) => $page->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_layout_by_id') === $snapshot['settings']['image_layout_by_id'])
+                ->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_1_x_px') === '-29')->where('document.id', fn (string $id): bool => $this->sourceSetting($id, 'image_4_y_px') === '204'));
     }
 
     public function test_old_document_override_requires_an_explicit_resolution(): void
@@ -689,5 +690,35 @@ class RecordDocumentTest extends TestCase
         $this->actingAs($this->teacher)->delete(route('records.document.destroy', $this->record))
             ->assertSessionHas('success');
         $this->assertDatabaseMissing('record_document_layouts', ['record_id' => $this->record->id]);
+    }
+
+    private function sourceSetting(string $id, string $key): mixed
+    {
+        return Document::query()->findOrFail($id)->binding_snapshot['source_snapshot']['settings'][$key] ?? null;
+    }
+
+    private function fieldText(array $node, string $field): ?string
+    {
+        if (($node['attrs']['field'] ?? null) === $field) {
+            $plain = function (array $item) use (&$plain): string {
+                if (($item['type'] ?? '') === 'text') {
+                    return $item['text'];
+                }
+                if (($item['type'] ?? '') === 'hardBreak') {
+                    return "\n";
+                }
+
+                return implode('', array_map($plain, $item['content'] ?? []));
+            };
+
+            return $plain($node);
+        }
+        foreach ($node['content'] ?? [] as $child) {
+            if (($found = $this->fieldText($child, $field)) !== null) {
+                return $found;
+            }
+        }
+
+        return null;
     }
 }

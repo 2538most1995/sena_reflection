@@ -1,104 +1,76 @@
-# โปรเจกต์คืออะไร
+# SENA Reflection: บริบทสำหรับพัฒนา
 
-> **Laravel migration (2026-08-30):** ระบบใหม่อยู่ใน `laravel/` และใช้ MySQL ฐานเดียวกับระบบเดิม รองรับส่งบันทึกรายสัปดาห์ครบ 3 ระดับแบบ atomic, pagination, role scope และดาวน์โหลด PDF/ZIP แล้ว ดูวิธีรันและขอบเขตได้ที่ `laravel/README.md` ไฟล์ legacy ยังคงถูกเก็บไว้เพื่อเทียบผลและ rollback ระหว่างช่วงย้าย
+ระบบบันทึกหลังการสอนของ สกร. อำเภอเสนา ใช้บันทึกผลการจัดการเรียนรู้ ภาพประกอบ รายชื่อ/การมาเรียน และเอกสารรายงาน ระบบหลักปัจจุบันอยู่ใน `laravel/` ใช้ Laravel 13, React 19, TypeScript และ Inertia 3 บน MySQL
 
-`sena_reflection 4` คือระบบเว็บสำหรับบันทึกหลังการสอนของ สกร. อำเภอเสนา ใช้สำหรับให้ครูระดับตำบลบันทึกผลการจัดการเรียนการสอน แนบภาพประกอบ บันทึกการมาเรียนของผู้เรียน และออกเอกสารรายงาน/ PDF สำหรับตรวจสอบหรือพิมพ์ใช้งาน
+คู่มือเอกสาร: [docs.md](docs.md) · วิธีติดตั้ง: [README.md](README.md) และ [laravel/README.md](laravel/README.md)
 
-## ภาพรวมระบบ
+## ระบบหลักและสิทธิ์
 
-ระบบเป็น PHP application แบบไม่ใช้ framework หลัก ทำงานบน MAMP/Apache + MySQL เป็นหลัก หน้าเว็บหลักอยู่ใน `index.php` และใช้ JavaScript ใน `assets/js/app.js` เพื่อเรียก API ต่าง ๆ ในโฟลเดอร์ `api/`
+- `district`: ผู้ดูแลอำเภอ อ่านและจัดการรายการตามสิทธิ์ผู้ดูแล
+- `tambon`: อ่านและจัดการบันทึกตามขอบเขตตำบล
+- ร่าง (`teaching_drafts`) เป็นข้อมูลส่วนตัวของผู้สร้าง รวมถึงภาพและเอกสารของร่าง บัญชีอำเภอไม่สามารถอ่านร่างของผู้อื่น
+- settings อาจกำหนดระดับกลาง ตำบล หรือผู้ใช้ ต้องรักษาลำดับ override และค่าเฉพาะรายการ
 
-ผู้ใช้หลักมี 2 กลุ่ม:
+workflow หลัก: สร้างหรือแก้ร่างรายสัปดาห์ เลือกระดับที่สอน ตรวจรายชื่อ/ยอดรวม ใส่เนื้อหาและรูป ตรวจเอกสาร แล้วจึงยืนยันระดับที่เลือกใน transaction เดียว การบันทึกร่างหรือจัดเอกสารร่างไม่ใช่การยืนยันรายการ
 
-- `district`: ผู้ดูแลระดับอำเภอ เห็นภาพรวมทุกตำบล จัดการข้อมูล/ตั้งค่ากลางได้
-- `tambon`: ครูหรือผู้ใช้ระดับตำบล เห็นและจัดการข้อมูลเฉพาะตำบลของตนเอง
+## ตัวจัดเอกสารปัจจุบัน
 
-## ฟีเจอร์สำคัญ
+`/records/{record}/document` เปิด `documents/edit` โดยตรง ใช้เอกสารผูกกับรายการผ่าน `binding_key=record:<id>` ส่วนร่างใช้ `draft:<uuid>:<level>` เริ่มจากแม่แบบตำแหน่ง ฟอนต์ไทย ระยะบรรทัด ลายเซ็น ภาพ และรายชื่อของรายงานเดิม แล้วเก็บการแก้ต่อเป็น canonical JSON
 
-- Login/logout และเปลี่ยนรหัสผ่าน
-- Dashboard ภาพรวมอำเภอและสถานะรายตำบล
-- เพิ่ม/แก้ไข/ลบบันทึกหลังการสอน
-- แนบภาพประกอบการจัดการเรียนการสอน 2 หรือ 4 รูป
-- บันทึกจำนวนผู้เรียนทั้งหมดและผู้เข้าเรียน
-- บันทึก attendance รายคน พร้อมวิธีเรียน
-- วิเคราะห์ผู้เรียนจากข้อมูล attendance และ Student API
-- sync รายชื่อครู/ผู้ใช้จากระบบภายนอก
-- ตั้งค่าเอกสาร เช่น ลายเซ็น ตำแหน่ง ฟอนต์ ระยะขอบ
-- สร้างหน้า print/PDF และดาวน์โหลดเอกสาร
+- TipTap JSON เป็นแหล่งเนื้อหา; page settings และ objects เป็น JSON แยก geometry ของหน้า/วัตถุใช้มิลลิเมตร บาง attr ภายในแม่แบบรักษาหน่วย px ของ layout เดิม
+- ข้อความใน node ที่มี `attrs.field` ผูกกลับ record/draft รูปแบบที่ใช้ร่วมกับ legacy เก็บใน document settings และ rich text ที่ sanitize แล้ว
+- เอกสารทั่วไปใน `/documents` และสำเนาแยกไม่ส่งการแก้กลับต้นทาง
+- autosave ใช้ revision และ optimistic lock ตอบ 409 เมื่อมีการแก้จากอีกแท็บ เก็บสำเนาหรือโหลดล่าสุดได้
+- เมื่อต้นทางเปลี่ยนนอก editor การโหลดล่าสุดปรับเฉพาะข้อความช่องที่ต้นทางเปลี่ยน พร้อมเก็บ version และรักษาการจัดวางส่วนอื่น
+- managed map ใน binding แยกรูป/แถวข้อมูล/ตารางรายชื่อที่ระบบสร้างออกจากส่วนที่ผู้ใช้เพิ่ม เพื่อซิงก์ต้นทางโดยรักษารูปแบบและ assets ของประวัติ หลังแก้ต้นทางให้เปิด editor หรือโหลดล่าสุดก่อนพิมพ์ฉบับจัดหน้า
+- ยืนยันร่างสำเร็จจึงย้าย binding ไป record และเพิ่ม revision กันแท็บร่างเก่าเขียนทับ
+- ภาพเอกสารอยู่ใน private storage อ่านผ่าน route ตรวจสิทธิ์ ไม่ใช้ URL ไฟล์ส่วนตัวตรง ๆ
 
-## โครงสร้างไฟล์หลัก
+## เส้นทางโค้ดสำคัญ
 
-- `index.php`: หน้าเว็บหลัก รวม login, dashboard, form, modal และพื้นที่แสดงผลทั้งหมด
-- `assets/js/app.js`: logic ฝั่งหน้าเว็บ เช่น API calls, render table, dashboard, student analysis, print preview
-- `assets/css/style.css`: style หลักของระบบ
-- `config.php`: ตั้งค่าฐานข้อมูล session helper auth helper auto-migration และ utility สำคัญ
-- `database.sql`: schema สำหรับติดตั้งฐานข้อมูล
-- `print.php`: สร้างหน้า print/PDF จากข้อมูลบันทึกและ settings
-- `api/download_pdf.php`: wrapper สำหรับสั่ง download PDF ผ่าน `print.php`
-- `pdfjs.php`: เสิร์ฟไฟล์ PDF.js จาก `node_modules`
+| ส่วน | ไฟล์/ตำแหน่ง |
+| --- | --- |
+| Routes | `laravel/routes/web.php`, `laravel/routes/documents.php` |
+| หน้าเอกสาร | `laravel/resources/js/pages/documents/`, `components/editor/` |
+| Canvas / pagination / extensions | `document-canvas.tsx`, `document-extensions.ts`, `lib/document-layout.ts` |
+| Autosave / API / model | `hooks/use-document-autosave.ts`, `lib/document-api.ts`, `lib/document-model.ts` |
+| Persistence / binding / validation | `DocumentService`, `BoundDocumentService`, `DocumentSchema` |
+| แม่แบบบันทึก | `RecordEditorTemplate`, `RecordDocumentOptions`, `DocumentRichText` |
+| เปิดจาก record/draft | `RecordDocumentController`, `DraftDocumentController` ใน `app/Http/Controllers/` |
+| ร่าง / ยืนยัน / ประวัติ | `DraftService`, `FinalizeTeachingSubmission`, `RecordRevisionService` |
+| Print / PDF | `lib/document-print.ts`, `document-snapshot.tsx`, `BoundDocumentRenderer`, `LegacyPrintService`, `RecordPdfService` |
+| Word export | `lib/document-export.ts` |
+| Schema | `laravel/database/migrations/` |
+| Tests | `laravel/tests/Feature/`, `laravel/tests/Unit/`, `laravel/tests/Frontend/` และ Playwright ตาม `laravel/playwright.config.ts` |
 
-## API สำคัญ
+ชื่อคลาสในตารางหมายถึง `laravel/app/Services/` เว้นแต่ระบุเป็น controller ส่วนไฟล์ JavaScript อยู่ใต้ `laravel/resources/js/`
 
-- `api/auth.php`: login, logout, change password
-- `api/records.php`: CRUD บันทึกหลังสอน, รูปภาพ, attendance รายคน
-- `api/dashboard.php`: ข้อมูลสรุปภาพรวม
-- `api/tambons.php`: ข้อมูลตำบล
-- `api/users.php`: จัดการผู้ใช้
-- `api/settings.php`: อ่าน/บันทึกค่าตั้งค่าเอกสารและลายเซ็น
-- `api/student_api.php`: proxy/filter ข้อมูลนักเรียนจากระบบภายนอก
-- `api/attendance_report.php`: รายงาน/สรุป attendance
-- `api/teacher_directory.php`: sync ผู้ใช้ครูจากระบบภายนอก
-- `api/upload_image.php`: อัปโหลดรูปภาพ
-- `api/server_check.php`: ตรวจสถานะ server/environment
+## พิมพ์และส่งออก
 
-## ฐานข้อมูล
+Browser print ใช้ DOM จาก canvas เดียวกับ editor แล้วเปิดหน้าพิมพ์แยก รองรับ Save as PDF โดยคงข้อความเลือกได้ Server อ่าน immutable snapshot ที่มี `advanced_document` สำหรับเอกสารผูกกับรายการ ผ่าน canvas snapshot renderer และ Chrome/Chromium ภาพอ่านจาก private assets ตาม document ID แล้วฝังในเอกสารพิมพ์
 
-ระบบใช้ MySQL ผ่าน PDO โดยตั้งค่า default ใน `config.php`:
+PDF รวมใช้ Python3 + `pypdf` งานส่งออกใช้ queue `exports` ต้อง deploy production build ที่มี snapshot entry และดูแล worker ส่วน DOCX ใช้แก้ต่อใน Word การแบ่งหน้า การล้อมข้อความ และเส้นบรรทัดบางส่วนอาจต่างจาก PDF
 
-- host: `localhost`
-- user: `root`
-- password: `root`
-- database: `sena_reflection`
+Hosting จริงคือ `https://krumost.com/sena_reflection` ใช้ `npm run build:production` และ `npm run check:production-build` โดย commit `laravel/public/build/` พร้อม source ส่วน `npm run build` ใช้กับเครื่อง local/การติดตั้ง root อย่าส่ง artifact คนละ base path ปะปนกัน
 
-ตารางสำคัญ:
+## ข้อมูลและ schema
 
-- `users`: ผู้ใช้และ role
-- `tambons`: รายชื่อตำบล 17 แห่ง
-- `records`: บันทึกหลังการสอน
-- `record_images`: รูปภาพของแต่ละบันทึก
-- `record_attendance`: attendance รายคนของแต่ละบันทึก
-- `settings`: ค่าตั้งค่าเอกสาร ลายเซ็น และ PDF
+ตารางเดิมสำคัญคือ `users`, `tambons`, `records`, `record_images`, `record_attendance`, `settings` ตาราง Laravel เพิ่มร่าง รายสัปดาห์ revision งานส่งออก และ `documents` / `document_assets` / `document_versions` เอกสารผูกต้นทางใช้ `binding_key` unique nullable และ `binding_snapshot`
 
-`config.php` มี auto-migration เพื่อสร้าง/เพิ่ม column/index บางส่วนตอนระบบเริ่มทำงาน จึงต้องระวังเมื่อแก้ schema
+Laravel migrations เป็น schema หลักของโมดูลใหม่ ต้อง migrate เมื่อ deploy ควบคู่ build ตรวจฐานเป้าหมายจาก `.env` ไม่รัน migration บนข้อมูลจริงระหว่างทดสอบ การตั้งค่าฐาน/API key อยู่ใน environment หรือ config ที่ไม่ commit
 
-## Dependency
+## Legacy ที่ยังเก็บไว้
 
-- Composer: ไม่มี dependency สำหรับ PDF ฝั่ง server
-- npm: `html2canvas` + `jspdf` สำหรับสร้าง PDF ฝั่ง browser และ `pdfjs-dist` สำหรับ preview PDF
-- ฟอนต์ไทยอยู่ใน `fonts/`
+root `index.php`, `assets/js/app.js`, `assets/css/style.css`, `api/`, `config.php`, `database.sql`, `print.php` และ `pdfjs.php` เป็นระบบ PHP เดิม ใช้สำหรับ compatibility ส่วนที่ยังเรียกใช้ เปรียบเทียบแม่แบบ และการย้ายระบบ ไม่ใช่ frontend หลักปัจจุบัน `print.php` ยังอ้างอิง layout เก่า และ legacy renderer ใช้กับ snapshot ที่ไม่มี advanced document
 
-## Flow การใช้งานหลัก
+`config.php` มี auto-migration ของ legacy ต้องอ่านผลกระทบก่อนแก้ ตารางโมดูล Laravel ใหม่ไม่ควรเพิ่ม auto-migration ซ้ำในไฟล์นี้ Student/teacher API ยังใช้ normalize และ fallback ผ่าน services อย่าสมมติ schema ระบบภายนอก
 
-1. ผู้ใช้ login ผ่าน `api/auth.php`
-2. `index.php` โหลดหน้าระบบและส่งข้อมูลผู้ใช้ปัจจุบันให้ JavaScript
-3. JavaScript โหลดตำบล dashboard records settings และข้อมูลนักเรียนตามหน้า
-4. เมื่อเพิ่ม/แก้บันทึก `assets/js/app.js` ส่งข้อมูลไป `api/records.php`
-5. API validate สิทธิ์ role/tambon แล้วบันทึกลงฐานข้อมูล
-6. การพิมพ์หรือ PDF ใช้ `print.php` ดึง record, images, attendance, settings แล้ว render เป็นเอกสาร
+## ข้อควรระวังและการตรวจงาน
 
-## แนวทางพัฒนา
-
-- รักษา compatibility กับ MAMP และ PHP local environment
-- ใช้ PHP/PDO แบบที่โปรเจกต์ใช้อยู่แล้ว
-- หลีกเลี่ยงการเพิ่ม framework ใหญ่
-- ถ้าเพิ่ม field ใหม่ ต้องดูทั้ง schema, API, frontend form, table render, print/PDF
-- ถ้าแก้สิทธิ์เข้าถึง ต้องทดสอบทั้ง role `district` และ `tambon`
-- ถ้าแก้ Student API หรือ teacher sync ต้องเผื่อกรณีระบบภายนอกตอบช้า/ล่ม/ไม่มีข้อมูล
-
-## จุดเสี่ยงที่ควรจำ
-
-- `uploads/` อาจมีไฟล์จริงของผู้ใช้ ห้ามลบโดยไม่ขออนุญาต
-- `settings` มี key จำนวนมากและบาง key scoped ตาม user/tambon
-- `print.php` มี fallback สำหรับ server ที่ Composer autoload หรือ PHP version มีปัญหา
-- ข้อมูลนักเรียน/ครูมาจากระบบภายนอก จึงไม่ควร assume schema โดยไม่ดู normalize function
-- รหัสผ่านเก่าอาจถูก migrate เป็น hash ผ่าน helper ใน `config.php`
+- `uploads/` และ storage อาจมีข้อมูลจริง ห้ามลบหรือแก้เพื่อสร้าง fixture; ใช้ฐานแยกและ fake storage ใน tests
+- อย่าลด auth, role scope, print token scope หรือ private asset checks เพื่อแก้การแสดงผล
+- อย่าส่ง password/hash, API key หรือ private filesystem path กลับหน้าเว็บ
+- ตรวจ save/reload, draft ไม่ finalize, revision conflict, source change, ยืนยันร่าง, รูปส่วนตัว, PDF และสิทธิ์ทั้งสอง role
+- ใช้ `php artisan test --compact`, `npm run typecheck`, `npm run build:production`, `npm run test:frontend` และ `npm run check:production-build` ก่อนส่งงาน hosting ตรวจ PDF จริงบนเครื่องที่มี Chrome และฟอนต์ครบ
+- Playwright ใช้เฉพาะ loopback ของฐาน fixture แยก ผ่าน `SENA_E2E_BASE_URL`, `SENA_E2E_USER`, `SENA_E2E_PASSWORD` และ `SENA_E2E_RECORD_ID`; ไม่ทดสอบเขียนข้อมูลบน production
+- `php artisan sena:health` ตรวจข้อมูล/ไฟล์พื้นฐาน ไม่ใช่การรับรองความเหมือนของ layout PDF

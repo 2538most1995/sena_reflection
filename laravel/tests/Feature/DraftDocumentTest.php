@@ -20,9 +20,9 @@ class DraftDocumentTest extends TestCase
         [$teacher, $draft] = $this->draft();
         $route = ['teachingDraft' => $draft->id, 'levelCode' => '1'];
         $this->actingAs($teacher)->get(route('teaching-drafts.document.edit', $route))
-            ->assertOk()->assertInertia(fn (Assert $page) => $page->component('records/document')
-            ->where('draftContext.id', $draft->id)->where('draftContext.lockVersion', 1)
-            ->where('content.record_subject', 'ภาษาไทย'));
+            ->assertOk()->assertInertia(fn (Assert $page) => $page->component('documents/edit')
+            ->where('editorContext.draftId', $draft->id)->where('editorContext.lockVersion', 1)
+            ->where('document.content', fn ($content): bool => str_contains(json_encode($content, JSON_UNESCAPED_UNICODE), 'ภาษาไทย')));
 
         $this->put(route('teaching-drafts.document.update', $route), [
             'lock_version' => 1, 'settings' => ['paper_orientation' => 'landscape', 'image_1_width_px' => '410'],
@@ -70,7 +70,7 @@ class DraftDocumentTest extends TestCase
         $this->assertSame('<b>'.$text.'</b>', json_decode($json, true, flags: JSON_THROW_ON_ERROR)['record_result']['html']);
         $this->assertSame($text, $saved->payload['levels']['1']['result']);
         $this->get(route('teaching-drafts.document.edit', $route))->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->where('settings.document_rich_text', $json)->where('content.record_result', $text));
+            ->where('document.content', fn ($content): bool => str_contains(json_encode($content, JSON_UNESCAPED_UNICODE), $text) && str_contains(json_encode($content), 'bold')));
         $print = $this->mock(LegacyPrintService::class);
         $print->shouldReceive('snapshotPdf')->once()->withArgs(fn (array $snapshot, User $user): bool => $snapshot['settings']['document_rich_text'] === $json
             && $snapshot['content']['record_result'] === $text && $user->is($teacher))->andReturn('%PDF-rich-draft');

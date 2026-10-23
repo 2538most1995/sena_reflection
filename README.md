@@ -4,6 +4,10 @@
 
 โค้ดระบบใหม่อยู่ใน [`laravel/`](laravel/) ส่วน PHP เดิมเก็บไว้สำหรับ API และการสร้างเอกสารที่ยังใช้ร่วมกัน
 
+คู่มือสร้าง จัดการ และพิมพ์เอกสารแบบ Word: [docs.md](docs.md) · ภาพรวมระบบและไฟล์ที่เกี่ยวข้อง: [CONTEXT.md](CONTEXT.md)
+
+ปุ่ม **จัดเอกสารก่อนพิมพ์** ของบันทึกและร่างเปิดตัวจัดเอกสารโดยตรง พร้อมแม่แบบรายงานเดิม บันทึกอัตโนมัติ ประวัติรุ่น และการพิมพ์ PDF จากเอกสารฉบับเดียวกัน เอกสารทั่วไปสร้างได้จากเมนู **เอกสาร**
+
 ## เริ่มใช้งาน
 
 ต้องมี PHP 8.4.1 ขึ้นไป, Composer, Node.js และ MySQL สำหรับ PDF ต้องมี Chrome/Chromium และ Python3 พร้อม `pypdf`
@@ -24,6 +28,10 @@ npm ci
 npm run build
 php artisan serve --host=127.0.0.1 --port=8000
 ```
+
+คำสั่งข้างต้นใช้กับ local/เว็บไซต์ที่ root เมื่อ deploy ไป **https://krumost.com/sena_reflection** ให้ใช้ `npm run build:production` และ `npm run check:production-build` แทน build ทั่วไป แล้ว commit/ส่ง `laravel/public/build/` ทั้งชุดพร้อม source โปรเจกต์นี้เก็บ build สำหรับ hosting ใต้ `/sena_reflection` ไว้ใน Git
+
+เมื่ออัปเดตจากรุ่นเก่า ต้องรัน migrations ของ `documents`, assets, versions และ binding พร้อม build ของปลายทางเพื่อสร้าง snapshot entry สำหรับ PDF สำรองฐานและ private/public storage ก่อนอัปเดต และ restart export worker หลัง deploy ดูการตั้งค่า Chrome/Python, E2E fixture และการแก้ PDF 503 ใน [คู่มือเอกสาร](docs.md)
 
 เปิด http://localhost:8000 และเปิดอีก terminal สำหรับงานส่งออก:
 

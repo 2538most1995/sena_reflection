@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\DraftImage;
 use App\Models\TeachingDraft;
 use App\Models\TeachingRecord;
+use App\Services\BoundDocumentService;
+use App\Services\DocumentService;
 use App\Services\DraftService;
 use App\Services\LegacyPrintService;
 use App\Services\RecordDocumentOptions;
@@ -16,24 +18,13 @@ use Symfony\Component\HttpFoundation\Response;
 
 class DraftDocumentController extends Controller
 {
-    public function edit(Request $request, TeachingDraft $teachingDraft, string $levelCode, DraftService $drafts): InertiaResponse
+    public function edit(Request $request, TeachingDraft $teachingDraft, string $levelCode, DraftService $drafts, BoundDocumentService $bound, DocumentService $documents): InertiaResponse
     {
         $owned = $drafts->owned($request->user(), $teachingDraft);
         abort_unless($owned->status === 'active', 409, 'ฉบับร่างนี้บันทึกแล้ว กรุณาเปิดจากรายการบันทึก');
-        $snapshot = $drafts->snapshotForPreview($request->user(), $owned, $levelCode);
-        $images = collect($drafts->resource($owned)['images'])->where('level_code', $levelCode)->values();
+        $document = $bound->forDraft($request->user(), $owned, $levelCode);
 
-        return Inertia::render('records/document', [
-            'record' => [...$snapshot['record'], 'images' => $images->map(fn (array $image): array => [
-                'id' => $image['id'], 'record_id' => $snapshot['record']['id'], 'file_path' => $image['url'],
-            ])->all(), 'attendance' => $snapshot['attendance']],
-            'settings' => collect($snapshot['settings'])->only(RecordDocumentOptions::SETTING_KEYS)->all(),
-            'content' => $snapshot['content'],
-            'canonicalContent' => $snapshot['content'],
-            'contentConflicts' => [],
-            'hasSavedLayout' => ! empty($owned->payload['levels'][$levelCode]['document']['settings']),
-            'draftContext' => ['id' => $owned->id, 'levelCode' => $levelCode, 'lockVersion' => $owned->lock_version],
-        ]);
+        return Inertia::render('documents/edit', ['document' => $documents->resource($document), 'editorContext' => $bound->context($document)]);
     }
 
     public function preview(Request $request, TeachingDraft $teachingDraft, string $levelCode, DraftService $drafts, RecordDocumentOptions $options, LegacyPrintService $print): Response

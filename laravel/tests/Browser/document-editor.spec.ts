@@ -160,6 +160,45 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     expect(copied.document.id).not.toBe(document.id)
   })
 
+  test('the original record route uses the advanced editor with the original Thai form and saves before printing', async ({ page }) => {
+    const recordId = process.env.SENA_E2E_RECORD_ID
+    test.skip(!recordId, 'Provide the ID of a dedicated isolated report fixture to test the record binding.')
+    await page.goto(`/records/${recordId}/document`)
+    await expect(page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })).toBeVisible()
+    await expect(page.locator('.de-source-note')).toContainText('จัดเอกสารก่อนพิมพ์')
+    await expect(page.getByRole('button', { name: 'ตัวแก้ไขขั้นสูง / DOCX', exact: true })).toHaveCount(0)
+    await expect(page.locator('.record-info-row:not(.record-info-row--compact)')).toHaveCount(6)
+    await expect(page.locator('.record-signature')).toHaveCount(3)
+    await expect.poll(() => page.locator('[data-document-canvas] .document-page').count()).toBe(1)
+    const documentId = await page.locator('script[type="application/json"][data-page]').evaluate(element => JSON.parse(element.textContent || '{}').props.document.id) as string
+    await saved(page)
+    const versions = await api<{ versions: { id: string }[] }>(page, 'GET', `/api/documents/${documentId}/versions`)
+    const originalVersion = versions.data.versions.at(-1)!.id
+    try {
+      const body = page.locator('[data-record-field="record_result"] p').first()
+      expect(await body.evaluate(element => getComputedStyle(element).fontFamily)).toContain('THSarabunNew')
+      await expect(page.getByRole('combobox', { name: 'แบบอักษร', exact: true })).toHaveValue('THSarabunNew')
+      await body.fill('แก้ไขผลการเรียนรู้จากตัวแก้ไขขั้นสูงและบันทึกก่อนพิมพ์')
+      const popupPromise = page.waitForEvent('popup')
+      await page.getByRole('button', { name: 'บันทึกและพิมพ์', exact: true }).click()
+      const popup = await popupPromise
+      await expect(popup.getByRole('button', { name: 'พิมพ์ / บันทึก PDF', exact: true })).toBeEnabled({ timeout: 25_000 })
+      await expect(popup.locator('.document-print-page')).toHaveCount(1)
+      await expect(popup.locator('[data-record-field="record_result"]')).toContainText('แก้ไขผลการเรียนรู้จากตัวแก้ไขขั้นสูงและบันทึกก่อนพิมพ์')
+      await expect(popup.locator('[data-print-hidden], [contenteditable], .is-selected')).toHaveCount(0)
+      await popup.close()
+      await saved(page)
+      await page.reload()
+      await expect(page.locator('[data-record-field="record_result"]')).toHaveText('แก้ไขผลการเรียนรู้จากตัวแก้ไขขั้นสูงและบันทึกก่อนพิมพ์')
+      const model = await api<{ document: StoredDocument & { editorContext: { kind: string; recordId: string } } }>(page, 'GET', `/api/documents/${documentId}`)
+      expect(model.data.document.editorContext).toEqual(expect.objectContaining({ kind: 'record', recordId }))
+      expect((await api(page, 'DELETE', `/api/documents/${documentId}`)).status).toBe(422)
+    } finally {
+      const latest = await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${documentId}`)
+      expect((await api(page, 'POST', `/api/documents/${documentId}/versions/${originalVersion}/restore`, { revision: latest.data.document.revision })).status).toBe(200)
+    }
+  })
+
   test('multi-page print uses physical A4 and downloads DOCX with the uploaded image', async ({ page }, testInfo) => {
     const text = 'ข้อความภาษาไทยสำหรับตรวจหน้าพิมพ์'
     await createDocument(page, { type: 'doc', content: Array.from({ length: 45 }, (_, index) => ({ type: 'paragraph', content: [{ type: 'text', text: `${text} ${index + 1} เนื้อหาต้องไม่หายเมื่อแบ่งหน้าอัตโนมัติ` }] })) })

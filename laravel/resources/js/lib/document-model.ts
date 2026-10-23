@@ -10,6 +10,10 @@ export type PageSettings = {
   background: string
   border: string
   theme: string
+  fontFamily?: string
+  fontSize?: number
+  lineHeight?: number
+  template?: 'weekly-record' | null
 }
 
 export type DocumentObject = {
@@ -37,7 +41,8 @@ export type DocumentObject = {
 }
 
 export type DocumentAsset = { id: string; url: string; mime: string; name: string; width: number; height: number }
-export type WebDocument = { id: string; title: string; content: JSONContent; pageSettings: PageSettings; objects: DocumentObject[]; revision: number; schemaVersion: number; updatedAt: string; assets: DocumentAsset[]; sourceRecordId?: string | null }
+export type DocumentEditorContext = { kind: 'record' | 'draft'; recordId?: string; draftId?: string; levelCode?: string; lockVersion?: number; returnUrl: string; title: string }
+export type WebDocument = { id: string; title: string; content: JSONContent; pageSettings: PageSettings; objects: DocumentObject[]; revision: number; schemaVersion: number; updatedAt: string; assets: DocumentAsset[]; sourceRecordId?: string | null; editorContext?: DocumentEditorContext | null }
 export type DocumentVersion = { id: string; revision: number; title: string; createdAt: string }
 export const MM_TO_PX = 96 / 25.4
 export const PAGE_GAP = 28

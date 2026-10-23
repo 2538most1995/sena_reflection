@@ -4,10 +4,15 @@ import { MM_TO_PX, PAGE_GAP, pageDimensions } from './document-model'
 export type CanvasPage = { index: number; top: number; height: number; width: number; thumbnail?: string }
 export type ObjectGeometry = { x: number; y: number; width: number; height: number; page: number }
 
-export function canvasPages(settings: PageSettings, count: number): CanvasPage[] {
+export function canvasPageDimensions(settings: PageSettings): { width: number; height: number } {
   const size = pageDimensions(settings)
-  const height = size.height * MM_TO_PX
-  return Array.from({ length: Math.max(1, count) }, (_, index) => ({ index, top: index * (height + PAGE_GAP), height, width: size.width * MM_TO_PX }))
+  const width = size.width * MM_TO_PX, height = size.height * MM_TO_PX
+  return settings.template === 'weekly-record' ? { width: Math.round(width), height: Math.round(height) } : { width, height }
+}
+
+export function canvasPages(settings: PageSettings, count: number): CanvasPage[] {
+  const { width, height } = canvasPageDimensions(settings)
+  return Array.from({ length: Math.max(1, count) }, (_, index) => ({ index, top: index * (height + PAGE_GAP), height, width }))
 }
 
 export function snapMillimeters(value: number, enabled: boolean, step = 5): number {
@@ -28,11 +33,11 @@ export function constrainObject(geometry: ObjectGeometry, settings: PageSettings
 }
 
 export function objectCanvasTop(object: Pick<DocumentObject, 'page' | 'y'>, settings: PageSettings): number {
-  return (Math.max(1, object.page) - 1) * (pageDimensions(settings).height * MM_TO_PX + PAGE_GAP) + object.y * MM_TO_PX
+  return (Math.max(1, object.page) - 1) * (canvasPageDimensions(settings).height + PAGE_GAP) + object.y * MM_TO_PX
 }
 
 export function canvasPositionToPage(top: number, settings: PageSettings): { page: number; y: number } {
-  const height = pageDimensions(settings).height * MM_TO_PX
+  const { height } = canvasPageDimensions(settings)
   const page = Math.max(1, Math.floor(Math.max(0, top) / (height + PAGE_GAP)) + 1)
   return { page, y: Math.max(0, top - (page - 1) * (height + PAGE_GAP)) / MM_TO_PX }
 }

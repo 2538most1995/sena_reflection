@@ -46,3 +46,13 @@ test('the production build ships the advanced document editor and its export eng
     assert.ok(source.includes(feature), `Missing advanced editor feature: ${feature}`)
   }
 })
+
+test('the canonical print renderer ships with Thai font subsets', () => {
+  assert.ok(manifest['resources/js/document-snapshot.tsx'], 'Missing standalone snapshot renderer')
+  const fonts = JSON.parse(readFileSync(resolve(build, 'fonts-manifest.json'), 'utf8'))
+  const css = readFileSync(resolve(build, fonts.style.file), 'utf8')
+  for (const family of ['Noto Sans Thai', 'Anuphan', 'Sarabun']) {
+    const faces = css.split('@font-face').filter(face => new RegExp(`font-family:\\s*["']${family}["']`).test(face))
+    assert.ok(faces.some(face => /U\+0E0[01]-0E[57][BF]/i.test(face)), `Missing Thai font subset: ${family}`)
+  }
+})

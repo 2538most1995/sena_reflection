@@ -1,7 +1,7 @@
 import type { JSONContent } from '@tiptap/core'
 import {
   AlignmentType, BorderStyle, Document as DocxDocument, ExternalHyperlink, Footer, Header,
-  HeadingLevel, HorizontalPositionRelativeFrom, ImageRun, LevelFormat, LineRuleType,
+  HeadingLevel, HeightRule, HorizontalPositionRelativeFrom, ImageRun, LevelFormat, LineRuleType,
   Packer, PageBreak, PageNumber, Paragraph, ShadingType, Table, TableCell, TableRow,
   TableLayoutType, TextRun, TextWrappingSide, TextWrappingType, UnderlineType, VerticalPositionRelativeFrom, WidthType,
 } from 'docx'
@@ -27,8 +27,11 @@ type Context = {
   objectsByParagraph: Map<string, DocumentObject[]>
   objectsByPage: Map<number, DocumentObject[]>
   placedObjects: Set<string>
-  explicitPage: number
-  pageHasAnchor: boolean
+  pagination: { explicitPage: number; pageHasAnchor: boolean }
+  recordTemplate: boolean
+  paragraphDefaults?: IParagraphOptions
+  runDefaults?: IRunOptions
+  availableWidth?: number
 }
 type ListContext = { reference: string; level: number; first: boolean }
 
@@ -37,6 +40,12 @@ const mmToEmu = (value: number) => Math.round(value * 36000)
 const numberValue = (value: unknown, fallback = 0) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)) ? Number(value) : fallback
 const attrsOf = (node: JSONContent) => node.attrs || {}
 const childrenOf = (node: JSONContent) => node.content || []
+const pxToTwips = (value: number) => Math.round(value * 15)
+const recordNodeTypes = new Set(['recordInfoRow', 'recordInfoCell', 'recordSectionTitle', 'recordBody', 'recordSignature', 'recordGroup'])
+const noBorder = { style: BorderStyle.NONE, size: 0, color: '000000' } as const
+const dottedBorder = { style: BorderStyle.DOTTED, size: 4, color: '000000', space: 0 } as const
+const noTableBorders = { top: noBorder, right: noBorder, bottom: noBorder, left: noBorder, insideHorizontal: noBorder, insideVertical: noBorder }
+const noCellBorders = { top: noBorder, right: noBorder, bottom: noBorder, left: noBorder }
 
 function hexColor(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
@@ -51,7 +60,35 @@ function hexColor(value: unknown): string | undefined {
 function textOf(node: JSONContent): string {
   if (node.type === 'text') return node.text || ''
   if (node.type === 'hardBreak') return '\n'
-  return childrenOf(node).map(textOf).join(['doc', 'table', 'tableRowGroup', 'tableRow', 'bulletList', 'orderedList', 'listItem'].includes(node.type || '') ? '\n' : '')
+  return childrenOf(node).map(textOf).join(['doc', 'table', 'tableRowGroup', 'tableRow', 'bulletList', 'orderedList', 'listItem', 'recordInfoRow', 'recordBody', 'recordSignature', 'recordGroup'].includes(node.type || '') ? '\n' : '')
+}
+
+function isRecordTemplate(node: JSONContent): boolean {
+  return recordNodeTypes.has(node.type || '') || attrsOf(node).role === 'recordTitle' || childrenOf(node).some(isRecordTemplate)
+}
+
+function recordOffsetWarning(node: JSONContent, context: Context) {
+  const attrs = attrsOf(node)
+  if (numberValue(attrs.offsetX) || numberValue(attrs.offsetY)) context.warnings.add('ตำแหน่งเลื่อนเฉพาะส่วนของแม่แบบไม่ถูกแปลงเป็นตำแหน่งลอยใน DOCX โดยยังคงเนื้อหาครบ; ใช้ PDF เมื่อต้องการคงตำแหน่งเดิม')
+}
+
+function contentWidth(context: Context): number {
+  if (context.availableWidth) return context.availableWidth
+  const settings = context.model.pageSettings
+  return mmToTwips(pageDimensions(settings).width - settings.margins.left - settings.margins.right)
+}
+
+function recordSpacer(height = 0, borderTop = false): Paragraph {
+  return new Paragraph({
+    children: [], run: { size: 2, sizeComplexScript: 2 },
+    spacing: { before: 0, after: 0, line: Math.max(1, pxToTwips(height)), lineRule: LineRuleType.EXACT },
+    border: borderTop ? { top: { color: '000000', style: BorderStyle.SINGLE, size: 4, space: 0 } } : undefined,
+    keepNext: true,
+  })
+}
+
+function recordCellChildren(blocks: Block[]): Block[] {
+  return blocks.length && blocks[blocks.length - 1] instanceof Paragraph ? blocks : [...blocks, recordSpacer()]
 }
 
 function tableRows(node: JSONContent): JSONContent[] {
@@ -190,11 +227,11 @@ async function inlineChildren(node: JSONContent, context: Context): Promise<Para
   for (const child of childrenOf(node)) {
     if (child.type === 'text') {
       if (child.marks?.some(mark => mark.type === 'textStyle' && mark.attrs?.lineHeight)) context.warnings.add('ระยะบรรทัดเฉพาะบางคำอาจต่างใน DOCX เพราะ Word กำหนดระยะบรรทัดเป็นรายย่อหน้า')
-      const run = new TextRun(runOptions(child))
+      const run = new TextRun({ ...context.runDefaults, ...runOptions(child) })
       const link = child.marks?.find(mark => mark.type === 'link')?.attrs?.href
       if (typeof link === 'string' && /^(https?:\/\/|mailto:|tel:)/i.test(link)) output.push(new ExternalHyperlink({ link, children: [run] }))
       else { if (link) context.warnings.add('ลิงก์ที่มีรูปแบบ URL ไม่ปลอดภัยถูกส่งออกเป็นข้อความธรรมดา'); output.push(run) }
-    } else if (child.type === 'hardBreak') output.push(new TextRun({ break: 1 }))
+    } else if (child.type === 'hardBreak') output.push(new TextRun({ ...context.runDefaults, break: 1 }))
     else if (child.type === 'image') {
       const attrs = attrsOf(child)
       const source = String(attrs.src || context.model.assets.find(asset => asset.id === attrs.assetId)?.url || '')
@@ -242,11 +279,19 @@ async function objectRun(object: DocumentObject, context: Context, forceInline =
   }
   let content: Paragraph[] | undefined
   if (object.type === 'textbox') {
-    const textboxContext = { ...context, objectsByParagraph: new Map(), objectsByPage: new Map(), pageHasAnchor: true }
+    const textboxContext = { ...context, objectsByParagraph: new Map(), objectsByPage: new Map(), pagination: { ...context.pagination, pageHasAnchor: true } }
     const flattenTables = (nodes: JSONContent[]): JSONContent[] => nodes.flatMap<JSONContent>(node => {
       if (node.type === 'table') {
         context.warnings.add('ตารางในกล่องข้อความ DOCX ถูกแปลงเป็นข้อความ; ตารางในเนื้อหาเอกสารยังแก้ไขได้ตามปกติ')
         return tableRows(node).map(row => ({ type: 'paragraph', content: [{ type: 'text', text: childrenOf(row).map(textOf).join('\t') }] }))
+      }
+      if (node.type === 'recordInfoRow') {
+        context.warnings.add('โครงแม่แบบภายในกล่องข้อความ DOCX ถูกแปลงเป็นย่อหน้า โดยคงข้อความทั้งหมดไว้')
+        return [{ type: 'paragraph', content: [{ type: 'text', text: childrenOf(node).map(textOf).join('\t') }] }]
+      }
+      if (['recordBody', 'recordSignature', 'recordGroup'].includes(node.type || '')) {
+        context.warnings.add('โครงแม่แบบภายในกล่องข้อความ DOCX ถูกแปลงเป็นย่อหน้า โดยคงข้อความทั้งหมดไว้')
+        return flattenTables(childrenOf(node))
       }
       return [{ ...node, content: flattenTables(childrenOf(node)) }]
     })
@@ -271,11 +316,15 @@ async function objectRun(object: DocumentObject, context: Context, forceInline =
 
 async function paragraph(node: JSONContent, context: Context, list?: ListContext): Promise<Paragraph> {
   const attrs = attrsOf(node)
-  const runs = await inlineChildren(node, context)
-  const attached = context.objectsByParagraph.get(String(attrs.id || '')) || []
-  if (!context.pageHasAnchor) {
-    attached.push(...context.objectsByPage.get(context.explicitPage) || [])
-    context.pageHasAnchor = true
+  recordOffsetWarning(node, context)
+  const isTitle = attrs.role === 'recordTitle'
+  const isSignaturePart = ['signatureName', 'signaturePosition', 'signatureLine'].includes(String(attrs.role))
+  const defaults = context.paragraphDefaults || {}
+  const runs = await inlineChildren(node, isTitle ? { ...context, runDefaults: { ...context.runDefaults, font: 'THSarabunNew', size: 40, sizeComplexScript: 40, bold: true, boldComplexScript: true } } : context)
+  const attached = [...context.objectsByParagraph.get(String(attrs.id || '')) || []]
+  if (!context.pagination.pageHasAnchor) {
+    attached.push(...context.objectsByPage.get(context.pagination.explicitPage) || [])
+    context.pagination.pageHasAnchor = true
   }
   for (const object of attached) {
     if (context.placedObjects.has(object.id)) continue
@@ -283,30 +332,165 @@ async function paragraph(node: JSONContent, context: Context, list?: ListContext
     context.placedObjects.add(object.id)
   }
   const heading = node.type === 'heading' ? [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4, HeadingLevel.HEADING_5, HeadingLevel.HEADING_6][Math.max(0, Math.min(5, numberValue(attrs.level, 1) - 1))] : undefined
-  const alignment = ({ left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED } as Record<string, IParagraphOptions['alignment']>)[String(attrs.textAlign)]
+  const alignment = ({ left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED } as Record<string, IParagraphOptions['alignment']>)[String(attrs.textAlign)] || (isTitle || isSignaturePart ? AlignmentType.CENTER : defaults.alignment)
+  const defaultLine = isTitle ? 264 : defaults.spacing?.line ?? Math.round((heading ? [1.3, 1.35, 1.4][Math.max(0, Math.min(2, numberValue(attrs.level, 1) - 1))] : 1.5) * 240)
+  const indent = {
+    ...defaults.indent,
+    ...(list && !list.first ? { left: 360 * (list.level + 1) } : {}),
+    ...(attrs.indent ? { left: mmToTwips(numberValue(attrs.indent)) } : {}),
+    ...(attrs.firstIndent !== null && attrs.firstIndent !== undefined ? { firstLine: pxToTwips(numberValue(attrs.firstIndent)) } : {}),
+  }
   const options: IParagraphOptions = {
+    ...defaults,
     children: runs, heading, alignment,
     spacing: {
-      before: Math.max(0, numberValue(attrs.spaceBefore)) * 20,
-      after: Math.max(0, numberValue(attrs.spaceAfter, 8)) * 20,
-      line: Math.round(Math.max(0.5, numberValue(attrs.lineHeight, heading ? [1.3, 1.35, 1.4][Math.max(0, Math.min(2, numberValue(attrs.level, 1) - 1))] : 1.5)) * 240), lineRule: LineRuleType.AUTO,
+      before: Math.max(0, numberValue(attrs.spaceBefore, numberValue(defaults.spacing?.before) / 20)) * 20,
+      after: Math.max(0, numberValue(attrs.spaceAfter, isTitle ? 6 : isSignaturePart ? 0 : numberValue(defaults.spacing?.after, 160) / 20)) * 20,
+      line: attrs.lineHeight ? Math.round(Math.max(0.5, numberValue(attrs.lineHeight, 1.5)) * 240) : defaultLine,
+      lineRule: attrs.lineHeight || isTitle ? LineRuleType.AUTO : defaults.spacing?.lineRule || LineRuleType.AUTO,
     },
-    indent: attrs.indent ? { left: mmToTwips(numberValue(attrs.indent)) } : list && !list.first ? { left: 360 * (list.level + 1) } : undefined,
+    indent: Object.keys(indent).length ? indent : undefined,
     numbering: list?.first ? { reference: list.reference, level: Math.min(8, list.level) } : undefined,
+    border: attrs.recordLine ? { ...defaults.border, bottom: dottedBorder } : defaults.border,
     widowControl: true,
   }
   if (list) list.first = false
   return new Paragraph(options)
 }
 
+async function recordInfoRow(node: JSONContent, context: Context): Promise<Table | null> {
+  const attrs = attrsOf(node)
+  const sourceCells = childrenOf(node)
+  if (!sourceCells.length) return null
+  const compact = !!attrs.compact
+  const width = contentWidth(context)
+  const requested = sourceCells.map(cell => {
+    const attrs = attrsOf(cell)
+    return Math.max(0, attrs.unit === 'px' ? pxToTwips(numberValue(attrs.width)) : width * numberValue(attrs.width) / 100)
+  })
+  const total = requested.reduce((sum, value) => sum + value, 0)
+  const autoCount = requested.filter(value => !value).length
+  const columnWidths = requested.map(value => Math.max(1, Math.round(value ? value * (total > width ? width / total : 1) : Math.max(0, width - total) / Math.max(1, autoCount))))
+  const cells: TableCell[] = []
+  for (const [index, cell] of sourceCells.entries()) {
+    const cellAttrs = attrsOf(cell)
+    recordOffsetWarning(cell, context)
+    const childContext: Context = {
+      ...context,
+      paragraphDefaults: {
+        alignment: AlignmentType.LEFT, keepLines: true, wordWrap: cellAttrs.nowrap ? false : undefined,
+        spacing: { before: 0, after: 0, line: pxToTwips(26), lineRule: LineRuleType.AT_LEAST },
+      },
+      runDefaults: { font: 'THSarabunNew', size: 32, sizeComplexScript: 32, color: '000000' },
+    }
+    const content = await paragraph({ ...cell, type: 'paragraph', attrs: { ...cellAttrs, spaceBefore: 0, spaceAfter: 0 } }, childContext)
+    cells.push(new TableCell({
+      children: [content],
+      width: compact
+        ? requested[index] ? { type: WidthType.DXA, size: Math.round(requested[index]) } : { type: WidthType.AUTO, size: 0 }
+        : { type: WidthType.DXA, size: columnWidths[index] },
+      borders: { ...noCellBorders, bottom: cellAttrs.dotted && !cellAttrs.label ? dottedBorder : noBorder },
+      margins: { top: 0, right: 0, bottom: 0, left: 0 },
+    }))
+  }
+  return new Table({
+    rows: [new TableRow({ children: cells, cantSplit: true, height: { value: pxToTwips(26), rule: HeightRule.ATLEAST } })],
+    width: { type: compact ? WidthType.AUTO : WidthType.DXA, size: compact ? 0 : width },
+    alignment: compact ? AlignmentType.CENTER : AlignmentType.LEFT,
+    layout: compact ? TableLayoutType.AUTOFIT : TableLayoutType.FIXED,
+    columnWidths: compact ? undefined : columnWidths,
+    borders: noTableBorders, margins: { top: 0, right: 0, bottom: 0, left: 0 },
+  })
+}
+
+async function recordBlocks(node: JSONContent, context: Context): Promise<Block[]> {
+  const attrs = attrsOf(node)
+  recordOffsetWarning(node, context)
+  if (node.type === 'recordInfoRow') {
+    const row = await recordInfoRow(node, context)
+    return row ? [row] : []
+  }
+  if (node.type === 'recordSectionTitle') {
+    return [await paragraph({ ...node, type: 'paragraph', attrs: { ...attrs, spaceBefore: undefined } }, {
+      ...context,
+      runDefaults: { font: 'THSarabunNew', size: 34, sizeComplexScript: 34, bold: true, boldComplexScript: true, color: '000000' },
+      paragraphDefaults: { keepNext: true, keepLines: true, spacing: { before: pxToTwips(Math.max(0, numberValue(attrs.spaceBefore))), after: 0, line: pxToTwips(26), lineRule: LineRuleType.AT_LEAST } },
+    })]
+  }
+  if (node.type === 'recordBody') {
+    const line = pxToTwips(Math.max(1, numberValue(attrs.lineSpacing, 26)))
+    const alignment = ({ left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED } as Record<string, IParagraphOptions['alignment']>)[String(attrs.align)] || AlignmentType.JUSTIFIED
+    const bodyContext: Context = {
+      ...context,
+      runDefaults: { font: 'THSarabunNew', size: 32, sizeComplexScript: 32, color: '000000' },
+      paragraphDefaults: {
+        alignment, keepNext: false, keepLines: false,
+        spacing: { before: 0, after: pxToTwips(Math.max(0, numberValue(attrs.spaceAfter))), line, lineRule: LineRuleType.AT_LEAST },
+        indent: { firstLine: pxToTwips(Math.max(0, numberValue(attrs.firstIndent, 42))) },
+        border: { bottom: dottedBorder },
+      },
+    }
+    context.warnings.add('DOCX ใช้เส้นจุดใต้ย่อหน้าและขอบพื้นที่เนื้อหาแทนเส้นบรรทัดซ้ำของแม่แบบ; ใช้ PDF เมื่อต้องการคงเส้นบรรทัดเดิม')
+    const output: Block[] = []
+    let pending: JSONContent[] = []
+    let first = true
+    const flush = async () => {
+      if (!pending.length) return
+      const blocks = await convertBlocks(pending, bodyContext)
+      output.push(new Table({
+        rows: [new TableRow({
+          children: [new TableCell({ children: recordCellChildren(blocks), borders: { ...noCellBorders, bottom: dottedBorder }, margins: { top: 0, right: 0, bottom: 0, left: 0 } })],
+          height: { value: (first ? Math.max(1, Math.ceil(numberValue(attrs.minLines, 1))) : 1) * line, rule: HeightRule.ATLEAST },
+        })],
+        width: { type: WidthType.DXA, size: contentWidth(context) },
+        columnWidths: [contentWidth(context)], borders: noTableBorders,
+        margins: { top: 0, right: 0, bottom: 0, left: 0 }, layout: TableLayoutType.FIXED,
+      }))
+      pending = []
+      first = false
+    }
+    for (const child of childrenOf(node)) {
+      if (child.type === 'pageBreak') {
+        await flush()
+        output.push(...await convertBlocks([child], context))
+      } else pending.push(child)
+    }
+    await flush()
+    return output
+  }
+  if (node.type === 'recordSignature') {
+    const width = Math.max(1, Math.min(contentWidth(context), pxToTwips(numberValue(attrs.width, 430))))
+    const blocks = await convertBlocks(childrenOf(node), {
+      ...context, availableWidth: width,
+      runDefaults: { font: 'THSarabunNew', size: 32, sizeComplexScript: 32, color: '000000' },
+      paragraphDefaults: { alignment: AlignmentType.CENTER, keepLines: true, spacing: { before: 0, after: 0, line: pxToTwips(26), lineRule: LineRuleType.AT_LEAST } },
+    })
+    const alignment = ({ left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT } as Record<string, IParagraphOptions['alignment']>)[String(attrs.align)] || AlignmentType.RIGHT
+    const top = Math.max(0, numberValue(attrs.marginTop, 16))
+    return [...top ? [recordSpacer(top)] : [], new Table({
+      rows: [new TableRow({ children: [new TableCell({ children: recordCellChildren(blocks), width: { type: WidthType.DXA, size: width }, borders: noCellBorders, margins: { top: 0, right: 0, bottom: 0, left: 0 } })], cantSplit: true })],
+      width: { type: WidthType.DXA, size: width }, columnWidths: [width],
+      alignment, borders: noTableBorders, layout: TableLayoutType.FIXED,
+      margins: { top: 0, right: 0, bottom: 0, left: 0 },
+    })]
+  }
+  if (node.type === 'recordGroup') {
+    const top = Math.max(0, numberValue(attrs.spaceBefore))
+    const borderTop = !!attrs.borderTop && attrs.borderTop !== 'none'
+    return [...top || borderTop ? [recordSpacer(top, borderTop)] : [], ...await convertBlocks(childrenOf(node), context)]
+  }
+  return [await paragraph({ ...node, type: 'paragraph' }, context)]
+}
+
 async function convertBlocks(nodes: JSONContent[], context: Context, list?: ListContext): Promise<Block[]> {
   const output: Block[] = []
   for (const node of nodes) {
-    if (['paragraph', 'heading'].includes(node.type || '')) output.push(await paragraph(node, context, list))
+    if (recordNodeTypes.has(node.type || '')) output.push(...await recordBlocks(node, context))
+    else if (['paragraph', 'heading'].includes(node.type || '')) output.push(await paragraph(node, context, list))
     else if (node.type === 'pageBreak') {
       output.push(new Paragraph({ children: [new TextRun({ children: [new PageBreak()] })], spacing: { before: 0, after: 0 } }))
-      context.explicitPage++
-      context.pageHasAnchor = false
+      context.pagination.explicitPage++
+      context.pagination.pageHasAnchor = false
     } else if (node.type === 'bulletList' || node.type === 'orderedList') {
       const level = list ? Math.min(8, list.level + 1) : 0
       const reference = `editor-list-${context.numbering.length + 1}`
@@ -315,7 +499,7 @@ async function convertBlocks(nodes: JSONContent[], context: Context, list?: List
         level: index, format: node.type === 'bulletList' ? LevelFormat.BULLET : LevelFormat.DECIMAL,
         text: node.type === 'bulletList' ? ['•', '◦', '▪'][index % 3] : `%${index + 1}.`, start,
         alignment: AlignmentType.LEFT,
-        style: { run: { font: 'Sarabun' }, paragraph: { indent: { left: 360 * (index + 1), hanging: 240 } } },
+        style: { run: { font: context.recordTemplate ? 'THSarabunNew' : 'Sarabun' }, paragraph: { indent: { left: 360 * (index + 1), hanging: 240 } } },
       })) })
       for (const item of childrenOf(node)) output.push(...await convertBlocks(childrenOf(item), context, { reference, level, first: true }))
     } else if (node.type === 'table') {
@@ -359,7 +543,7 @@ async function convertBlocks(nodes: JSONContent[], context: Context, list?: List
 
 /** Convert the canonical JSON to editable Word paragraphs/tables/drawings, without HTML or screenshots. */
 export async function buildDocumentDocx(model: WebDocument, options: DocxExportOptions = {}): Promise<{ document: DocxDocument; warnings: string[] }> {
-  const context: Context = { model, options, warnings: new Set(), numbering: [], images: new Map(), objectsByParagraph: new Map(), objectsByPage: new Map(), placedObjects: new Set(), explicitPage: 1, pageHasAnchor: false }
+  const context: Context = { model, options, warnings: new Set(), numbering: [], images: new Map(), objectsByParagraph: new Map(), objectsByPage: new Map(), placedObjects: new Set(), pagination: { explicitPage: 1, pageHasAnchor: false }, recordTemplate: isRecordTemplate(model.content) }
   for (const object of [...model.objects].sort((left, right) => left.zIndex - right.zIndex)) {
     if (object.anchor.kind === 'paragraph') {
       const objects = context.objectsByParagraph.get(object.anchor.id) || []
@@ -395,10 +579,10 @@ export async function buildDocumentDocx(model: WebDocument, options: DocxExportO
     title: model.title, creator: 'Sena Reflection', revision: model.revision,
     background: { color: hexColor(settings.background) || 'FFFFFF' },
     styles: { default: {
-      document: { run: { font: 'Sarabun', size: 32, sizeComplexScript: 32, color: '172033', language: { value: 'th-TH' } }, paragraph: { spacing: { after: 160, line: 360, lineRule: LineRuleType.AUTO } } },
-      heading1: { run: { font: 'Sarabun', size: 60, sizeComplexScript: 60, bold: true, boldComplexScript: true, color: '172033' }, paragraph: { spacing: { before: 280, after: 160 } } },
-      heading2: { run: { font: 'Sarabun', size: 46, sizeComplexScript: 46, bold: true, boldComplexScript: true, color: '172033' }, paragraph: { spacing: { before: 240, after: 160 } } },
-      heading3: { run: { font: 'Sarabun', size: 38, sizeComplexScript: 38, bold: true, boldComplexScript: true, color: '172033' }, paragraph: { spacing: { before: 200, after: 160 } } },
+      document: { run: { font: context.recordTemplate ? 'THSarabunNew' : 'Sarabun', size: 32, sizeComplexScript: 32, color: context.recordTemplate ? '000000' : '172033', language: { value: 'th-TH' } }, paragraph: { spacing: { after: 160, line: 360, lineRule: LineRuleType.AUTO } } },
+      heading1: { run: { font: context.recordTemplate ? 'THSarabunNew' : 'Sarabun', size: 60, sizeComplexScript: 60, bold: true, boldComplexScript: true, color: '172033' }, paragraph: { spacing: { before: 280, after: 160 } } },
+      heading2: { run: { font: context.recordTemplate ? 'THSarabunNew' : 'Sarabun', size: 46, sizeComplexScript: 46, bold: true, boldComplexScript: true, color: '172033' }, paragraph: { spacing: { before: 240, after: 160 } } },
+      heading3: { run: { font: context.recordTemplate ? 'THSarabunNew' : 'Sarabun', size: 38, sizeComplexScript: 38, bold: true, boldComplexScript: true, color: '172033' }, paragraph: { spacing: { before: 200, after: 160 } } },
     } },
     numbering: { config: context.numbering },
     sections: [{

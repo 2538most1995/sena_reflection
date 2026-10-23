@@ -13,14 +13,15 @@ export default defineConfig(({ mode }) => {
     ...(appBasePath ? { base: `/${appBasePath}/build/` } : {}),
     plugins: [
         laravel({
-            input: ['resources/css/app.css', 'resources/js/app.tsx'],
+            input: ['resources/css/app.css', 'resources/js/app.tsx', 'resources/js/document-snapshot.tsx'],
             refresh: true,
             fonts: [
                 bunny('Noto Sans Thai', {
                     weights: [400, 500, 600, 700],
+                    subsets: ['thai', 'latin'],
                 }),
-                bunny('Anuphan', { weights: [400, 500, 600, 700] }),
-                bunny('Sarabun', { weights: [400, 700], styles: ['normal', 'italic'] }),
+                bunny('Anuphan', { weights: [400, 500, 600, 700], subsets: ['thai', 'latin'] }),
+                bunny('Sarabun', { weights: [400, 700], styles: ['normal', 'italic'], subsets: ['thai', 'latin'] }),
             ],
         }),
         tailwindcss(),
@@ -32,8 +33,11 @@ export default defineConfig(({ mode }) => {
         },
     },
     server: {
+        fs: {
+            allow: [path.resolve(import.meta.dirname), path.resolve(import.meta.dirname, '../fonts')],
+        },
         watch: {
-            ignored: ['**/storage/framework/views/**'],
+            ignored: ['**/storage/framework/views/**', '**/output/**', '**/tests/**'],
         },
     },
     };

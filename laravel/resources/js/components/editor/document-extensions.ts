@@ -1,6 +1,8 @@
 import { Extension, Node, mergeAttributes, type CommandProps, type JSONContent } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import interact from 'interactjs'
 import type { DocumentObject } from '@/lib/document-model'
 
 declare module '@tiptap/core' {
@@ -33,10 +35,16 @@ export const ParagraphFormatting = Extension.create({
       types: ['paragraph', 'heading'],
       attributes: {
         id: { default: null, parseHTML: element => element.getAttribute('data-paragraph-id'), renderHTML: attrs => attrs.id ? { 'data-paragraph-id': attrs.id } : {} },
+        field: { default: null, parseHTML: element => element.getAttribute('data-record-field'), renderHTML: attrs => attrs.field ? { 'data-record-field': attrs.field } : {} },
+        role: { default: null, parseHTML: element => element.getAttribute('data-record-role'), renderHTML: attrs => attrs.role ? { 'data-record-role': attrs.role } : {} },
+        firstIndent: { default: null, parseHTML: element => element.hasAttribute('data-first-indent') ? Number(element.getAttribute('data-first-indent')) : null, renderHTML: attrs => attrs.firstIndent !== null ? { 'data-first-indent': Number(attrs.firstIndent), style: `text-indent:${Number(attrs.firstIndent) || 0}px` } : {} },
+        recordLine: { default: false, parseHTML: element => element.getAttribute('data-record-line') === '1', renderHTML: attrs => attrs.recordLine ? { 'data-record-line': '1' } : {} },
         lineHeight: { default: null, parseHTML: element => element.style.lineHeight || null, renderHTML: attrs => attrs.lineHeight ? { style: `line-height: ${attrs.lineHeight}` } : {} },
         spaceBefore: { default: 0, parseHTML: element => parseFloat(element.style.marginTop) || 0, renderHTML: attrs => ({ style: `margin-top:${Number(attrs.spaceBefore) || 0}pt` }) },
-        spaceAfter: { default: 8, parseHTML: element => parseFloat(element.style.marginBottom) || 8, renderHTML: attrs => ({ style: `margin-bottom:${Number(attrs.spaceAfter) || 0}pt` }) },
+        spaceAfter: { default: null, parseHTML: element => element.style.marginBottom ? parseFloat(element.style.marginBottom) : null, renderHTML: attrs => attrs.spaceAfter !== null ? { style: `margin-bottom:${Number(attrs.spaceAfter) || 0}pt` } : {} },
         indent: { default: 0, parseHTML: element => parseFloat(element.getAttribute('data-indent') || '') || 0, renderHTML: attrs => ({ 'data-indent': Number(attrs.indent) || 0, style: `margin-left:${Number(attrs.indent) || 0}mm` }) },
+        offsetX: { default: 0, parseHTML: element => Number(element.getAttribute('data-record-offset-x')) || 0, renderHTML: attrs => attrs.offsetX ? { 'data-record-offset-x': Number(attrs.offsetX), style: `margin-left:calc(${Number(attrs.indent) || 0}mm + ${Number(attrs.offsetX) || 0}px)` } : {} },
+        offsetY: { default: 0, parseHTML: element => Number(element.getAttribute('data-record-offset-y')) || 0, renderHTML: attrs => attrs.offsetY ? { 'data-record-offset-y': Number(attrs.offsetY), style: `margin-top:calc(${Number(attrs.spaceBefore) || 0}pt + ${Number(attrs.offsetY) || 0}px)` } : {} },
       },
     }]
   },
@@ -68,6 +76,174 @@ export const ParagraphFormatting = Extension.create({
   },
 })
 
+function numericAttribute(name: string, fallback: number, minimum = -2400, maximum = 2400) {
+  return {
+    default: fallback,
+    parseHTML: (element: HTMLElement) => element.hasAttribute(`data-record-${name}`) ? Number(element.getAttribute(`data-record-${name}`)) : fallback,
+    renderHTML: (attributes: Record<string, unknown>) => ({ [`data-record-${name}`]: Math.min(maximum, Math.max(minimum, Number(attributes[name]) || 0)) }),
+  }
+}
+
+function booleanAttribute(name: string, fallback = false) {
+  return {
+    default: fallback,
+    parseHTML: (element: HTMLElement) => element.getAttribute(`data-record-${name}`) === '1',
+    renderHTML: (attributes: Record<string, unknown>) => ({ [`data-record-${name}`]: attributes[name] ? '1' : '0' }),
+  }
+}
+
+function recordFieldAttribute() {
+  return { default: null, parseHTML: (element: HTMLElement) => element.getAttribute('data-record-field'), renderHTML: (attributes: Record<string, unknown>) => attributes.field ? { 'data-record-field': String(attributes.field) } : {} }
+}
+
+export const RecordInfoRow = Node.create({
+  name: 'recordInfoRow', group: 'block', content: 'recordInfoCell+', isolating: true,
+  addAttributes() { return {
+    id: { default: null, parseHTML: element => element.getAttribute('data-record-row-id'), renderHTML: attributes => attributes.id ? { 'data-record-row-id': attributes.id } : {} },
+    compact: booleanAttribute('compact'),
+    offsetX: numericAttribute('offsetX', 0), offsetY: numericAttribute('offsetY', 0),
+  } },
+  parseHTML: () => [{ tag: 'table[data-record-node="info-row"]', priority: 1000 }],
+  renderHTML({ node, HTMLAttributes }) {
+    return ['table', mergeAttributes(HTMLAttributes, { 'data-record-node': 'info-row', class: `record-info-row${node.attrs.compact ? ' record-info-row--compact' : ''}`, style: `margin-left:${node.attrs.compact ? 'auto' : '0'};transform:translateX(${Number(node.attrs.offsetX) || 0}px);margin-top:${Number(node.attrs.offsetY) || 0}px` }), ['tbody', {}, ['tr', {}, 0]]]
+  },
+})
+
+export const RecordInfoCell = Node.create({
+  name: 'recordInfoCell', content: 'inline*', isolating: true,
+  addAttributes() { return {
+    width: numericAttribute('width', 0, 0, 1000),
+    unit: { default: 'percent', parseHTML: element => element.getAttribute('data-record-unit') === 'px' ? 'px' : 'percent', renderHTML: attributes => ({ 'data-record-unit': attributes.unit === 'px' ? 'px' : 'percent' }) },
+    dotted: booleanAttribute('dotted'), nowrap: booleanAttribute('nowrap'), label: booleanAttribute('label'), field: recordFieldAttribute(),
+    offsetX: numericAttribute('offsetX', 0), offsetY: numericAttribute('offsetY', 0),
+  } },
+  parseHTML: () => [{ tag: 'td[data-record-node="info-cell"]', priority: 1000 }],
+  renderHTML({ node, HTMLAttributes }) {
+    const width = Math.min(node.attrs.unit === 'px' ? 1000 : 100, Math.max(0, Number(node.attrs.width) || 0))
+    return ['td', mergeAttributes(HTMLAttributes, {
+      'data-record-node': 'info-cell', class: `record-info-cell${node.attrs.dotted ? ' record-info-cell--dotted' : ''}${node.attrs.label ? ' record-info-cell--label' : ''}`,
+      style: `${width > 0 ? `width:${width}${node.attrs.unit === 'px' ? 'px' : '%'};` : ''}${node.attrs.nowrap ? 'white-space:nowrap;' : ''}${node.attrs.offsetX || node.attrs.offsetY ? `position:relative;left:${Number(node.attrs.offsetX) || 0}px;top:${Number(node.attrs.offsetY) || 0}px;` : ''}`,
+    }), 0]
+  },
+  addKeyboardShortcuts() {
+    return { Enter: () => this.editor.state.selection.$from.parent.type.name === 'recordInfoCell' ? this.editor.commands.setHardBreak() : false }
+  },
+})
+
+export const RecordSectionTitle = Node.create({
+  name: 'recordSectionTitle', group: 'block', content: 'inline*', defining: true,
+  addAttributes() { return { field: recordFieldAttribute(), offsetX: numericAttribute('offsetX', 0), offsetY: numericAttribute('offsetY', 0), spaceBefore: numericAttribute('spaceBefore', 8, 0, 240) } },
+  parseHTML: () => [{ tag: 'div[data-record-node="section-title"]' }],
+  renderHTML: ({ node, HTMLAttributes }) => ['div', mergeAttributes(HTMLAttributes, { 'data-record-node': 'section-title', class: 'record-section-title', style: `margin-left:${Number(node.attrs.offsetX) || 0}px;margin-top:${(Number(node.attrs.spaceBefore) || 0) + (Number(node.attrs.offsetY) || 0)}px` }), 0],
+})
+
+export const RecordBody = Node.create({
+  name: 'recordBody', group: 'block', content: '(paragraph | bulletList | orderedList | pageBreak)+', defining: true,
+  addAttributes() { return {
+    field: recordFieldAttribute(), minLines: numericAttribute('minLines', 1, 1, 100), lineSpacing: numericAttribute('lineSpacing', 26, 12, 80),
+    firstIndent: numericAttribute('firstIndent', 42, 0, 160), spaceAfter: numericAttribute('spaceAfter', 0, 0, 240),
+    align: { default: 'justify', parseHTML: element => element.getAttribute('data-record-align') || 'justify', renderHTML: attributes => ({ 'data-record-align': ['left', 'center', 'right', 'justify'].includes(String(attributes.align)) ? String(attributes.align) : 'justify' }) },
+  } },
+  parseHTML: () => [{ tag: 'div[data-record-node="body"]' }],
+  renderHTML({ node, HTMLAttributes }) {
+    const line = Math.min(80, Math.max(12, Number(node.attrs.lineSpacing) || 26))
+    const align = ['left', 'center', 'right', 'justify'].includes(node.attrs.align) ? node.attrs.align : 'justify'
+    return ['div', mergeAttributes(HTMLAttributes, { 'data-record-node': 'body', class: 'record-body', style: `--record-body-line:${line}px;--record-first-indent:${Math.min(160, Math.max(0, Number(node.attrs.firstIndent) || 0))}px;--record-body-align:${align};min-height:${Math.max(1, Number(node.attrs.minLines) || 1) * line}px;margin-bottom:${Number(node.attrs.spaceAfter) || 0}px` }), 0]
+  },
+})
+
+export const RecordSignature = Node.create({
+  name: 'recordSignature', group: 'block', content: 'block+', defining: true,
+  addAttributes() { return {
+    index: numericAttribute('index', 1, 1, 3), width: numericAttribute('width', 430, 80, 1000), marginTop: numericAttribute('marginTop', 16, -240, 240),
+    offsetX: numericAttribute('offsetX', 0), offsetY: numericAttribute('offsetY', 0),
+    align: { default: 'right', parseHTML: element => element.getAttribute('data-record-align') || 'right', renderHTML: attributes => ({ 'data-record-align': ['left', 'center', 'right'].includes(String(attributes.align)) ? String(attributes.align) : 'right' }) },
+  } },
+  parseHTML: () => [{ tag: 'div[data-record-node="signature"]' }],
+  renderHTML({ node, HTMLAttributes }) {
+    const align = node.attrs.align === 'left' ? 'flex-start' : node.attrs.align === 'center' ? 'center' : 'flex-end'
+    return ['div', mergeAttributes(HTMLAttributes, { 'data-record-node': 'signature', class: 'record-signature', style: `justify-content:${align};margin-top:${(Number(node.attrs.marginTop) || 0) + (Number(node.attrs.offsetY) || 0)}px` }), ['div', { class: 'record-signature-content', style: `width:${Number(node.attrs.width) || 430}px;transform:translateX(${Number(node.attrs.offsetX) || 0}px)` }, ['div', { class: 'record-signature-box' }, 0]]]
+  },
+  addNodeView() {
+    return ({ node, editor, getPos, HTMLAttributes }) => {
+      let currentNode = node
+      const dom = document.createElement('div')
+      dom.className = 'record-signature'
+      dom.dataset.recordNode = 'signature'
+      dom.tabIndex = -1
+      const box = document.createElement('div')
+      box.className = 'record-signature-content'
+      const contentDOM = document.createElement('div')
+      contentDOM.className = 'record-signature-box'
+      const handle = document.createElement('button')
+      handle.type = 'button'
+      handle.className = 'record-signature-move-handle'
+      handle.dataset.printHidden = 'true'
+      handle.contentEditable = 'false'
+      handle.textContent = '✥ ย้ายลายเซ็น'
+      box.append(handle, contentDOM)
+      dom.append(box)
+      const update = (next: ProseMirrorNode) => {
+        if (next.type.name !== 'recordSignature') return false
+        currentNode = next
+        for (const [attribute, value] of Object.entries(HTMLAttributes)) {
+          if (attribute !== 'class' && attribute !== 'style' && value !== null && value !== undefined) dom.setAttribute(attribute, String(value))
+        }
+        dom.dataset.recordIndex = String(next.attrs.index)
+        dom.dataset.recordAlign = String(next.attrs.align)
+        dom.dataset.recordOffsetX = String(next.attrs.offsetX)
+        dom.dataset.recordOffsetY = String(next.attrs.offsetY)
+        dom.style.justifyContent = next.attrs.align === 'left' ? 'flex-start' : next.attrs.align === 'center' ? 'center' : 'flex-end'
+        dom.style.marginTop = `${(Number(next.attrs.marginTop) || 0) + (Number(next.attrs.offsetY) || 0)}px`
+        box.style.width = `${Number(next.attrs.width) || 430}px`
+        box.style.transform = `translateX(${Number(next.attrs.offsetX) || 0}px)`
+        handle.title = `ลากเพื่อย้ายลายเซ็นที่ ${next.attrs.index}`
+        handle.setAttribute('aria-label', handle.title)
+        return true
+      }
+      update(node)
+      handle.addEventListener('pointerdown', event => {
+        event.preventDefault()
+        const position = getPos()
+        if (typeof position === 'number' && editor.isEditable) editor.commands.setNodeSelection(position)
+      })
+      let offsetX = 0, offsetY = 0
+      const draggable = interact(handle).draggable({ listeners: {
+        start(event) {
+          if (!editor.isEditable) { event.interaction.stop(); return }
+          offsetX = Number(currentNode.attrs.offsetX) || 0
+          offsetY = Number(currentNode.attrs.offsetY) || 0
+        },
+        move(event) {
+          const position = getPos()
+          if (!editor.isEditable || typeof position !== 'number' || editor.view.composing) return
+          const view = editor.view.dom
+          const scale = view.getBoundingClientRect().width / view.offsetWidth || 1
+          offsetX = Math.max(-2400, Math.min(2400, offsetX + event.dx / scale))
+          offsetY = Math.max(-2400, Math.min(2400, offsetY + event.dy / scale))
+          const next = editor.state.doc.nodeAt(position)
+          if (next?.type.name === 'recordSignature') editor.view.dispatch(editor.state.tr.setNodeMarkup(position, undefined, { ...next.attrs, offsetX: Math.round(offsetX * 100) / 100, offsetY: Math.round(offsetY * 100) / 100 }))
+        },
+      } })
+      return {
+        dom, contentDOM, update,
+        selectNode: () => dom.classList.add('ProseMirror-selectednode'),
+        deselectNode: () => dom.classList.remove('ProseMirror-selectednode'),
+        stopEvent: event => event.target instanceof Element && (event.target === handle || handle.contains(event.target)),
+        ignoreMutation: mutation => mutation.type !== 'selection' && ((mutation.type === 'attributes' && ([dom, box, handle] as HTMLElement[]).includes(mutation.target as HTMLElement)) || handle.contains(mutation.target)),
+        destroy: () => { draggable.unset() },
+      }
+    }
+  },
+})
+
+export const RecordGroup = Node.create({
+  name: 'recordGroup', group: 'block', content: 'block+', defining: true,
+  addAttributes() { return { spaceBefore: numericAttribute('spaceBefore', 0, 0, 240), offsetX: numericAttribute('offsetX', 0), offsetY: numericAttribute('offsetY', 0), borderTop: booleanAttribute('borderTop') } },
+  parseHTML: () => [{ tag: 'div[data-record-node="group"]' }],
+  renderHTML: ({ node, HTMLAttributes }) => ['div', mergeAttributes(HTMLAttributes, { 'data-record-node': 'group', class: `record-group${node.attrs.borderTop ? ' record-group--border' : ''}`, style: `margin-top:${(Number(node.attrs.spaceBefore) || 0) + (Number(node.attrs.offsetY) || 0)}px;transform:translateX(${Number(node.attrs.offsetX) || 0}px)` }), 0],
+})
+
 export const PageBreak = Node.create({
   name: 'pageBreak',
   group: 'block',
@@ -77,6 +253,11 @@ export const PageBreak = Node.create({
   renderHTML: ({ HTMLAttributes }) => ['div', mergeAttributes(HTMLAttributes, { 'data-page-break': '', class: 'document-manual-page-break', 'aria-label': 'ตัวแบ่งหน้า' })],
   addCommands() { return { insertPageBreak: () => ({ commands }) => commands.insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]) } },
   addKeyboardShortcuts() { return { 'Mod-Enter': () => this.editor.commands.insertPageBreak() } },
+})
+
+export const RecordTemplate = Extension.create({
+  name: 'recordTemplate',
+  addExtensions: () => [PageBreak, RecordInfoRow, RecordInfoCell, RecordSectionTitle, RecordBody, RecordSignature, RecordGroup],
 })
 
 export type FlowReservation = { id: string; position: number; nodeSize: number; side: 'left' | 'right'; width: number; height: number; offset: number; wrap: DocumentObject['wrap'] }

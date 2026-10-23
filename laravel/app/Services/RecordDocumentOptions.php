@@ -21,6 +21,10 @@ class RecordDocumentOptions
         'sig3_title', 'sig3_name', 'sig3_pos', 'sig3_align', 'sig3_offset', 'sig3_offset_y',
         'record_section1_title', 'record_section2_title', 'record_section3_title',
         'pdf_font_size_pt', 'pdf_line_spacing',
+        'signature_font_size_pt', 'attendance_font_size_pt',
+        'sig1_name_offset_x', 'sig1_name_offset_y', 'sig1_pos_offset_x', 'sig1_pos_offset_y',
+        'sig2_name_offset_x', 'sig2_name_offset_y', 'sig2_pos_offset_x', 'sig2_pos_offset_y', 'sig2_title_offset_x', 'sig2_title_offset_y', 'sig2_block_offset_x',
+        'sig3_name_offset_x', 'sig3_name_offset_y', 'sig3_pos_offset_x', 'sig3_pos_offset_y', 'sig3_title_offset_x', 'sig3_title_offset_y', 'sig3_block_offset_x',
         'sig1_mt', 'sig2_mt', 'sig3_mt', 'sig2_block_offset_y', 'sig3_block_offset_y',
         'record_paragraph_spacing_px', 'record_text_indent_px', 'record_text_align',
         'pdf_margin_top_px', 'pdf_margin_right_px', 'pdf_margin_bottom_px', 'pdf_margin_left_px',
@@ -53,6 +57,10 @@ class RecordDocumentOptions
         'sig3_title' => 'ข้อคิดเห็นของผู้อำนวยการสถานศึกษา', 'sig3_name' => '', 'sig3_pos' => 'ผู้อำนวยการสถานศึกษา', 'sig3_align' => 'center', 'sig3_offset' => '0', 'sig3_offset_y' => '0',
         'record_section1_title' => '๑. ผลการจัดการเรียนการสอน', 'record_section2_title' => '๒. สภาพปัญหาและอุปสรรค', 'record_section3_title' => '๓. ข้อเสนอแนะ / แนวทางแก้ไขปัญหา',
         'pdf_font_size_pt' => '16', 'pdf_line_spacing' => '26',
+        'signature_font_size_pt' => '16', 'attendance_font_size_pt' => '16',
+        'sig1_name_offset_x' => '0', 'sig1_name_offset_y' => '0', 'sig1_pos_offset_x' => '0', 'sig1_pos_offset_y' => '0',
+        'sig2_name_offset_x' => '0', 'sig2_name_offset_y' => '0', 'sig2_pos_offset_x' => '0', 'sig2_pos_offset_y' => '0', 'sig2_title_offset_x' => '0', 'sig2_title_offset_y' => '0', 'sig2_block_offset_x' => '0',
+        'sig3_name_offset_x' => '0', 'sig3_name_offset_y' => '0', 'sig3_pos_offset_x' => '0', 'sig3_pos_offset_y' => '0', 'sig3_title_offset_x' => '0', 'sig3_title_offset_y' => '0', 'sig3_block_offset_x' => '0',
         'sig1_mt' => '16', 'sig2_mt' => '16', 'sig3_mt' => '16', 'sig2_block_offset_y' => '0', 'sig3_block_offset_y' => '0',
         'record_paragraph_spacing_px' => '0', 'record_text_indent_px' => '42', 'record_text_align' => 'justify',
         'pdf_margin_top_px' => '57', 'pdf_margin_right_px' => '76', 'pdf_margin_bottom_px' => '38', 'pdf_margin_left_px' => '94',
@@ -72,6 +80,10 @@ class RecordDocumentOptions
         'sig2_offset' => [-400, 400], 'sig2_offset_y' => [-400, 400],
         'sig3_offset' => [-400, 400], 'sig3_offset_y' => [-400, 400],
         'pdf_font_size_pt' => [10, 20], 'pdf_line_spacing' => [20, 40],
+        'signature_font_size_pt' => [10, 20], 'attendance_font_size_pt' => [10, 20],
+        'sig1_name_offset_x' => [-400, 400], 'sig1_name_offset_y' => [-400, 400], 'sig1_pos_offset_x' => [-400, 400], 'sig1_pos_offset_y' => [-400, 400],
+        'sig2_name_offset_x' => [-400, 400], 'sig2_name_offset_y' => [-400, 400], 'sig2_pos_offset_x' => [-400, 400], 'sig2_pos_offset_y' => [-400, 400], 'sig2_title_offset_x' => [-400, 400], 'sig2_title_offset_y' => [-400, 400], 'sig2_block_offset_x' => [-400, 400],
+        'sig3_name_offset_x' => [-400, 400], 'sig3_name_offset_y' => [-400, 400], 'sig3_pos_offset_x' => [-400, 400], 'sig3_pos_offset_y' => [-400, 400], 'sig3_title_offset_x' => [-400, 400], 'sig3_title_offset_y' => [-400, 400], 'sig3_block_offset_x' => [-400, 400],
         'sig1_mt' => [0, 240], 'sig2_mt' => [0, 240], 'sig3_mt' => [0, 240],
         'sig2_block_offset_y' => [-120, 240], 'sig3_block_offset_y' => [-120, 240],
         'record_paragraph_spacing_px' => [0, 80], 'record_text_indent_px' => [0, 160],
@@ -106,6 +118,11 @@ class RecordDocumentOptions
         // Carry old per-record offsets into the new absolute canvas once. New
         // payloads already contain x/y and therefore skip this compatibility path.
         $defaults = self::DEFAULTS;
+        foreach (['signature_font_size_pt', 'attendance_font_size_pt'] as $fontKey) {
+            if (! array_key_exists($fontKey, $overrides) && ! array_key_exists($fontKey, $global)) {
+                $defaults[$fontKey] = (string) ($overrides['pdf_font_size_pt'] ?? $global['pdf_font_size_pt'] ?? self::DEFAULTS['pdf_font_size_pt']);
+            }
+        }
         for ($index = 1; $index <= 4; $index++) {
             $xKey = "image_{$index}_x_px";
             $yKey = "image_{$index}_y_px";

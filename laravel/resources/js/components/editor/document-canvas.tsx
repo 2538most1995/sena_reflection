@@ -12,8 +12,8 @@ import { TableKitPlus } from 'tiptap-table-plus'
 import interact from 'interactjs'
 import { Copy, Grip, RotateCw, Trash2 } from 'lucide-react'
 import { MM_TO_PX, PAGE_GAP, pageDimensions, type DocumentObject, type WebDocument } from '@/lib/document-model'
-import { canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectCanvasTop, snapMillimeters, type CanvasPage } from '@/lib/document-layout'
-import { hasDocumentContent, ObjectTextFlow, objectFlowKey, PageBreak, ParagraphFormatting, type FlowReservation } from './document-extensions'
+import { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectCanvasTop, snapMillimeters, type CanvasPage } from '@/lib/document-layout'
+import { hasDocumentContent, ObjectTextFlow, objectFlowKey, ParagraphFormatting, RecordTemplate, type FlowReservation } from './document-extensions'
 
 export type { CanvasPage } from '@/lib/document-layout'
 
@@ -49,7 +49,8 @@ const canvasStyles = `
 .document-body-editor .table-plus td,.document-body-editor .table-plus th,.document-body-editor td,.document-body-editor th{border:1px solid #94a3b8;padding:5pt 7pt;vertical-align:top;position:relative;word-break:normal!important;min-width:40px}
 .document-body-editor th{background:#f1f5f9;font-weight:700}.document-body-editor .selectedCell:after{background:#2563eb18;content:"";inset:0;pointer-events:none;position:absolute;z-index:2}
 .document-body-editor .column-resize-handle{position:absolute;right:-2px;top:0;bottom:-2px;width:4px;background:#2563eb;pointer-events:none}
-.document-body-editor .rm-page-header,.document-body-editor .rm-page-footer{font-size:10pt;line-height:1.25;color:#64748b;box-sizing:content-box}
+.document-body-editor .rm-page-header,.document-body-editor .rm-page-footer{display:flex!important;font-size:10pt;line-height:17px;color:#64748b;box-sizing:content-box}
+.document-body-editor .rm-page-break:last-child .rm-page-header{display:none!important}
 .document-body-editor .rm-pagination-gap{box-sizing:border-box;border:0!important}
 .document-body-editor .rm-pages-wrapper{pointer-events:none;user-select:none}.document-body-editor .rm-first-page-header{pointer-events:none;user-select:none}
 .document-body-editor .document-manual-page-break{min-height:2px;position:relative;pointer-events:none}
@@ -68,11 +69,44 @@ const canvasStyles = `
 .document-alignment-guide{position:absolute;top:0;bottom:0;border-left:1px dashed #f43f5e;z-index:10;pointer-events:none}
 .document-ruler{position:relative;height:24px;background:#fbfdff;color:#7c8da6;font-size:9px;font-family:Arial,sans-serif;border-bottom:1px solid #dbe3ed;user-select:none}.document-ruler span{position:absolute;bottom:0;border-left:1px solid #cbd5e1;height:7px;padding-left:3px;line-height:8px}.document-ruler span:nth-child(even){height:12px}
 .document-vertical-ruler{position:absolute;left:-28px;top:0;width:23px;height:100%;background:#f8fafc;border-right:1px solid #dbe3ed;color:#94a3b8;font-size:9px;font-family:Arial,sans-serif;user-select:none;pointer-events:none}.document-vertical-ruler span{position:absolute;left:0;width:100%;border-top:1px solid #cbd5e1;padding-top:2px;padding-left:4px}
-@media print{.document-canvas [data-print-hidden],.document-object-toolbar,.document-resize-handle,.document-rotation-handle{display:none!important}.document-object.is-selected:after,.document-body-editor img.ProseMirror-selectednode{border:0!important;outline:0!important}.document-page{box-shadow:none!important}.document-body-editor{caret-color:transparent}.document-canvas.show-marks .document-body-editor p:after,.document-canvas.show-marks .document-manual-page-break:after{display:none!important}}
+.document-canvas.is-record-template{color:#000;font-synthesis:style;letter-spacing:0;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
+.document-canvas.is-record-template .document-body-editor{white-space:break-spaces;overflow-wrap:break-word;word-break:break-word}
+.document-canvas.is-record-template .document-body-editor>p:last-child:has(>br.ProseMirror-trailingBreak:only-child){display:block!important;min-height:0!important;height:0;margin:0!important;padding:0!important;line-height:0!important}
+.document-body-editor p[data-record-role="recordTitle"]{font-size:var(--record-title-size,20pt);line-height:1.1;font-weight:700;text-align:center;margin:0 0 8px;min-height:0}
+.document-body-editor .record-section-title{font-size:var(--record-section-size,17pt);font-weight:700;line-height:1.2;margin:8px 0 2px;break-after:avoid;page-break-after:avoid}
+.document-body-editor table.record-info-row{display:table!important;width:100%;table-layout:fixed;border-collapse:collapse;border:0;margin:0 0 6px;font-size:inherit;line-height:1.2}
+.document-body-editor table.record-info-row>tbody{display:table-row-group!important;max-height:none!important;overflow:visible!important}
+.document-body-editor table.record-info-row>tbody>tr{display:table-row!important}
+.document-body-editor table.record-info-row td.record-info-cell{display:table-cell!important;border:0;padding:0 4px 2px;font-size:inherit;line-height:1.2;vertical-align:bottom;min-width:0;overflow:visible;white-space:break-spaces;word-break:normal!important;text-align:center}
+.document-body-editor table.record-info-row td.record-info-cell--label{padding-right:6px;white-space:nowrap;text-align:left}
+.document-body-editor table.record-info-row td.record-info-cell:has(>br.ProseMirror-trailingBreak:only-child){width:auto}
+.document-body-editor table.record-info-row td.record-info-cell>br.ProseMirror-trailingBreak:only-child{display:none}
+.document-body-editor .record-info-cell--dotted{background-image:radial-gradient(circle at .75px 1.25px,#000 .55px,transparent .65px);background-size:4px 2px;background-position:left bottom;background-repeat:repeat-x;min-height:26px;padding:0 5px 2px;text-align:center}
+.document-body-editor table.record-info-row--compact{width:auto!important;max-width:100%;table-layout:auto;margin:0 auto 1px;font-size:inherit;line-height:1.1}
+.document-body-editor table.record-info-row--compact td.record-info-cell{font-size:inherit;line-height:1.1;padding:0;white-space:nowrap;min-height:0}
+.document-body-editor table.record-info-row--compact td.record-info-cell--dotted{height:18px;padding:0}
+.document-body-editor .record-body{margin:0;padding:0;font-size:inherit;line-height:var(--record-body-line,26px);background-image:radial-gradient(circle at .75px calc(var(--record-body-line,26px) - .85px),#000 .55px,transparent .65px);background-size:4px var(--record-body-line,26px);background-position:left top;background-repeat:repeat;white-space:break-spaces;tab-size:4}
+.document-body-editor .record-body p{display:block!important;margin:0;padding:0;min-height:var(--record-body-line,26px);font-size:inherit;line-height:var(--record-body-line,26px);text-align:var(--record-body-align,justify);text-align-last:left;text-justify:inter-character;white-space:break-spaces;tab-size:4;overflow-wrap:break-word;word-break:break-word;width:100%;box-sizing:border-box}
+.document-body-editor .record-body>p:first-child{ text-indent:var(--record-first-indent,42px)}
+.document-body-editor .record-body ul,.document-body-editor .record-body ol{margin:0;padding-left:32px;text-indent:0}
+.document-body-editor .record-body li,.document-body-editor .record-body li p{text-indent:0}
+.document-body-editor .record-signature{display:flex;width:100%;padding:0;break-inside:avoid;page-break-inside:avoid}
+.document-body-editor .record-signature-content{position:relative;max-width:100%;padding:4px 8px 6px;box-sizing:border-box;text-align:center;line-height:1.2}
+.document-body-editor .record-signature-box{display:inline-block;max-width:100%;font-size:inherit;line-height:1.1;text-align:center}
+.document-body-editor .record-signature p{margin:0 0 1px;padding:0;min-height:0;font-size:inherit;line-height:1.1;text-align:center;white-space:break-spaces}
+.document-body-editor .record-signature p[data-record-role="signatureName"],.document-body-editor .record-signature p[data-record-role="signatureLine"]{white-space:nowrap}
+.document-body-editor .record-signature-move-handle{position:absolute;left:0;top:-21px;border:1px solid #bfdbfe;border-radius:4px;padding:1px 7px;background:#eff6ff;color:#2563eb;font:11px/16px Anuphan,sans-serif;cursor:move;touch-action:none;white-space:nowrap;opacity:0;pointer-events:none;z-index:3}
+.document-body-editor .record-signature:hover .record-signature-move-handle,.document-body-editor .record-signature.ProseMirror-selectednode .record-signature-move-handle,.document-body-editor .record-signature:focus-within .record-signature-move-handle{opacity:1;pointer-events:auto}
+.document-body-editor[contenteditable=false] .record-signature-move-handle{display:none}
+.document-body-editor .record-signature.ProseMirror-selectednode .record-signature-content{outline:1px dashed #2563eb}
+.document-body-editor .record-group{width:100%;padding:0;box-sizing:border-box}
+.document-body-editor .record-group--border:before{content:"";display:block;border-top:1px solid #000;margin:4px 0}
+.document-body-editor p[data-record-line="1"]{display:block!important;background-image:radial-gradient(circle at .75px 1.25px,#000 .55px,transparent .65px);background-size:4px 2px;background-position:left bottom;background-repeat:repeat-x;min-height:22px;line-height:22px}
+@media print{.document-canvas [data-print-hidden],.document-object-toolbar,.document-resize-handle,.document-rotation-handle{display:none!important}.document-object.is-selected:after,.document-body-editor img.ProseMirror-selectednode,.document-body-editor .record-signature.ProseMirror-selectednode .record-signature-content{border:0!important;outline:0!important}.document-page{box-shadow:none!important}.document-body-editor{caret-color:transparent}.document-canvas.show-marks .document-body-editor p:after,.document-canvas.show-marks .document-manual-page-break:after{display:none!important}}
 `
 
 function commonExtensions() {
-  return [StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }), TextStyleKit, Highlight.configure({ multicolor: true }), Subscript, Superscript, TextAlign.configure({ types: ['heading', 'paragraph'] }), ParagraphFormatting]
+  return [StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }), TextStyleKit, Highlight.configure({ multicolor: true }), Subscript, Superscript, TextAlign.configure({ types: ['heading', 'paragraph', 'recordSectionTitle', 'recordInfoCell'] }), ParagraphFormatting, RecordTemplate]
 }
 
 type ParagraphLocation = { id: string; position: number; nodeSize: number; top: number; bottom: number }
@@ -91,18 +125,21 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
   const layoutTick = useRef<() => void>(() => {})
   const lastContent = useRef(JSON.stringify(model.content))
   const lastFlow = useRef('')
+  const lastGeometry = useRef('')
   const settings = model.pageSettings
+  const templateSettings = settings as typeof settings & { template?: string; fontFamily?: string; fontSize?: number; lineHeight?: number }
+  const isRecordTemplate = templateSettings.template === 'weekly-record'
   const dimensions = pageDimensions(settings)
-  const physicalWidth = dimensions.width * MM_TO_PX
-  const physicalHeight = dimensions.height * MM_TO_PX
+  const { width: physicalWidth, height: physicalHeight } = canvasPageDimensions(settings)
+  const marginPx = useMemo(() => Object.fromEntries(Object.entries(settings.margins).map(([side, value]) => [side, isRecordTemplate ? Math.round(value * MM_TO_PX) : value * MM_TO_PX])) as Record<'top' | 'right' | 'bottom' | 'left', number>, [settings.margins, isRecordTemplate])
   const scheduleLayout = useCallback(() => {
     cancelAnimationFrame(layoutRequest.current)
     layoutRequest.current = requestAnimationFrame(() => layoutTick.current())
   }, [])
-  const extensions = useMemo(() => [...commonExtensions(), Image.configure({ inline: true, allowBase64: false }), TableKitPlus.configure({ table: { resizable: true, HTMLAttributes: { class: 'table-plus' } } }), PageBreak, ObjectTextFlow, PaginationPlus.configure({
+  const extensions = useMemo(() => [...commonExtensions(), Image.configure({ inline: true, allowBase64: false }), TableKitPlus.configure({ table: { resizable: true, HTMLAttributes: { class: 'table-plus' } } }), ObjectTextFlow, PaginationPlus.configure({
     pageWidth: physicalWidth, pageHeight: physicalHeight, pageGap: PAGE_GAP, pageGapBorderSize: 0,
-    pageBreakBackground: '#eaf0f6', marginTop: settings.margins.top * MM_TO_PX, marginBottom: settings.margins.bottom * MM_TO_PX,
-    marginLeft: settings.margins.left * MM_TO_PX, marginRight: settings.margins.right * MM_TO_PX,
+    pageBreakBackground: '#eaf0f6', marginTop: marginPx.top, marginBottom: marginPx.bottom,
+    marginLeft: marginPx.left, marginRight: marginPx.right,
     contentMarginTop: 0, contentMarginBottom: 0, headerLeft: escapeHeaderText(settings.header), headerRight: '',
     footerLeft: escapeHeaderText(settings.footer), footerRight: settings.pageNumbers ? '{page}' : '',
   })], [model.id]) // Extensions are configured dynamically below without resetting the document or IME selection.
@@ -155,11 +192,11 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
   useEffect(() => {
     if (!editor) return
     editor.chain().updatePageWidth(physicalWidth).updatePageHeight(physicalHeight)
-      .updateMargins({ top: settings.margins.top * MM_TO_PX, right: settings.margins.right * MM_TO_PX, bottom: settings.margins.bottom * MM_TO_PX, left: settings.margins.left * MM_TO_PX })
+      .updateMargins(marginPx)
       .updateHeaderContent(escapeHeaderText(settings.header), '')
       .updateFooterContent(escapeHeaderText(settings.footer), settings.pageNumbers ? '{page}' : '').run()
     scheduleLayout()
-  }, [editor, settings, physicalWidth, physicalHeight, scheduleLayout])
+  }, [editor, settings, physicalWidth, physicalHeight, marginPx, scheduleLayout])
 
   const resolvedObjects = useMemo(() => model.objects.map(object => {
     let canvasTop = objectCanvasTop(object, settings)
@@ -201,7 +238,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
       const top = (element.getBoundingClientRect().top - rootRect.top) / factor
       const page = Math.floor((top + 1) / (physicalHeight + PAGE_GAP))
       const header = root.querySelector<HTMLElement>('.rm-first-page-header')
-      const headerHeight = header?.offsetHeight || settings.margins.top * MM_TO_PX
+      const headerHeight = header?.offsetHeight || marginPx.top
       const height = Math.max(2, (page + 1) * (physicalHeight + PAGE_GAP) + headerHeight - top)
       if (Math.abs((parseFloat(element.style.height) || 0) - height) > 1) {
         element.style.height = `${height}px`
@@ -209,7 +246,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
       }
     })
     if (changedBreak) editor.view.dispatch(editor.state.tr.setMeta('document-layout', true).setMeta('addToHistory', false))
-    const contentWidth = physicalWidth - (settings.margins.left + settings.margins.right) * MM_TO_PX
+    const contentWidth = physicalWidth - marginPx.left - marginPx.right
     const flow: FlowReservation[] = []
     for (const object of resolvedObjects) {
       if (object.wrap === 'inline') continue
@@ -219,7 +256,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
         : [...locations].reverse().find(location => location.top <= object.canvasTop + 1)
       const paragraph = candidate || locations[0]
       if (!paragraph) continue
-      const relativeX = object.x * MM_TO_PX - settings.margins.left * MM_TO_PX
+      const relativeX = object.x * MM_TO_PX - marginPx.left
       const side = relativeX + object.width * MM_TO_PX / 2 <= contentWidth / 2 ? 'left' : 'right'
       const width = side === 'left' ? relativeX + object.width * MM_TO_PX + 8 : contentWidth - relativeX + 8
       flow.push({ id: object.id, position: paragraph.position, nodeSize: paragraph.nodeSize, side, width: Math.min(contentWidth, Math.max(1, width)), height: object.height * MM_TO_PX + 6, offset: Math.max(0, object.canvasTop - paragraph.top), wrap: width > contentWidth * 0.75 ? 'top-bottom' : object.wrap })
@@ -234,6 +271,12 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
     if (!editor.view.composing && lastFlow.current !== flowFingerprint) {
       lastFlow.current = flowFingerprint
       editor.view.dispatch(editor.state.tr.setMeta(objectFlowKey, flow).setMeta('addToHistory', false))
+    }
+    const lastChild = root.lastElementChild
+    const geometry = `${root.offsetWidth}:${root.scrollHeight}:${lastChild instanceof HTMLElement ? lastChild.offsetTop + lastChild.offsetHeight : 0}:${breaks.length}:${physicalHeight}:${physicalWidth}`
+    if (!editor.view.composing && geometry !== lastGeometry.current) {
+      lastGeometry.current = geometry
+      editor.view.dispatch(editor.state.tr.setMeta('document-measured-layout', true).setMeta('addToHistory', false))
     }
   }
 
@@ -329,7 +372,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
   return <div className="document-canvas-zoom-space" style={{ width: physicalWidth * zoom, minWidth: physicalWidth * zoom, height: (canvasHeight + (showRuler ? 24 : 0)) * zoom, position: 'relative', margin: '0 auto' }}>
     <div className="document-canvas-scale" style={{ width: physicalWidth, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
       {showRuler && <div className="document-ruler" data-print-hidden>{Array.from({ length: Math.floor(dimensions.width / 5) + 1 }, (_, index) => <span key={index} style={{ left: index * 5 * MM_TO_PX }}>{index % 2 === 0 ? index / 2 : ''}</span>)}</div>}
-      <div ref={canvasRef} data-document-canvas data-page-width={physicalWidth} data-page-height={physicalHeight} data-page-gap={PAGE_GAP} className={`document-canvas${showMarks ? ' show-marks' : ''}`} style={{ width: physicalWidth, minHeight: canvasHeight, height: canvasHeight }} onPointerDown={event => {
+      <div ref={canvasRef} data-document-canvas data-page-width={physicalWidth} data-page-height={physicalHeight} data-page-gap={PAGE_GAP} data-document-template={templateSettings.template || undefined} className={`document-canvas${isRecordTemplate ? ' is-record-template' : ''}${showMarks ? ' show-marks' : ''}`} style={{ width: physicalWidth, minHeight: canvasHeight, height: canvasHeight, fontFamily: templateSettings.fontFamily || undefined, fontSize: templateSettings.fontSize ? `${templateSettings.fontSize}pt` : undefined, lineHeight: templateSettings.lineHeight || undefined, '--record-title-size': `${20 + ((templateSettings.fontSize || 16) - 16)}pt`, '--record-section-size': `${17 + ((templateSettings.fontSize || 16) - 16)}pt` } as CSSProperties} onPointerDown={event => {
         if (!(event.target instanceof Element) || event.target.closest('.document-object')) return
         callbacks.current.onSelectObject(null)
         if (editor) callbacks.current.onEditor(editor)

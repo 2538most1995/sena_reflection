@@ -31,13 +31,22 @@ async function waitForPrintImages(printDocument: Document) {
   }))
 }
 
+async function settlePrintPaint(target: Window) {
+  await new Promise<void>(resolve => {
+    let first = 0, second = 0
+    const finish = () => { target.clearTimeout(timer); target.cancelAnimationFrame(first); target.cancelAnimationFrame(second); resolve() }
+    const timer = target.setTimeout(finish, 50)
+    first = target.requestAnimationFrame(() => { second = target.requestAnimationFrame(finish) })
+  })
+}
+
 /**
  * Physical page viewports clip copies of the already-paginated live DOM. Keeping the original gaps
  * inside each copy avoids reflowing ProseMirror's float-based separators or moving anchored objects.
  * No page is rasterized: printed text remains selectable and searchable.
  */
-export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement): Promise<Window | null> {
-  const preview = window.open('', '_blank', 'popup,width=1100,height=850')
+export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement, existingPreview?: Window | null): Promise<Window | null> {
+  const preview = existingPreview === undefined ? window.open('', '_blank', 'popup,width=1100,height=850') : existingPreview
   if (!preview) return null
   const target = preview.document
   target.title = model.title || 'พิมพ์เอกสาร'
@@ -58,8 +67,9 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement)
   button.disabled = true
   button.addEventListener('click', () => { preview.focus(); preview.print() })
   toolbar.append(title, status, button)
-  target.body.replaceChildren(toolbar)
+  if (preview !== window) target.body.replaceChildren(toolbar)
   const size = pageDimensions(model.pageSettings)
+  const canvasWidth = Number(canvas.dataset.pageWidth) || size.width * MM_TO_PX
   const printStyle = target.createElement('style')
   printStyle.textContent = `
     @page { size: ${size.width}mm ${size.height}mm; margin: 0; }
@@ -71,12 +81,13 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement)
     .document-print-toolbar button:disabled { opacity: .5; cursor: wait; }
     .document-print-page { position: relative !important; display: block !important; width: ${size.width}mm !important; height: ${size.height}mm !important; min-height: ${size.height}mm !important; max-height: ${size.height}mm !important; margin: 24px auto; padding: 0 !important; overflow: hidden !important; background: white; box-shadow: 0 1px 10px #0002; break-inside: avoid; break-after: page; page-break-after: always; }
     .document-print-page:last-child { break-after: auto; page-break-after: auto; }
-    .document-print-canvas { position: absolute !important; left: 0 !important; width: ${size.width}mm !important; margin: 0 !important; transform: none !important; zoom: 1 !important; outline: 0 !important; }
+    .document-print-canvas { position: absolute !important; left: 0 !important; width: ${canvasWidth}px !important; margin: 0 !important; transform: none !important; zoom: 1 !important; outline: 0 !important; }
     .document-print-canvas .document-page { box-shadow: none !important; outline: 0 !important; }
     .document-print-canvas .document-object { outline: 0 !important; box-shadow: none !important; cursor: default !important; }
     .document-print-canvas .ProseMirror { outline: 0 !important; caret-color: transparent !important; }
     .document-print-canvas [data-print-hidden], .document-print-canvas .ProseMirror-gapcursor, .document-print-canvas .ProseMirror-dropcursor, .document-print-canvas .document-page-number-label { display: none !important; }
     .document-print-canvas * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .document-print-canvas p, .document-print-canvas li, .document-print-canvas h1, .document-print-canvas h2, .document-print-canvas h3, .document-print-canvas pre, .document-print-canvas blockquote { orphans: 1 !important; widows: 1 !important; break-inside: auto !important; page-break-inside: auto !important; }
     @media print {
       html, body { width: ${size.width}mm !important; background: white !important; }
       .document-print-toolbar { display: none !important; }
@@ -87,10 +98,17 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement)
   try {
     // Let pending selection/drag transactions and PaginationPlus finish before freezing the layout.
     await document.fonts.ready
-    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    await settlePrintPaint(window)
     if (preview.closed) throw new Error('หน้าต่างตัวอย่างพิมพ์ถูกปิดแล้ว')
+    const sourcePages = Array.from(canvas.querySelectorAll<HTMLElement>('.document-page'))
+    const pages = documentPrintPageGeometry(model, sourcePages.length).map((page, index) => ({ ...page, sourceTopPx: Number.parseFloat(sourcePages[index]?.style.top || '') || page.sourceTopPx }))
+    const computed = getComputedStyle(canvas)
+    const cssVariables = [...computed].filter(property => property.startsWith('--')).map(property => [property, computed.getPropertyValue(property)])
+    const frozen = canvas.cloneNode(true) as HTMLElement
+    const stylesheets = Array.from(document.querySelectorAll<HTMLStyleElement | HTMLLinkElement>('style,link[rel="stylesheet"]'))
+    if (preview === window) target.body.replaceChildren(toolbar)
     const stylesheetPromises: Promise<void>[] = []
-    for (const source of document.querySelectorAll<HTMLStyleElement | HTMLLinkElement>('style,link[rel="stylesheet"]')) {
+    for (const source of stylesheets) {
       const style = target.importNode(source, true)
       if (source instanceof HTMLLinkElement) {
         const link = style as HTMLLinkElement
@@ -103,19 +121,16 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement)
       target.head.append(style)
     }
     target.head.append(printStyle)
-    const sourcePages = canvas.querySelectorAll('.document-page')
-    const pages = documentPrintPageGeometry(model, sourcePages.length)
-    const computed = getComputedStyle(canvas)
     for (const page of pages) {
       const viewport = target.createElement('section')
       viewport.className = 'document-print-page'
       viewport.setAttribute('aria-label', `หน้า ${page.page}`)
-      const clone = target.importNode(canvas, true)
+      const clone = target.importNode(frozen, true)
       cleanPrintClone(clone)
       clone.classList.add('document-print-canvas')
       clone.style.setProperty('top', `${-page.sourceTopPx}px`, 'important')
       // CSS variables configured by the live layout are inherited from the app wrapper.
-      for (const property of [...computed]) if (property.startsWith('--')) clone.style.setProperty(property, computed.getPropertyValue(property))
+      for (const [property, value] of cssVariables) clone.style.setProperty(property, value)
       // Override inherited print styles from the app: the physical viewport controls page breaks.
       clone.style.setProperty('transform', 'none', 'important')
       clone.style.setProperty('zoom', '1', 'important')
@@ -126,7 +141,7 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement)
       await Promise.all(stylesheetPromises)
       await target.fonts.ready
       await waitForPrintImages(target)
-      await new Promise<void>(resolve => preview.requestAnimationFrame(() => preview.requestAnimationFrame(() => resolve())))
+      await settlePrintPaint(preview)
     }
     await Promise.race([ready(), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('เตรียมหน้าพิมพ์เกินเวลา กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่')), 25000) })])
     if (preview.closed) throw new Error('หน้าต่างตัวอย่างพิมพ์ถูกปิดแล้ว')

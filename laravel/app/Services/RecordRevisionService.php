@@ -34,6 +34,10 @@ class RecordRevisionService
                 'content' => $options->content($record),
             ];
             $legacyContent = $record->documentLayout?->content ?? [];
+            $advanced = app(BoundDocumentService::class)->snapshotForRecord($record);
+            if ($advanced) {
+                $snapshot['advanced_document'] = $advanced;
+            }
             if ($legacyContent !== []) {
                 $snapshot['legacy_document_content'] = $legacyContent;
             }

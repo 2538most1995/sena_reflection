@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\RecordDocumentLayout;
 use App\Models\TeachingRecord;
+use App\Services\BoundDocumentService;
+use App\Services\DocumentService;
 use App\Services\LegacyPrintService;
 use App\Services\RecordDocumentOptions;
 use App\Services\RecordRevisionService;
@@ -17,29 +19,12 @@ use Symfony\Component\HttpFoundation\Response;
 
 class RecordDocumentController extends Controller
 {
-    public function edit(Request $request, TeachingRecord $record, RecordDocumentOptions $options, LegacyPrintService $print): InertiaResponse
+    public function edit(Request $request, TeachingRecord $record, BoundDocumentService $bound, DocumentService $documents): InertiaResponse
     {
         $this->authorizeScope($request, $record);
-        $record->load(['tambonRelation:id,name', 'images:id,record_id,file_path', 'attendance', 'documentLayout']);
-        $layout = $record->documentLayout;
-        $canonicalContent = $options->content($record);
-        $documentContent = $options->content($record, $layout?->content ?? []);
-        $contentConflicts = collect($documentContent)
-            ->filter(fn (string $value, string $key): bool => $value !== ($canonicalContent[$key] ?? ''))
-            ->keys()
-            ->values()
-            ->all();
-        $imageIds = $record->images->pluck('id')->map(fn ($id): string => (string) $id)->all();
-        $snapshot = $print->savedSnapshot($record, $request->user());
+        $document = $bound->forRecord($request->user(), $record);
 
-        return Inertia::render('records/document', [
-            'record' => $record->toArray(),
-            'settings' => $options->settings($snapshot['settings'] ?? [], $imageIds, $record->tambon),
-            'content' => $documentContent,
-            'canonicalContent' => $canonicalContent,
-            'contentConflicts' => $contentConflicts,
-            'hasSavedLayout' => $layout !== null,
-        ]);
+        return Inertia::render('documents/edit', ['document' => $documents->resource($document), 'editorContext' => $bound->context($document)]);
     }
 
     public function preview(

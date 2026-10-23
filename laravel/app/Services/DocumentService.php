@@ -180,7 +180,34 @@ class DocumentService
             'revision' => $document->revision, 'schemaVersion' => $document->schema_version,
             'updatedAt' => $document->updated_at->toIso8601String(), 'sourceRecordId' => $document->source_record_id,
             'assets' => $document->assets->map(fn (DocumentAsset $asset): array => $this->assetResource($asset))->all(),
+            ...($document->binding_key ? ['editorContext' => app(BoundDocumentService::class)->context($document)] : []),
         ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function importSnapshotAssets(Document $document, array $snapshot): array
+    {
+        $copied = [];
+        $resolver = app(RecordImageAssets::class);
+        foreach ($snapshot['images'] ?? [] as $image) {
+            $stored = (string) ($image['file_path'] ?? '');
+            $path = DraftImagePath::resolve($stored, $snapshot['images'] ?? []);
+            if ($path === null) {
+                $path = $resolver->resolve($stored);
+                if ($path === null || ! $this->allowedSourceImage($path)) {
+                    continue;
+                }
+            }
+            $dimensions = @getimagesize($path);
+            if (! $dimensions || ! in_array($dimensions['mime'] ?? '', ['image/jpeg', 'image/png', 'image/webp'], true) || filesize($path) > 5 * 1024 * 1024) {
+                continue;
+            }
+            $asset = $this->storeAsset($document, file_get_contents($path), basename($path), $dimensions);
+            $resource = $this->assetResource($asset);
+            $copied[] = ['id' => (string) ($image['id'] ?? ''), 'source_id' => (string) ($image['id'] ?? ''), 'asset_id' => $asset->id, 'assetId' => $asset->id, 'url' => $resource['url'], 'file_path' => $resource['url'], 'width' => $asset->width, 'height' => $asset->height];
+        }
+
+        return $copied;
     }
 
     public function assetResource(DocumentAsset $asset): array
@@ -221,7 +248,7 @@ class DocumentService
         return ['title' => $data['title'], 'content_json' => $data['content'], 'page_settings_json' => $data['pageSettings'], 'objects_json' => $data['objects'], 'schema_version' => $data['schemaVersion']];
     }
 
-    private function capture(Document $document, User $user): void
+    public function capture(Document $document, User $user): void
     {
         DocumentVersion::create(['document_id' => $document->id, 'user_id' => $user->id, 'revision' => $document->revision, 'snapshot_json' => [
             'title' => $document->title, 'content' => $document->content_json, 'pageSettings' => $document->page_settings_json,

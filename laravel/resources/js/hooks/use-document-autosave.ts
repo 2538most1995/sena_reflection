@@ -26,7 +26,10 @@ export function useDocumentAutosave(initial: WebDocument) {
     setDocument(next); setStatus('saved'); setError('')
   }, [])
   const save = useCallback(async (): Promise<boolean> => {
-    if (inFlight.current) return inFlight.current
+    if (inFlight.current) {
+      const completed = await inFlight.current
+      return completed ? save() : false
+    }
     const snapshot = latest.current
     if (fingerprint(snapshot) === saved.current) { setStatus('saved'); return true }
     setStatus('saving'); setError('')
@@ -35,7 +38,7 @@ export function useDocumentAutosave(initial: WebDocument) {
         const result = await documentRequest<{ document: WebDocument }>(`/api/documents/${snapshot.id}`, { method: 'PUT', body: JSON.stringify({ ...snapshot, revision: revision.current }) })
         revision.current = result.document.revision
         saved.current = fingerprint(snapshot)
-        const next = { ...latest.current, revision: result.document.revision, updatedAt: result.document.updatedAt }
+        const next = { ...latest.current, revision: result.document.revision, updatedAt: result.document.updatedAt, editorContext: result.document.editorContext }
         latest.current = next; setDocument(next)
         setStatus(fingerprint(next) === saved.current ? 'saved' : 'pending')
         return true
@@ -46,7 +49,8 @@ export function useDocumentAutosave(initial: WebDocument) {
       } finally { inFlight.current = null }
     })()
     inFlight.current = pending
-    return pending
+    const completed = await pending
+    return completed && fingerprint(latest.current) !== saved.current ? save() : completed
   }, [])
   useEffect(() => {
     if (!dirty || status !== 'pending') return
@@ -54,10 +58,10 @@ export function useDocumentAutosave(initial: WebDocument) {
     return () => window.clearTimeout(timer)
   }, [document, dirty, status, save])
   useEffect(() => {
-    if (!dirty) return
+    if (!dirty && status !== 'saving') return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty])
+  }, [dirty, status])
   return { document, status, error, dirty, update, replace, save, latest, clearError: () => setError('') }
 }

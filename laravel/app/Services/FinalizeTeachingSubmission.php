@@ -231,6 +231,7 @@ class FinalizeTeachingSubmission
                         ['settings' => $validatedDocument['settings'], 'content' => [], 'updated_by' => $user->id],
                     );
 
+                    app(BoundDocumentService::class)->transferDraftToRecord($user, $lockedDraft, $levelCode, $record);
                     $this->revisions->capture($record, $user, $documentSettings);
                     $recordIds[] = $record->id;
                 }

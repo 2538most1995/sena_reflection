@@ -2,6 +2,17 @@
 
 ไฟล์นี้แบ่งบทบาทของทีม AI สำหรับช่วยดูแลโปรเจกต์ `sena_reflection 4` ให้แต่ละ agent วิเคราะห์คนละมุม และส่งต่องานกันได้ชัดเจน
 
+## ระบบเอกสารปัจจุบัน
+
+- ระบบหลักอยู่ใน `laravel/` ใช้ Laravel, Inertia และ React; ไฟล์ PHP เดิมยังใช้กับเอกสาร legacy และการเทียบผล
+- คู่มือการสร้าง จัดการ และพิมพ์เอกสารอยู่ที่ [`docs.md`](docs.md)
+- `/records/{record}/document` และหน้าเอกสารฉบับร่างเปิดตัวแก้ไขขั้นสูงโดยตรง โดยเริ่มจากแม่แบบเดิมของ `print.php`
+- ตรวจ `RecordEditorTemplate`, `BoundDocumentService`, `DocumentSchema` และ `DocumentController` เมื่อแก้การนำเข้า การบันทึก หรือสิทธิ์เอกสาร
+- ตรวจ `resources/js/components/editor/`, `resources/js/pages/documents/`, `document-print.ts`, `document-export.ts` และ `document-snapshot.tsx` เมื่อแก้ canvas, การจัดหน้า, PDF หรือ DOCX
+- เอกสารผูกบันทึกต้องบันทึกข้อความกลับข้อมูลหลัก; เอกสารผูกร่างต้องใช้ `lock_version` และห้ามยืนยันร่างระหว่าง autosave
+- รักษา paragraph IDs ที่ใช้เป็น anchors และเก็บ revision เดิมเมื่อ sync ข้อมูลจากหน้าอื่น ห้ามสร้างแม่แบบทับฉบับที่ผู้ใช้แก้ไขแล้ว
+- การเปลี่ยน PDF ต้องตรวจทั้งพิมพ์จาก canvas และ backend snapshot ซึ่งใช้ข้อมูลเอกสารฉบับเดียวกัน พร้อมตรวจไฟล์ build ที่ commit
+
 ## 1. Project Context Agent
 
 หน้าที่:
@@ -90,8 +101,9 @@
 หน้าที่:
 
 - วิเคราะห์ `print.php`, `api/download_pdf.php`, `api/settings.php`, `pdfjs.php`
+- สำหรับระบบ Laravel ปัจจุบัน วิเคราะห์ `laravel/app/Services/LegacyPrintService.php`, `BoundDocumentRenderer.php`, `RecordPdfService.php`, `RecordRevisionService.php` และ `laravel/resources/js/lib/document-print.ts` / `document-snapshot.tsx` ด้วย
 - ตรวจ layout เอกสาร ลายเซ็น รูปภาพ attendance และ preview
-- ดู dependency `html2canvas`, `jspdf` และ `pdfjs-dist`
+- ดู dependency legacy `html2canvas`, `jspdf`, `pdfjs-dist` และ runtime ปัจจุบัน Chrome/Chromium, production snapshot build, Python3 + `pypdf` สำหรับ PDF รวม
 
 คำถามหลัก:
 
@@ -103,7 +115,9 @@
 จุดที่ต้องระวัง:
 
 - `print.php` มี mode หลายแบบ เช่น download, settings preview, html preview
-- PDF download ใช้ browser สร้างจาก HTML preview; ไม่มี fallback ฝั่ง server
+- ระบบ PHP legacy ใช้ browser สร้าง PDF จาก HTML preview ส่วน Laravel ปัจจุบันสร้าง PDF ฝั่ง server ด้วย Chrome/Chromium และรวมไฟล์ด้วย Python3 + `pypdf`; อย่าสรุปว่าระบบปัจจุบันไม่มี server PDF
+- ตัวจัดเอกสารมี browser print/Save as PDF ด้วย และเอกสารที่ผูกกับรายการใช้ canonical snapshot ผ่าน canvas renderer เดียวกันใน server PDF; ตรวจทั้งสองทางพร้อม private assets และ frozen revision
+- Hosting จริงอยู่ใต้ `/sena_reflection` ต้องใช้ `npm run build:production` และ `npm run check:production-build` พร้อมส่ง `laravel/public/build/` ทั้งชุด หาก renderer/build/runtime ไม่พร้อม Laravel ตอบ 503 แทนส่ง PDF ที่จัดหน้าผิด
 - การแก้ระยะเอกสารเล็กน้อยอาจกระทบเอกสารจริงทั้งระบบ
 
 ## 6. Security/Auth Agent

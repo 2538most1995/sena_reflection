@@ -1,0 +1,449 @@
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-400-normal-BEOmKAI1.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-400-normal-Dxb_unuU.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-400-normal-BaWBrqFP.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-400-normal-Dh_FJjOB.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-500-normal-CU_X86GQ.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-500-normal-BOGXO2tw.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-500-normal-fyBKClF1.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-500-normal-BC04jsmm.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-600-normal-Cs73sVjl.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-600-normal-CmgB8_JK.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-600-normal-CemcjnVR.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-600-normal-Dbc-dNO6.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-700-normal-Cm52XUnT.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-700-normal-C9ISMlQq.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-700-normal-_dn-40wb.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Noto Sans Thai";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/noto-sans-thai-700-normal-C4AMFKt5.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-400-normal-CYPG-7cc.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-400-normal-B8wWdyvX.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-400-normal-BQH10Ma6.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-400-normal-BDYevJ6X.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-500-normal-CZoh8WWr.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-500-normal-DOsDZgfO.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-500-normal-DE4mzdQz.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-500-normal-B9L7_HnD.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-600-normal-Co7SjXAc.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-600-normal-CeOd1Bty.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-600-normal-C3byZ5Vp.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-600-normal-DSdXqWS_.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-700-normal-rOsLv-jZ.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-700-normal-B9xfo8qq.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-700-normal-WxQNlaBM.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Anuphan";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/anuphan-700-normal-D1LjmPNx.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-400-italic-CLF9pJow.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-400-italic-D_ZSuYEB.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-400-italic-BPGfQtqk.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-400-italic-Cdg7qLKl.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-700-italic-1cjWhSfG.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-700-italic-CPFMNI-B.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-700-italic-CdZhVXpc.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-700-italic-DsyfMTQC.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-400-normal-C2DaJlKK.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-400-normal-CH-UbWgg.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-400-normal-URPBxl-K.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-400-normal-DmguIS-7.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-700-normal-CbuDipM3.woff2") format("woff2");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-700-normal-CP2-p8e-.woff") format("woff");
+  unicode-range: U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-700-normal-DQKyWxHq.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Sarabun";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/sena_reflection/build/assets/sarabun-700-normal-DUuqj4Ju.woff") format("woff");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+:root {
+  --font-noto-sans-thai: "Noto Sans Thai";
+  --font-anuphan: "Anuphan";
+  --font-sarabun: "Sarabun";
+}
+
+.font-noto-sans-thai {
+  font-family: var(--font-noto-sans-thai);
+}
+
+.font-anuphan {
+  font-family: var(--font-anuphan);
+}
+
+.font-sarabun {
+  font-family: var(--font-sarabun);
+}

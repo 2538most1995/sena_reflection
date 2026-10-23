@@ -6,6 +6,7 @@ use App\Models\Document;
 use App\Models\DocumentAsset;
 use App\Models\DocumentVersion;
 use App\Models\TeachingRecord;
+use App\Services\BoundDocumentService;
 use App\Services\DocumentService;
 use App\Services\RecordDocumentOptions;
 use App\Services\RecordImageAssets;
@@ -13,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -27,8 +29,9 @@ class DocumentController extends Controller
     public function editPage(Request $request, Document $document, DocumentService $documents): Response
     {
         $this->authorizeDocument($request, $document);
+        $document = $document->binding_key ? app(BoundDocumentService::class)->refresh($document, $request->user()) : $document;
 
-        return Inertia::render('documents/edit', ['document' => $documents->resource($document)]);
+        return Inertia::render('documents/edit', ['document' => $documents->resource($document), 'editorContext' => $document->binding_key ? app(BoundDocumentService::class)->context($document) : null]);
     }
 
     public function index(Request $request): JsonResponse
@@ -44,6 +47,7 @@ class DocumentController extends Controller
     public function show(Request $request, Document $document, DocumentService $documents): JsonResponse
     {
         $this->authorizeDocument($request, $document);
+        $document = $document->binding_key ? app(BoundDocumentService::class)->refresh($document, $request->user()) : $document;
 
         return response()->json(['document' => $documents->resource($document)], 200, ['Cache-Control' => 'private, no-store']);
     }
@@ -52,7 +56,9 @@ class DocumentController extends Controller
     {
         $this->authorizeDocument($request, $document);
         $data = $request->validate(['revision' => ['required', 'integer', 'min:1']]);
-        $updated = $documents->update($document, $request->user(), (int) $data['revision'], $request->all());
+        $updated = $document->binding_key
+            ? app(BoundDocumentService::class)->save($document, $request->user(), (int) $data['revision'], $request->all())
+            : $documents->update($document, $request->user(), (int) $data['revision'], $request->all());
 
         return response()->json(['document' => $documents->resource($updated)]);
     }
@@ -60,6 +66,9 @@ class DocumentController extends Controller
     public function destroy(Request $request, Document $document): JsonResponse
     {
         $this->authorizeDocument($request, $document);
+        if ($document->binding_key) {
+            throw ValidationException::withMessages(['document' => 'เอกสารนี้ผูกกับบันทึก กรุณาจัดการจากหน้าบันทึก']);
+        }
         DB::transaction(fn () => $document->delete(), 3);
         Storage::disk('local')->deleteDirectory('documents/'.$document->id);
 
@@ -118,20 +127,29 @@ class DocumentController extends Controller
     {
         $this->authorizeDocument($request, $document);
         $data = $request->validate(['revision' => ['required', 'integer', 'min:1']]);
-        $restored = $documents->restore($document, $version, $request->user(), (int) $data['revision']);
+        abort_unless($version->document_id === $document->id, 404);
+        $restored = $document->binding_key
+            ? app(BoundDocumentService::class)->save($document, $request->user(), (int) $data['revision'], $version->snapshot_json)
+            : $documents->restore($document, $version, $request->user(), (int) $data['revision']);
 
         return response()->json(['document' => $documents->resource($restored)]);
     }
 
     private function authorizeDocument(Request $request, Document $document): void
     {
+        if ($document->binding_key) {
+            app(BoundDocumentService::class)->authorize($request->user(), $document);
+
+            return;
+        }
         abort_unless($request->user()->isDistrict() || (string) $document->user_id === (string) $request->user()->id, 403);
     }
 
     private function listing(Request $request): array
     {
-        return Document::query()->visibleTo($request->user())->orderByDesc('updated_at')->limit(100)->get(['id', 'title', 'revision', 'updated_at', 'source_record_id'])->map(static fn (Document $document): array => [
+        return Document::query()->visibleTo($request->user())->orderByDesc('updated_at')->limit(100)->get(['id', 'title', 'revision', 'updated_at', 'source_record_id', 'binding_key', 'binding_snapshot'])->map(static fn (Document $document): array => [
             'id' => $document->id, 'title' => $document->title, 'revision' => $document->revision, 'updatedAt' => $document->updated_at->toIso8601String(), 'sourceRecordId' => $document->source_record_id,
+            'bound' => (bool) $document->binding_key, 'isBound' => (bool) $document->binding_key, 'editorContext' => $document->binding_key ? app(BoundDocumentService::class)->context($document) : null,
         ])->all();
     }
 }

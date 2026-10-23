@@ -36,13 +36,35 @@ configuration, uploads and database.
 
    ```sh
    cd laravel
-   VITE_APP_BASE_PATH=/sena_reflection ASSET_URL=https://krumost.com/sena_reflection npm run build
+   npm ci
+   npm run build:production
+   npm run check:production-build
    ```
 
 5. Deploy `laravel/config/app.php` with `asset_url` support. If config is cached,
    clear/rebuild it with Artisan after changing environment values.
 6. Back up the database before any required additive migrations. Never run
    `migrate:fresh`, overwrite the database, or seed production during this step.
+
+## Document editor update: 2026-10-23
+
+The **จัดเอกสารก่อนพิมพ์** record/draft routes now open the advanced editor
+directly, seeded from the original Thai report layout. Deploy backend, migrations
+and the complete production build together. Run `php artisan migrate --force`
+after the database backup; the document migrations include private assets,
+versions and the nullable `binding_key` / `binding_snapshot` columns.
+
+The build must contain `resources/js/document-snapshot.tsx` in its Vite manifest
+and the Thai font assets. Advanced snapshots use this same canvas for browser
+printing and server Chrome PDF output. Preserve `laravel/storage/app/private/`
+alongside public storage and legacy uploads; private document files must not be
+served directly from a public directory. Restart the export worker after deploy.
+
+Local browser/PDF tests use an isolated fixture database and do not verify that
+the hosting dependencies reported below have been installed. Recheck Chrome,
+Python `pypdf`, file permissions and the worker on the hosting account before
+claiming server exports are available there. The user/admin manual is
+[docs.md](../../docs.md).
 
 ## Verification performed on 2026-10-20
 

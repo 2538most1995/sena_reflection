@@ -13,7 +13,7 @@ class DocumentSchema
 
     public const MAX_BYTES = 2_000_000;
 
-    private const NODES = ['doc', 'paragraph', 'heading', 'text', 'hardBreak', 'horizontalRule', 'blockquote', 'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem', 'codeBlock', 'table', 'tableRowGroup', 'tableRow', 'tableHeader', 'tableCell', 'image', 'pageBreak'];
+    private const NODES = ['doc', 'paragraph', 'heading', 'text', 'hardBreak', 'horizontalRule', 'blockquote', 'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem', 'codeBlock', 'table', 'tableRowGroup', 'tableRow', 'tableHeader', 'tableCell', 'image', 'pageBreak', 'recordInfoRow', 'recordInfoCell', 'recordSectionTitle', 'recordBody', 'recordSignature', 'recordGroup'];
 
     private const MARKS = ['bold', 'italic', 'underline', 'strike', 'code', 'textStyle', 'highlight', 'link', 'subscript', 'superscript'];
 
@@ -107,10 +107,11 @@ class DocumentSchema
         }
         $allowedChildren = match ($type) {
             'text', 'hardBreak', 'image', 'horizontalRule', 'pageBreak' => [],
-            'paragraph', 'heading' => ['text', 'hardBreak', 'image'], 'codeBlock' => ['text'],
+            'paragraph', 'heading', 'recordInfoCell', 'recordSectionTitle' => ['text', 'hardBreak', 'image'], 'codeBlock' => ['text'],
+            'recordInfoRow' => ['recordInfoCell'],
             'table' => ['tableRow', 'tableRowGroup'], 'tableRowGroup' => ['tableRow'], 'tableRow' => ['tableCell', 'tableHeader'],
             'bulletList', 'orderedList' => ['listItem'], 'taskList' => ['taskItem'],
-            default => ['paragraph', 'heading', 'blockquote', 'bulletList', 'orderedList', 'taskList', 'codeBlock', 'table', 'horizontalRule', 'pageBreak'],
+            default => ['paragraph', 'heading', 'blockquote', 'bulletList', 'orderedList', 'taskList', 'codeBlock', 'table', 'horizontalRule', 'pageBreak', 'recordInfoRow', 'recordSectionTitle', 'recordBody', 'recordSignature', 'recordGroup'],
         };
         if (in_array($type, ['doc', 'blockquote', 'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem', 'table', 'tableRowGroup', 'tableRow', 'tableHeader', 'tableCell'], true) && $children === []) {
             $this->reject($path.'.content', 'ส่วนนี้ต้องมีเนื้อหาย่อยอย่างน้อยหนึ่งรายการ');
@@ -136,6 +137,10 @@ class DocumentSchema
             'spacingBefore' => ['nullable', 'numeric', 'between:0,120'], 'spacingAfter' => ['nullable', 'numeric', 'between:0,120'],
             'indent' => ['nullable', 'numeric', 'between:0,120'], 'textIndent' => ['nullable', 'numeric', 'between:0,120'],
             'fontFamily' => ['nullable', Rule::in(self::FONTS)], 'fontSize' => ['nullable', $this->fontSizeRule()],
+            'field' => ['nullable', Rule::in([...RecordDocumentOptions::CONTENT_KEYS, ...RecordDocumentOptions::RICH_TEXT_KEYS])],
+            'role' => ['nullable', Rule::in(['recordTitle', 'signatureName', 'signaturePosition', 'signatureLine'])],
+            'firstIndent' => ['nullable', 'numeric', 'between:0,160'], 'recordLine' => ['nullable', 'boolean'],
+            'offsetX' => ['nullable', 'numeric', 'between:-2400,2400'], 'offsetY' => ['nullable', 'numeric', 'between:-2400,2400'],
         ];
         $rules = array_merge($rules, match ($type) {
             'heading' => ['level' => ['required', 'integer', 'between:1,6']],
@@ -145,6 +150,12 @@ class DocumentSchema
             'image' => ['src' => ['required', 'string', 'max:2000'], 'assetId' => ['nullable', 'uuid'], 'alt' => ['nullable', 'string', 'max:500'], 'title' => ['nullable', 'string', 'max:500'], 'width' => ['nullable', 'numeric', 'between:1,4000'], 'height' => ['nullable', 'numeric', 'between:1,4000']],
             'table' => ['columnSize' => ['nullable', 'string', 'max:2000', 'regex:/^(?:[0-9]+(?:\.[0-9]+)?(?:,[0-9]+(?:\.[0-9]+)?)*)?$/']],
             'tableCell', 'tableHeader' => ['colspan' => ['nullable', 'integer', 'between:1,100'], 'rowspan' => ['nullable', 'integer', 'between:1,100'], 'colwidth' => ['nullable', 'array', 'max:100'], 'colwidth.*' => ['integer', 'between:0,4000'], 'align' => ['nullable', Rule::in(['left', 'center', 'right', 'justify'])], 'backgroundColor' => ['nullable', $this->colorRule()]],
+            'recordInfoRow' => ['compact' => ['nullable', 'boolean']],
+            'recordInfoCell' => ['width' => ['nullable', 'numeric', 'between:0,1000'], 'unit' => ['nullable', Rule::in(['percent', 'px'])], 'dotted' => ['nullable', 'boolean'], 'label' => ['nullable', 'boolean'], 'nowrap' => ['nullable', 'boolean']],
+            'recordSectionTitle' => ['spaceBefore' => ['nullable', 'numeric', 'between:0,300']],
+            'recordBody' => ['minLines' => ['nullable', 'integer', 'between:0,100'], 'lineSpacing' => ['nullable', 'numeric', 'between:12,100'], 'align' => ['nullable', Rule::in(['left', 'center', 'right', 'justify'])], 'spaceAfter' => ['nullable', 'numeric', 'between:0,300']],
+            'recordSignature' => ['index' => ['required', 'integer', 'between:1,3'], 'align' => ['nullable', Rule::in(['left', 'center', 'right'])], 'width' => ['nullable', 'numeric', 'between:80,1000'], 'marginTop' => ['nullable', 'numeric', 'between:0,500']],
+            'recordGroup' => ['spaceBefore' => ['nullable', 'numeric', 'between:-120,500'], 'borderTop' => ['nullable', 'boolean']],
             default => [],
         });
         $this->validateAttrs($attrs, $rules, $path);
@@ -185,7 +196,8 @@ class DocumentSchema
             'header' => ['nullable', 'string', 'max:2000'], 'footer' => ['nullable', 'string', 'max:2000'], 'pageNumbers' => ['required', 'boolean'],
             'background' => ['required', $this->colorRule()], 'border' => ['required', $this->colorRule(true)],
             'theme' => ['required', 'string', 'max:40', 'regex:/^[a-zA-Z0-9_-]+$/'],
-            'fontFamily' => ['required', Rule::in(self::FONTS)], 'fontSize' => ['required', 'numeric', 'between:8,96'], 'lineHeight' => ['required', 'numeric', 'between:0.8,4'],
+            'fontFamily' => ['required', Rule::in(self::FONTS)], 'fontSize' => ['required', 'numeric', 'between:8,96'], 'lineHeight' => ['required', 'numeric', 'between:0.7,4'],
+            'template' => ['nullable', Rule::in(['weekly-record'])],
         ];
         $this->validateAttrs($settings, $rules, 'pageSettings');
         [$width, $height] = match ($settings['size']) {

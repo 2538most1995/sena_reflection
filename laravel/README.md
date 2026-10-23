@@ -2,6 +2,17 @@
 
 ระบบ Laravel ใหม่วางคู่กับ legacy PHP เดิมโดยไม่ลบไฟล์หรือข้อมูลเก่า ใช้ MySQL ฐาน `sena_reflection` ร่วมกันและรองรับ schema เดิม
 
+คู่มือผู้ใช้: [สร้าง จัดการ และพิมพ์เอกสาร](../docs.md) · ภาพรวมโค้ด: [CONTEXT.md](../CONTEXT.md)
+
+## ตัวจัดเอกสาร 23 ตุลาคม 2569
+
+- ปุ่ม **จัดเอกสารก่อนพิมพ์** ของ record/draft เปิด `documents/edit` โดยตรง เริ่มจากแม่แบบเดิมที่คงฟอนต์ไทย ระยะขอบ เส้นบรรทัด ช่องข้อมูลและลายเซ็น แล้วเก็บการแก้ต่อด้วย TipTap JSON
+- เลือกคำเพื่อจัดรูปแบบ แก้ตาราง เพิ่มรูป กล่องข้อความ รูปร่าง เส้น และวัตถุที่อ้างหน้าหรือย่อหน้า พร้อมปรับขนาด หมุน และล้อมข้อความ
+- autosave ตรวจ revision; เอกสารผูก record ซิงก์ช่องข้อมูลกลับ record ส่วนเอกสารผูกร่างบันทึกเฉพาะร่าง การยืนยันร่างจริงจึงย้ายเอกสารไปผูก record
+- เอกสารทั่วไปและสำเนาเก็บแยกใน `/documents`; private assets อ่านผ่าน endpoint ที่ตรวจสิทธิ์ ประวัติรุ่นและ frozen record snapshots เก็บ canonical document สำหรับพิมพ์ย้อนหลัง
+- Browser print และ server PDF ของ advanced snapshot ใช้ canvas renderer เดียวกัน Server ต้องมี production snapshot build และ Chrome/Chromium; PDF รวมต้องมี Python3 กับ `pypdf`
+- DOCX เปิดแก้ใน Word ได้ แต่ pagination วัตถุลอยและเส้นบรรทัดของแม่แบบอาจต่างจาก PDF รายละเอียดและวิธีรับมือข้อขัดแย้งอยู่ในคู่มือ
+
 ## Frontend stack
 
 - React 19 + TypeScript
@@ -29,8 +40,8 @@
 - Dashboard แบบ server-side pagination ครั้งละ 30 รายการ
 - แก้ไข/ลบบันทึก, bulk-upsert attendance, รักษาขอบเขตสิทธิ์ตำบล และลบ managed image หลัง transaction สำเร็จ
 - หน้าผู้ดูแลสำหรับ users, tambons และค่าเอกสาร/PDF
-- ตัวจัดหน้า PDF แบบสดก่อนบันทึกค่า ลากลายเซ็นและรูปภาพด้วยเมาส์ ปรับขนาดหรือยืดรูปจากจุดจับ และเปิดหรือปิดหน้ารูปภาพกับหน้ารายชื่อด้วย Toggle Switch
-- ปรับตำแหน่งรายรูปได้ 4 รูป รวมถึงแนวจัดวาง ระยะขอบ ฟอนต์ และระยะห่าง โดยไม่กระทบ PDF จริงจนกว่าจะกดบันทึก
+- ตัวจัดเอกสารของบันทึกและร่างแบบเต็มหน้า พร้อมข้อความ ตาราง ลายเซ็น รูป และ autosave; สถานะด้านบนแสดงว่าบันทึกสำเร็จแล้วหรือยัง
+- ปรับกระดาษ ระยะขอบ ฟอนต์ ระยะห่าง และวัตถุในเอกสาร พร้อมบันทึกและพิมพ์จากฉบับปัจจุบัน
 - โปรไฟล์, avatar และเปลี่ยนรหัสผ่านโดยตรวจรหัสปัจจุบัน
 - Filter ตามปีการศึกษา + ภาคเรียน + สัปดาห์ + ตำบล โดยไม่ปนข้ามปี/ภาคเรียน
 - ส่งบันทึกประจำสัปดาห์ครบ 3 ระดับชั้นใน transaction เดียว
@@ -53,6 +64,15 @@ npm run build
 php artisan serve
 ```
 
+คำสั่ง `npm run build` ด้านบนใช้กับ local หรือแอปที่ root โดยเว้น `ASSET_URL` / `VITE_APP_BASE_PATH` ว่าง สำหรับ hosting จริง **https://krumost.com/sena_reflection** ต้องตั้ง `APP_URL` / `ASSET_URL` ให้ตรง hosting และสร้าง artifact ดังนี้:
+
+```bash
+npm run build:production
+npm run check:production-build
+```
+
+โปรเจกต์ commit `public/build/` สำหรับ base path `/sena_reflection` พร้อม source ต้องส่งไฟล์ build ทั้งชุด ไม่ใช้ root-local build อัปโหลดทับก่อน deploy
+
 เปิด terminal อีกหน้าสำหรับสร้างไฟล์ส่งออก (ต้องทำงานค้างไว้):
 
 ```bash
@@ -72,9 +92,15 @@ php artisan queue:work exports --queue=exports --tries=1 --timeout=1800 --sleep=
 ```bash
 php artisan test
 npm run typecheck
-npm run build
+npm run build:production
+npm run test:frontend
+npm run check:production-build
 php artisan sena:health
 ```
+
+frontend tests ตรวจ production build ที่ commit ด้วย หลังตรวจจึง rebuild แบบ local ได้เมื่อต้องการทดสอบเว็บ root บนเครื่อง ก่อน commit/deploy ต้องกลับมาสร้าง production build ให้ตรง source
+
+E2E ใช้ `npm run test:e2e` โดยกำหนด `SENA_E2E_BASE_URL` เป็น loopback ของฐาน fixture แยก พร้อม `SENA_E2E_USER`, `SENA_E2E_PASSWORD` และ `SENA_E2E_RECORD_ID` ของรายการทดสอบเท่านั้น ชุดนี้เขียนข้อมูลผ่านเว็บจริง ดูตัวอย่างและข้อกำหนด Chrome ใน [docs.md](../docs.md)
 
 การทดสอบครอบคลุม atomic batch 3 ระดับ, missing/duplicate level, duplicate week, tambon scope, legacy password upgrade, dashboard, Student API fallback, legacy API compatibility, weekly PDF และ all-record ZIP
 
@@ -90,6 +116,10 @@ php artisan sena:health
 ไฟล์สำรองก่อน migration เดิมอยู่ที่ `../backups/sena_reflection_pre_laravel_20260830.sql` และก่อนเพิ่ม draft/revision/export อยู่ที่ `../backups/sena_before_workspace_20261016.sql`
 
 ตาราง workspace ใหม่ใช้ Laravel migrations เป็นแหล่ง schema หลัก ไม่ได้สร้างผ่าน auto-migration ของ legacy `config.php`; ต้องรัน `php artisan migrate --force` เมื่อติดตั้ง Laravel จากฐาน legacy ใหม่
+
+โมดูล editor เพิ่มตาราง `documents`, `document_assets`, `document_versions` และคอลัมน์ `binding_key` / `binding_snapshot` ต้อง deploy migrations, backend และ build ของปลายทางพร้อมกัน สำหรับ hosting จริงใช้ `npm run build:production` + `npm run check:production-build` build ต้องมี entry `resources/js/document-snapshot.tsx` จึงใช้ server PDF ของ advanced snapshot ได้ หลัง deploy ให้ restart worker เพื่อนำโค้ดและ config ใหม่มาใช้
+
+กำหนด `SENA_CHROME_BIN`, `SENA_PYTHON_BIN` และ `PHP_CLI_BINARY` เป็น absolute executable paths ได้ใน environment ตาม `config/services.php` ดูขั้นตอนติดตั้ง แก้ฟอนต์ไทยและ PDF 503 ใน [docs.md](../docs.md)
 
 คำสั่ง `php artisan sena:backfill-weekly` ใช้ preview การจัดกลุ่มข้อมูลเก่า และเพิ่ม `--apply` เมื่อต้องการเชื่อมรายการ legacy เข้ากับ weekly parent ใหม่
 

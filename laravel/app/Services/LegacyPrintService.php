@@ -14,7 +14,10 @@ use Symfony\Component\Process\Process;
 
 class LegacyPrintService
 {
-    public function __construct(private readonly PhpCliExecutable $phpCli) {}
+    public function __construct(
+        private readonly PhpCliExecutable $phpCli,
+        private readonly BoundDocumentRenderer $boundRenderer,
+    ) {}
 
     /**
      * @param  array<string, string>  $settings
@@ -50,6 +53,9 @@ class LegacyPrintService
     /** @param array<string, mixed> $snapshot */
     public function snapshotHtml(array $snapshot, User $user, bool $editor = false, bool $browserAssets = false): string
     {
+        if (is_array($snapshot['advanced_document'] ?? null)) {
+            return $this->boundRenderer->html($snapshot['advanced_document'], $browserAssets);
+        }
         if (! is_array($snapshot['record'] ?? null)) {
             throw new RuntimeException('ข้อมูล snapshot เอกสารไม่สมบูรณ์');
         }
@@ -81,6 +87,9 @@ class LegacyPrintService
     public function browserSnapshotHtml(array $snapshot, User $user, string $recordUrl): string
     {
         $html = $this->snapshotHtml($snapshot, $user, false, true);
+        if (is_array($snapshot['advanced_document'] ?? null)) {
+            return $html;
+        }
         $base = '<base href="'.e(rtrim(url('/'), '/').'/').'">';
         $html = preg_replace('/<base\b[^>]*>/i', $base, $html, 1) ?? $html;
         $toolbar = view('records.browser-print-toolbar', compact('recordUrl'))->render();
@@ -112,12 +121,18 @@ class LegacyPrintService
         $record->load(['documentLayout', 'images', 'attendance', 'tambonRelation']);
         $options = app(RecordDocumentOptions::class);
 
-        return $this->snapshotForRecord(
+        $saved = $this->snapshotForRecord(
             $record,
             $options->settings(array_merge($snapshot['settings'] ?? [], $record->documentLayout?->settings ?? []), $record->images->pluck('id')->map(fn ($id): string => (string) $id)->all(), $record->tambon),
             $options->content($record),
             $user,
         );
+        $advanced = app(BoundDocumentService::class)->snapshotForRecord($record);
+        if ($advanced) {
+            $saved['advanced_document'] = $advanced;
+        }
+
+        return $saved;
     }
 
     /**
@@ -215,6 +230,7 @@ PY;
 
     private function htmlToPdf(string $html): string
     {
+        $advanced = str_contains($html, '<meta name="sena-document-snapshot" content="1">');
         $chrome = $this->chromeBinary();
         $directory = $this->temporaryDirectory('sena-pdf-');
         $htmlPath = $directory.'/print.html';
@@ -234,7 +250,8 @@ PY;
                 '--disable-extensions',
                 '--allow-file-access-from-files',
                 '--run-all-compositor-stages-before-draw',
-                '--virtual-time-budget=1500',
+                '--virtual-time-budget='.($advanced ? '5000' : '1500'),
+                ...($advanced ? ['--dump-dom'] : []),
                 '--user-data-dir='.$profilePath,
                 '--print-to-pdf='.$pdfPath,
                 '--no-pdf-header-footer',
@@ -244,7 +261,7 @@ PY;
             $process->setTimeout(null)->start();
             $deadline = microtime(true) + 30;
             while ($process->isRunning() && microtime(true) < $deadline) {
-                if (is_file($pdfPath) && filesize($pdfPath) > 1024) {
+                if (! $advanced && is_file($pdfPath) && filesize($pdfPath) > 1024) {
                     usleep(500000);
                     $process->stop(1);
                     break;
@@ -257,6 +274,9 @@ PY;
 
             if (! is_file($pdfPath) || filesize($pdfPath) < 1024) {
                 throw new DocumentRuntimeUnavailableException(new RuntimeException('Chrome could not produce PDF: '.mb_substr($process->getErrorOutput(), 0, 2000)));
+            }
+            if ($advanced && ! preg_match('/<body\b[^>]*\bdata-document-print-ready="true"/i', $process->getOutput())) {
+                throw new DocumentRuntimeUnavailableException(new RuntimeException('The canonical document print layout did not become ready. '.mb_substr($process->getErrorOutput(), 0, 2000)));
             }
 
             return (string) file_get_contents($pdfPath);
