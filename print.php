@@ -2106,7 +2106,7 @@ $fontSizeOffsetPt = $pdfFontSizePt - 16;
 $fontSizeOffsetPtCss = rtrim(rtrim(number_format($fontSizeOffsetPt, 2, '.', ''), '0'), '.');
 $pdfLineSpacing = normalizePrintSettingInt($settings, 'pdf_line_spacing', 26, 20, 40);
 $recordParagraphSpacing = normalizePrintSettingInt($settings, 'record_paragraph_spacing_px', 0, 0, 80);
-$recordTextAlign = in_array($settings['record_text_align'] ?? '', ['left', 'justify', 'center', 'right'], true) ? $settings['record_text_align'] : 'justify';
+$recordTextAlign = ($settings['record_text_align'] ?? '') === 'thai-distributed' ? 'justify' : (in_array($settings['record_text_align'] ?? '', ['left', 'justify', 'center', 'right'], true) ? $settings['record_text_align'] : 'justify');
 $signatureFontSizePt = normalizePrintSettingInt($settings, 'signature_font_size_pt', $pdfFontSizePt, 10, 20);
 $attendanceFontSizePt = normalizePrintSettingInt($settings, 'attendance_font_size_pt', $pdfFontSizePt, 10, 20);
 $signatureFontSizeCss = rtrim(rtrim(number_format($signatureFontSizePt, 2, '.', ''), '0'), '.');

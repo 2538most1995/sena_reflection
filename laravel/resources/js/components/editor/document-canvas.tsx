@@ -5,21 +5,21 @@ import { TextStyleKit } from '@tiptap/extension-text-style'
 import Highlight from '@tiptap/extension-highlight'
 import Subscript from '@tiptap/extension-subscript'
 import Superscript from '@tiptap/extension-superscript'
-import TextAlign from '@tiptap/extension-text-align'
+import { DocumentTextAlign as TextAlign } from './document-text-align'
 import Image from '@tiptap/extension-image'
 import { PaginationPlus } from 'tiptap-pagination-plus'
 import { TableKitPlus } from 'tiptap-table-plus'
 import interact from 'interactjs'
 import { Copy, Grip, RotateCw, Trash2 } from 'lucide-react'
 import { MM_TO_PX, PAGE_GAP, pageDimensions, type DocumentObject, type WebDocument } from '@/lib/document-model'
-import { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectCanvasTop, snapMillimeters, type CanvasPage } from '@/lib/document-layout'
+import { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectAnchorAfterMove, objectCanvasTop, snapMillimeters, type CanvasPage } from '@/lib/document-layout'
 import { hasDocumentContent, ObjectTextFlow, objectFlowKey, ParagraphFormatting, RecordTemplate, type FlowReservation } from './document-extensions'
 
 export type { CanvasPage } from '@/lib/document-layout'
 
 type DocumentCanvasProps = {
   document: WebDocument
-  onChange: (changes: Partial<WebDocument>) => void
+  onChange: (changes: Partial<WebDocument>, options?: { historyBoundary?: boolean }) => void
   onEditor: (editor: Editor | null) => void
   selectedObjectId: string | null
   onSelectObject: (id: string | null) => void
@@ -59,6 +59,7 @@ const canvasStyles = `
 .document-object-layer{position:absolute;inset:0;pointer-events:none;z-index:3}.document-object{position:absolute;box-sizing:border-box;pointer-events:auto;outline:none;touch-action:none;transform-origin:center}
 .document-object.is-selected:after{content:"";position:absolute;inset:-1px;border:1.5px solid #2563eb;pointer-events:none}
 .document-object-body{width:100%;height:100%;box-sizing:border-box;overflow:hidden}.document-object img{width:100%;height:100%;object-fit:cover;pointer-events:none;user-select:none}
+.document-object[data-read-only=false] .document-object-body{cursor:grab;user-select:none}.document-object.is-editing .document-object-body{cursor:text;user-select:text}.document-object.is-interacting{z-index:100000!important}.document-object.is-interacting .document-object-body,.document-object.is-interacting .document-object-move{cursor:grabbing}
 .document-object-toolbar{position:absolute;top:-64px;left:0;display:flex;align-items:center;gap:2px;white-space:nowrap;height:29px;padding:2px 3px;border:1px solid #dbe5f1;background:white;box-shadow:0 2px 6px #0f172a12;border-radius:6px;color:#475569;font-family:inherit;font-size:10px;z-index:5}
 .document-object-toolbar button{border:0;background:transparent;padding:3px;cursor:pointer;display:flex;align-items:center;border-radius:3px}.document-object-toolbar button:hover{background:#eff6ff}.document-object-move{cursor:move;display:flex;align-items:center;gap:3px;padding:2px 5px}
 .document-resize-handle{position:absolute;width:8px;height:8px;border:1.5px solid #2563eb;background:white;border-radius:1px;z-index:8;pointer-events:auto;touch-action:none}
@@ -95,10 +96,10 @@ const canvasStyles = `
 .document-body-editor .record-signature-box{display:inline-block;max-width:100%;font-size:inherit;line-height:1.1;text-align:center}
 .document-body-editor .record-signature p{margin:0 0 1px;padding:0;min-height:0;font-size:inherit;line-height:1.1;text-align:center;white-space:break-spaces}
 .document-body-editor .record-signature p[data-record-role="signatureName"],.document-body-editor .record-signature p[data-record-role="signatureLine"]{white-space:nowrap}
-.document-body-editor .record-signature-move-handle{position:absolute;left:0;top:-21px;border:1px solid #bfdbfe;border-radius:4px;padding:1px 7px;background:#eff6ff;color:#2563eb;font:11px/16px Anuphan,sans-serif;cursor:move;touch-action:none;white-space:nowrap;opacity:0;pointer-events:none;z-index:3}
-.document-body-editor .record-signature:hover .record-signature-move-handle,.document-body-editor .record-signature.ProseMirror-selectednode .record-signature-move-handle,.document-body-editor .record-signature:focus-within .record-signature-move-handle{opacity:1;pointer-events:auto}
+.document-body-editor .record-signature-move-handle{position:absolute;left:0;top:4px;min-width:68px;min-height:34px;display:flex;align-items:center;justify-content:center;border:1px solid #93c5fd;border-radius:6px;padding:5px 9px;background:#eff6ff;color:#1d4ed8;font:12px/20px Anuphan,sans-serif;cursor:grab;touch-action:none;white-space:nowrap;z-index:3;transform:translateX(calc(-100% - 8px)) scale(var(--document-ui-scale,1));transform-origin:right top;user-select:none}
+.document-body-editor .record-signature-move-handle:hover,.document-body-editor .record-signature-move-handle:focus-visible{background:#dbeafe;border-color:#2563eb;outline:2px solid #bfdbfe;outline-offset:2px}.document-body-editor .record-signature.is-dragging .record-signature-move-handle{cursor:grabbing;background:#2563eb;color:white}
 .document-body-editor[contenteditable=false] .record-signature-move-handle{display:none}
-.document-body-editor .record-signature.ProseMirror-selectednode .record-signature-content{outline:1px dashed #2563eb}
+.document-body-editor .record-signature.ProseMirror-selectednode .record-signature-content,.document-body-editor .record-signature.is-dragging .record-signature-content{outline:1px dashed #2563eb}
 .document-body-editor .record-group{width:100%;padding:0;box-sizing:border-box}
 .document-body-editor .record-group--border:before{content:"";display:block;border-top:1px solid #000;margin:4px 0}
 .document-body-editor p[data-record-line="1"]{display:block!important;background-image:radial-gradient(circle at .75px 1.25px,#000 .55px,transparent .65px);background-size:4px 2px;background-position:left bottom;background-repeat:repeat-x;min-height:22px;line-height:22px}
@@ -151,10 +152,10 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
     immediatelyRender: false,
     shouldRerenderOnTransaction: false,
     editorProps: { attributes: { class: 'document-body-editor', lang: 'th', 'aria-label': 'เนื้อหาเอกสาร', spellcheck: 'true' } },
-    onUpdate: ({ editor: current }) => {
+    onUpdate: ({ editor: current, transaction }) => {
       const content = current.getJSON()
       lastContent.current = JSON.stringify(content)
-      callbacks.current.onChange({ content })
+      callbacks.current.onChange({ content }, transaction.getMeta('documentGestureBoundary') ? { historyBoundary: true } : undefined)
       scheduleLayout()
     },
     onSelectionUpdate: () => scheduleLayout(),
@@ -298,9 +299,9 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
   useEffect(scheduleLayout, [model.objects, settings, zoom, paragraphVersion, scheduleLayout])
   useEffect(() => { callbacks.current.onPages(pages) }, [pages])
 
-  const changeObject = useCallback((id: string, changes: Partial<DocumentObject>) => {
+  const changeObject = useCallback((id: string, changes: Partial<DocumentObject>, options?: { historyBoundary?: boolean }) => {
     const current = callbacks.current.document
-    callbacks.current.onChange({ objects: current.objects.map(object => object.id === id ? { ...object, ...changes } : object) })
+    callbacks.current.onChange({ objects: current.objects.map(object => object.id === id ? { ...object, ...changes } : object) }, options)
   }, [])
   const deleteObject = useCallback((id: string) => {
     callbacks.current.onChange({ objects: callbacks.current.document.objects.filter(object => object.id !== id) })
@@ -311,7 +312,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
     const current = callbacks.current.document
     const object = current.objects.find(candidate => candidate.id === id)
     if (!object) return
-    const duplicate = { ...structuredClone(object), id: crypto.randomUUID(), x: object.x + 5, y: object.y + 5, zIndex: Math.max(1, ...current.objects.map(candidate => candidate.zIndex)) + 1 }
+    const duplicate = { ...structuredClone(object), id: crypto.randomUUID(), x: object.x + 5, y: object.y + 5, anchor: object.anchor.kind === 'paragraph' ? { ...object.anchor, offsetY: (object.anchor.offsetY || 0) + 5 } : object.anchor, zIndex: Math.max(1, ...current.objects.map(candidate => candidate.zIndex)) + 1 }
     callbacks.current.onChange({ objects: [...current.objects, duplicate] })
     callbacks.current.onSelectObject(duplicate.id)
   }, [])
@@ -350,7 +351,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
   }, [readOnly, deleteObject])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (readOnly || !callbacks.current.selectedObjectId || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target instanceof Element && event.target.closest('[contenteditable=true]'))) return
+      if (readOnly || !callbacks.current.selectedObjectId || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof Element && event.target.closest('[contenteditable=true]'))) return
       const object = callbacks.current.document.objects.find(candidate => candidate.id === callbacks.current.selectedObjectId)
       if (!object) return
       if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteObject(object.id) }
@@ -359,9 +360,14 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
       if (moves[event.key]) {
         event.preventDefault()
         const [x, y] = moves[event.key]
-        const step = event.shiftKey ? 5 : 1
-        const geometry = constrainObject({ ...object, x: object.x + x * step, y: object.y + y * step }, callbacks.current.document.pageSettings)
-        changeObject(object.id, { ...geometry, anchor: { kind: 'page', page: geometry.page } })
+        const step = (event.shiftKey ? 10 : event.altKey ? 0.25 : 1) / MM_TO_PX
+        const settings = callbacks.current.document.pageSettings
+        const anchor = object.anchor
+        const paragraph = anchor.kind === 'paragraph' ? paragraphLocations.current.find(location => location.id === anchor.id) : null
+        const top = paragraph && anchor.kind === 'paragraph' ? paragraph.top + (anchor.offsetY || 0) * MM_TO_PX : objectCanvasTop(object, settings)
+        const position = canvasPositionToPage(top + y * step * MM_TO_PX, settings)
+        const geometry = constrainObject({ ...object, x: object.x + x * step, ...position }, settings)
+        changeObject(object.id, { ...geometry, anchor: objectAnchorAfterMove(object, top, geometry, settings) }, { historyBoundary: true })
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') { event.preventDefault(); duplicateObject(object.id) }
     }
@@ -372,7 +378,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
   return <div className="document-canvas-zoom-space" style={{ width: physicalWidth * zoom, minWidth: physicalWidth * zoom, height: (canvasHeight + (showRuler ? 24 : 0)) * zoom, position: 'relative', margin: '0 auto' }}>
     <div className="document-canvas-scale" style={{ width: physicalWidth, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
       {showRuler && <div className="document-ruler" data-print-hidden>{Array.from({ length: Math.floor(dimensions.width / 5) + 1 }, (_, index) => <span key={index} style={{ left: index * 5 * MM_TO_PX }}>{index % 2 === 0 ? index / 2 : ''}</span>)}</div>}
-      <div ref={canvasRef} data-document-canvas data-page-width={physicalWidth} data-page-height={physicalHeight} data-page-gap={PAGE_GAP} data-document-template={templateSettings.template || undefined} className={`document-canvas${isRecordTemplate ? ' is-record-template' : ''}${showMarks ? ' show-marks' : ''}`} style={{ width: physicalWidth, minHeight: canvasHeight, height: canvasHeight, fontFamily: templateSettings.fontFamily || undefined, fontSize: templateSettings.fontSize ? `${templateSettings.fontSize}pt` : undefined, lineHeight: templateSettings.lineHeight || undefined, '--record-title-size': `${20 + ((templateSettings.fontSize || 16) - 16)}pt`, '--record-section-size': `${17 + ((templateSettings.fontSize || 16) - 16)}pt` } as CSSProperties} onPointerDown={event => {
+      <div ref={canvasRef} data-document-canvas data-page-width={physicalWidth} data-page-height={physicalHeight} data-page-gap={PAGE_GAP} data-document-template={templateSettings.template || undefined} className={`document-canvas${isRecordTemplate ? ' is-record-template' : ''}${showMarks ? ' show-marks' : ''}`} style={{ width: physicalWidth, minHeight: canvasHeight, height: canvasHeight, fontFamily: templateSettings.fontFamily || undefined, fontSize: templateSettings.fontSize ? `${templateSettings.fontSize}pt` : undefined, lineHeight: templateSettings.lineHeight || undefined, '--document-ui-scale': 1 / zoom, '--record-title-size': `${20 + ((templateSettings.fontSize || 16) - 16)}pt`, '--record-section-size': `${17 + ((templateSettings.fontSize || 16) - 16)}pt` } as CSSProperties} onPointerDown={event => {
         if (!(event.target instanceof Element) || event.target.closest('.document-object')) return
         callbacks.current.onSelectObject(null)
         if (editor) callbacks.current.onEditor(editor)
@@ -384,7 +390,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
         </div>)}
         <div className="document-editor-surface"><EditorContent editor={editor} /></div>
         <div className="document-object-layer">
-          {resolvedObjects.map(object => <FloatingObject key={object.id} object={object} selected={selectedObjectId === object.id} readOnly={readOnly} zoom={zoom} grid={showGrid} pageSettings={settings} onChange={changes => changeObject(object.id, changes)} onSelect={() => callbacks.current.onSelectObject(object.id)} onEditor={active => callbacks.current.onEditor(active || editor)} onDelete={() => deleteObject(object.id)} onDuplicate={() => duplicateObject(object.id)} onGuide={setCenterGuide} />)}
+          {resolvedObjects.map(object => <FloatingObject key={object.id} object={object} selected={selectedObjectId === object.id} readOnly={readOnly} zoom={zoom} grid={showGrid} pageSettings={settings} onChange={(changes, options) => changeObject(object.id, changes, options)} onSelect={() => callbacks.current.onSelectObject(object.id)} onEditor={active => callbacks.current.onEditor(active || editor)} onDelete={() => deleteObject(object.id)} onDuplicate={() => duplicateObject(object.id)} onGuide={setCenterGuide} />)}
         </div>
         {centerGuide && <div className="document-alignment-guide" data-print-hidden style={{ left: physicalWidth / 2 }} />}
       </div>
@@ -400,7 +406,7 @@ function textboxPlainText(content: DocumentObject['content']): string {
 
 type FloatingObjectProps = {
   object: ResolvedObject; selected: boolean; readOnly: boolean; zoom: number; grid: boolean; pageSettings: WebDocument['pageSettings']
-  onChange: (changes: Partial<DocumentObject>) => void; onSelect: () => void; onEditor: (editor: Editor | null) => void; onDelete: () => void; onDuplicate: () => void; onGuide: (visible: boolean) => void
+  onChange: (changes: Partial<DocumentObject>, options?: { historyBoundary?: boolean }) => void; onSelect: () => void; onEditor: (editor: Editor | null) => void; onDelete: () => void; onDuplicate: () => void; onGuide: (visible: boolean) => void
 }
 
 function FloatingObject(props: FloatingObjectProps) {
@@ -410,6 +416,7 @@ function FloatingObject(props: FloatingObjectProps) {
   const elementRef = useRef<HTMLDivElement>(null)
   const rotationRef = useRef<HTMLButtonElement>(null)
   const [editing, setEditing] = useState(false)
+  const [interacting, setInteracting] = useState(false)
   const lastContent = useRef(JSON.stringify(object.content))
   const textbox = useEditor({
     extensions: commonExtensions(), content: hasDocumentContent(object.content), editable: false,
@@ -436,12 +443,23 @@ function FloatingObject(props: FloatingObjectProps) {
     if (!elementRef.current || readOnly) return
     const element = elementRef.current
     let gesture = { x: object.x, top: object.canvasTop, width: object.width, height: object.height }
+    let active = false, scale = 1, originalTop = object.canvasTop
+    let interaction: { stop: () => void } | null = null
+    const restorePreview = () => {
+      const current = latest.current.object
+      Object.assign(element.style, { left: `${current.x * MM_TO_PX}px`, top: `${current.canvasTop}px`, width: `${current.width * MM_TO_PX}px`, height: `${current.height * MM_TO_PX}px` })
+    }
     const start = () => {
       const current = latest.current.object
       gesture = { x: current.x, top: current.canvasTop, width: current.width, height: current.height }
+      originalTop = current.canvasTop
+      scale = latest.current.zoom
+      active = true
+      setEditing(false)
+      setInteracting(true)
       latest.current.onSelect()
     }
-    const commit = () => {
+    const geometry = () => {
       const current = latest.current
       const size = pageDimensions(current.pageSettings)
       let x = snapMillimeters(gesture.x, current.grid)
@@ -449,26 +467,52 @@ function FloatingObject(props: FloatingObjectProps) {
       if (center) x = (size.width - gesture.width) / 2
       current.onGuide(center)
       const position = canvasPositionToPage(gesture.top, current.pageSettings)
-      const geometry = constrainObject({ x, y: snapMillimeters(position.y, current.grid), page: position.page, width: gesture.width, height: gesture.height }, current.pageSettings)
-      current.onChange({ ...geometry, anchor: { kind: 'page', page: geometry.page } })
+      return constrainObject({ x, y: snapMillimeters(position.y, current.grid), page: position.page, width: gesture.width, height: gesture.height }, current.pageSettings)
+    }
+    const preview = () => {
+      const value = geometry()
+      Object.assign(element.style, { left: `${value.x * MM_TO_PX}px`, top: `${objectCanvasTop(value, latest.current.pageSettings)}px`, width: `${value.width * MM_TO_PX}px`, height: `${value.height * MM_TO_PX}px` })
+    }
+    const finish = (save: boolean) => {
+      if (!active) return
+      active = false
+      interaction = null
+      setInteracting(false)
+      if (save) {
+        const current = latest.current
+        const value = geometry()
+        if (value.x !== current.object.x || objectCanvasTop(value, current.pageSettings) !== originalTop || value.width !== current.object.width || value.height !== current.object.height) {
+          current.onChange({ ...value, anchor: objectAnchorAfterMove(current.object, originalTop, value, current.pageSettings) }, { historyBoundary: true })
+        }
+      } else restorePreview()
+      latest.current.onGuide(false)
+    }
+    const cancel = () => {
+      const running = interaction
+      finish(false)
+      running?.stop()
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && active) { event.preventDefault(); cancel() }
     }
     const target = interact(element).draggable({
-      allowFrom: '.document-object-move, .document-object-body', ignoreFrom: '[contenteditable=true], .document-resize-handle, .document-rotation-handle',
+      allowFrom: '.document-object-move, .document-object-body', ignoreFrom: '[contenteditable=true], button, .document-resize-handle, .document-rotation-handle',
       listeners: {
-        start,
-        move(event) { gesture.x += event.dx / latest.current.zoom / MM_TO_PX; gesture.top += event.dy / latest.current.zoom; commit() },
-        end() { latest.current.onGuide(false) },
+        start(event) { start(); interaction = event.interaction },
+        move(event) { if (active) { gesture.x += event.dx / scale / MM_TO_PX; gesture.top += event.dy / scale; preview() } },
+        end() { finish(true) },
       },
     }).resizable({
       edges: { left: '.document-resize-w', right: '.document-resize-e', top: '.document-resize-n', bottom: '.document-resize-s' },
       listeners: {
-        start,
+        start(event) { start(); interaction = event.interaction },
         move(event) {
+          if (!active) return
           const current = latest.current
           const radians = current.object.rotation * Math.PI / 180
           const cosine = Math.cos(radians), sine = Math.sin(radians)
-          const localX = (event.dx * cosine + event.dy * sine) / current.zoom / MM_TO_PX
-          const localY = (-event.dx * sine + event.dy * cosine) / current.zoom / MM_TO_PX
+          const localX = (event.dx * cosine + event.dy * sine) / scale / MM_TO_PX
+          const localY = (-event.dx * sine + event.dy * cosine) / scale / MM_TO_PX
           const previousWidth = gesture.width, previousHeight = gesture.height
           let width = previousWidth + (event.edges.right ? localX : 0) - (event.edges.left ? localX : 0)
           let height = previousHeight + (event.edges.bottom ? localY : 0) - (event.edges.top ? localY : 0)
@@ -484,26 +528,54 @@ function FloatingObject(props: FloatingObjectProps) {
           const localCenterY = event.edges.top ? -heightChange / 2 : event.edges.bottom ? heightChange / 2 : 0
           gesture.x += localCenterX * cosine - localCenterY * sine - widthChange / 2
           gesture.top += (localCenterX * sine + localCenterY * cosine - heightChange / 2) * MM_TO_PX
-          commit()
+          preview()
         },
-        end() { latest.current.onGuide(false) },
+        end() { finish(true) },
       },
     })
-    return () => { target.unset() }
+    element.addEventListener('pointercancel', cancel)
+    window.addEventListener('keydown', onKey)
+    return () => { if (active) restorePreview(); active = false; target.unset(); element.removeEventListener('pointercancel', cancel); window.removeEventListener('keydown', onKey) }
   }, [object.id, readOnly])
 
   useEffect(() => {
     if (!rotationRef.current || readOnly || !selected) return
+    let active = false, angle = object.rotation, initialAngle = 0, originalAngle = object.rotation
+    let center = { x: 0, y: 0 }
+    const finish = (save: boolean) => {
+      if (!active) return
+      active = false
+      setInteracting(false)
+      if (save && angle !== originalAngle) latest.current.onChange({ rotation: angle }, { historyBoundary: true })
+      else if (elementRef.current) elementRef.current.style.transform = `rotate(${latest.current.object.rotation}deg)`
+    }
     const rotate = interact(rotationRef.current).draggable({ listeners: {
-      start() { latest.current.onSelect() },
-      move(event) {
+      start(event) {
         const rectangle = elementRef.current?.getBoundingClientRect()
-        if (!rectangle) return
-        const angle = Math.atan2(event.clientY - (rectangle.top + rectangle.height / 2), event.clientX - (rectangle.left + rectangle.width / 2)) * 180 / Math.PI + 90
-        latest.current.onChange({ rotation: event.shiftKey ? Math.round(angle / 15) * 15 : Math.round(angle) })
+        if (!rectangle) { event.interaction.stop(); return }
+        center = { x: rectangle.left + rectangle.width / 2, y: rectangle.top + rectangle.height / 2 }
+        initialAngle = Math.atan2(event.clientY - center.y, event.clientX - center.x) * 180 / Math.PI
+        originalAngle = latest.current.object.rotation
+        angle = originalAngle
+        active = true
+        setInteracting(true)
+        latest.current.onSelect()
       },
+      move(event) {
+        if (!active || !elementRef.current) return
+        const pointerAngle = Math.atan2(event.clientY - center.y, event.clientX - center.x) * 180 / Math.PI
+        const delta = ((pointerAngle - initialAngle + 540) % 360) - 180
+        angle = event.shiftKey ? Math.round((originalAngle + delta) / 15) * 15 : Math.round(originalAngle + delta)
+        elementRef.current.style.transform = `rotate(${angle}deg)`
+      },
+      end() { finish(true) },
     } })
-    return () => { rotate.unset() }
+    const cancel = () => finish(false)
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && active) { event.preventDefault(); finish(false) } }
+    rotationRef.current.addEventListener('pointercancel', cancel)
+    window.addEventListener('keydown', onKey)
+    const handle = rotationRef.current
+    return () => { if (active && elementRef.current) elementRef.current.style.transform = `rotate(${latest.current.object.rotation}deg)`; active = false; rotate.unset(); handle.removeEventListener('pointercancel', cancel); window.removeEventListener('keydown', onKey) }
   }, [selected, readOnly])
 
   const border = `${object.borderWidth ?? 1}px solid ${object.border || 'transparent'}`
@@ -521,7 +593,7 @@ function FloatingObject(props: FloatingObjectProps) {
     { key: 'sw', left: '-4px', top: 'calc(100% - 4px)', cursor: 'nesw-resize', classes: 'document-resize-s document-resize-w' },
     { key: 'w', left: '-4px', top: 'calc(50% - 4px)', cursor: 'ew-resize', classes: 'document-resize-w' },
   ]
-  return <div ref={elementRef} tabIndex={readOnly ? -1 : 0} role="group" aria-label={object.type === 'textbox' ? 'กล่องข้อความ' : object.type === 'image' ? 'รูปภาพ' : object.type === 'line' ? 'เส้น' : 'รูปทรง'} data-object-id={object.id} data-page-number={object.page} className={`document-object${selected && !readOnly ? ' is-selected' : ''}`} style={{ left: object.x * MM_TO_PX, top: object.canvasTop, width: object.width * MM_TO_PX, height: object.height * MM_TO_PX, transform: `rotate(${object.rotation}deg)`, zIndex: Math.max(0, object.zIndex) }} onPointerDown={event => {
+  return <div ref={elementRef} tabIndex={readOnly ? -1 : 0} role="group" aria-label={object.type === 'textbox' ? 'กล่องข้อความ' : object.type === 'image' ? 'รูปภาพ' : object.type === 'line' ? 'เส้น' : 'รูปทรง'} title={readOnly ? undefined : object.type === 'textbox' ? 'ลากเพื่อย้าย · ดับเบิลคลิกเพื่อแก้ข้อความ · ลูกศรขยับ 1 px' : 'ลากจากตัววัตถุเพื่อย้าย · ลูกศรขยับ 1 px · Shift 10 px'} data-object-id={object.id} data-page-number={object.page} data-read-only={readOnly} className={`document-object${selected && !readOnly ? ' is-selected' : ''}${editing ? ' is-editing' : ''}${interacting ? ' is-interacting' : ''}`} style={{ left: object.x * MM_TO_PX, top: object.canvasTop, width: object.width * MM_TO_PX, height: object.height * MM_TO_PX, transform: `rotate(${object.rotation}deg)`, zIndex: Math.max(0, object.zIndex) }} onPointerDown={event => {
     if (readOnly) return
     props.onSelect()
     const typing = editing && event.target instanceof Element && event.target.closest('[contenteditable=true]')

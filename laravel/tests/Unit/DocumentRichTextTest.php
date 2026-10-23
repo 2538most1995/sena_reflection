@@ -26,6 +26,14 @@ class DocumentRichTextTest extends TestCase
         );
     }
 
+    public function test_thai_distribution_css_survives_sanitization_without_allowing_arbitrary_css_values(): void
+    {
+        $thai = '<div style="text-align:justify;text-align-last:left;text-justify:inter-character">น้ำ กำลังเรียนรู้ภาษาไทย</div>';
+        $this->assertSame($thai, DocumentRichText::sanitize($thai));
+        $this->assertSame('<p style="text-align:justify">ข้อความ</p>', DocumentRichText::sanitize('<p style="text-align:justify;text-align-last:expression(alert(1));text-justify:url(https://example.test)">ข้อความ</p>'));
+        $this->assertSame('<p style="text-align:left;text-align-last:auto;text-justify:auto">ปกติ</p>', DocumentRichText::sanitize('<p style="text-align:left;text-align-last:auto;text-justify:auto">ปกติ</p>'));
+    }
+
     public function test_rich_map_limits_fields_sanitizes_html_and_preserves_thai_newlines(): void
     {
         $source = json_encode([

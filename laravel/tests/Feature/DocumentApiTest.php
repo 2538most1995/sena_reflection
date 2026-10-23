@@ -219,6 +219,22 @@ class DocumentApiTest extends TestCase
         $this->assertSame(2, Document::query()->findOrFail($id)->revision);
     }
 
+    public function test_thai_distributed_alignment_round_trips_paragraphs_headings_cells_and_record_bodies(): void
+    {
+        $paragraph = ['type' => 'paragraph', 'attrs' => ['id' => 'thai-paragraph', 'textAlign' => 'thai-distributed'], 'content' => [['type' => 'text', 'text' => 'น้ำ กำลังเรียนรู้ภาษาไทย']]];
+        $content = ['type' => 'doc', 'content' => [
+            $paragraph,
+            ['type' => 'heading', 'attrs' => ['level' => 2, 'textAlign' => 'thai-distributed'], 'content' => [['type' => 'text', 'text' => 'หัวข้อภาษาไทย']]],
+            ['type' => 'recordBody', 'attrs' => ['align' => 'thai-distributed'], 'content' => [$paragraph]],
+            ['type' => 'table', 'content' => [['type' => 'tableRow', 'content' => [['type' => 'tableCell', 'attrs' => ['align' => 'thai-distributed', 'textAlign' => 'thai-distributed'], 'content' => [$paragraph]]]]]],
+        ]];
+        $id = $this->actingAs($this->owner)->postJson('/api/documents', ['content' => $content])->assertCreated()->assertJsonPath('document.content', $content)->json('document.id');
+        $this->getJson('/api/documents/'.$id)->assertOk()->assertJsonPath('document.content', $content);
+        $this->putJson('/api/documents/'.$id, ['revision' => 1, 'content' => $content])->assertOk()->assertJsonPath('document.content', $content);
+        $content['content'][0]['attrs']['textAlign'] = 'thai-distributed;position:fixed';
+        $this->putJson('/api/documents/'.$id, ['revision' => 2, 'content' => $content])->assertUnprocessable()->assertJsonValidationErrors('content.content.0.attrs.textAlign');
+    }
+
     public function test_record_import_respects_hidden_attendance_and_image_page_settings(): void
     {
         $record = TeachingRecord::create(['id' => 'hidden-att-source', 'tambon' => 't1', 'week' => 8, 'date' => '2026-10-22', 'year' => '2569', 'subject' => 'ภาษาไทย', 'created_by' => $this->owner->id]);

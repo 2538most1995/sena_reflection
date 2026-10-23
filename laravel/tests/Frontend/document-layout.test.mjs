@@ -8,7 +8,7 @@ const hook = registerHooks({
     return nextResolve(specifier, context)
   },
 })
-const { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectCanvasTop, snapMillimeters } = await import('../../resources/js/lib/document-layout.ts')
+const { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectAnchorAfterMove, objectCanvasTop, snapMillimeters } = await import('../../resources/js/lib/document-layout.ts')
 const { defaultPageSettings, documentToScreen, MM_TO_PX, pageDimensions, screenToDocument } = await import('../../resources/js/lib/document-model.ts')
 hook.deregister()
 
@@ -21,6 +21,17 @@ test('A4 dimensions are physical millimeters, independent of the editor zoom', (
   for (const zoom of [0.5, 0.75, 1, 1.5, 2]) {
     assert.ok(Math.abs(screenToDocument(documentToScreen(42.75, zoom), zoom) - 42.75) < 0.00001)
   }
+})
+
+test('moving objects preserves their paragraph anchor and adds only the physical vertical delta', () => {
+  const object = { anchor: { kind: 'paragraph', id: 'stable-paragraph', offsetY: 12 } }
+  const previous = { page: 1, y: 30 }
+  const next = { page: 1, x: 40, y: 45, width: 60, height: 35 }
+  const anchor = objectAnchorAfterMove(object, objectCanvasTop(previous, defaultPageSettings), next, defaultPageSettings)
+  assert.equal(anchor.kind, 'paragraph')
+  assert.equal(anchor.id, 'stable-paragraph')
+  assert.ok(Math.abs(anchor.offsetY - 27) < 0.00001)
+  assert.deepEqual(objectAnchorAfterMove({ anchor: { kind: 'page', page: 1 } }, 0, { ...next, page: 2 }, defaultPageSettings), { kind: 'page', page: 2 })
 })
 
 test('weekly record template retains the legacy whole-pixel page geometry without changing A4 millimeters', () => {

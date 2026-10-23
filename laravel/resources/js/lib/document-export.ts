@@ -46,6 +46,7 @@ const noBorder = { style: BorderStyle.NONE, size: 0, color: '000000' } as const
 const dottedBorder = { style: BorderStyle.DOTTED, size: 4, color: '000000', space: 0 } as const
 const noTableBorders = { top: noBorder, right: noBorder, bottom: noBorder, left: noBorder, insideHorizontal: noBorder, insideVertical: noBorder }
 const noCellBorders = { top: noBorder, right: noBorder, bottom: noBorder, left: noBorder }
+const paragraphAlignments: Record<string, IParagraphOptions['alignment']> = { left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED, 'thai-distributed': AlignmentType.THAI_DISTRIBUTE }
 
 function hexColor(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
@@ -332,7 +333,7 @@ async function paragraph(node: JSONContent, context: Context, list?: ListContext
     context.placedObjects.add(object.id)
   }
   const heading = node.type === 'heading' ? [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4, HeadingLevel.HEADING_5, HeadingLevel.HEADING_6][Math.max(0, Math.min(5, numberValue(attrs.level, 1) - 1))] : undefined
-  const alignment = ({ left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED } as Record<string, IParagraphOptions['alignment']>)[String(attrs.textAlign)] || (isTitle || isSignaturePart ? AlignmentType.CENTER : defaults.alignment)
+  const alignment = paragraphAlignments[String(attrs.textAlign)] || (isTitle || isSignaturePart ? AlignmentType.CENTER : defaults.alignment)
   const defaultLine = isTitle ? 264 : defaults.spacing?.line ?? Math.round((heading ? [1.3, 1.35, 1.4][Math.max(0, Math.min(2, numberValue(attrs.level, 1) - 1))] : 1.5) * 240)
   const indent = {
     ...defaults.indent,
@@ -419,7 +420,7 @@ async function recordBlocks(node: JSONContent, context: Context): Promise<Block[
   }
   if (node.type === 'recordBody') {
     const line = pxToTwips(Math.max(1, numberValue(attrs.lineSpacing, 26)))
-    const alignment = ({ left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED } as Record<string, IParagraphOptions['alignment']>)[String(attrs.align)] || AlignmentType.JUSTIFIED
+    const alignment = paragraphAlignments[String(attrs.align)] || AlignmentType.JUSTIFIED
     const bodyContext: Context = {
       ...context,
       runDefaults: { font: 'THSarabunNew', size: 32, sizeComplexScript: 32, color: '000000' },
@@ -508,7 +509,9 @@ async function convertBlocks(nodes: JSONContent[], context: Context, list?: List
         const cells: TableCell[] = []
         for (const cell of childrenOf(row)) {
           const attrs = attrsOf(cell)
-          const content = await convertBlocks(cell.type === 'tableHeader' ? headerCellContent(childrenOf(cell)) : childrenOf(cell), context)
+          const alignment = paragraphAlignments[String(attrs.textAlign ?? attrs.align)]
+          const cellContext = alignment ? { ...context, paragraphDefaults: { ...context.paragraphDefaults, alignment } } : context
+          const content = await convertBlocks(cell.type === 'tableHeader' ? headerCellContent(childrenOf(cell)) : childrenOf(cell), cellContext)
           if (!content.length || content[content.length - 1] instanceof Table) content.push(new Paragraph(''))
           cells.push(new TableCell({
             children: content,

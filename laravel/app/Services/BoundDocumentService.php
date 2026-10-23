@@ -339,7 +339,7 @@ class BoundDocumentService
                     $settings[$key] = (string) max($min, min($max, (int) round($attrs[$attr])));
                 }
             }
-            if (in_array($attrs['align'] ?? null, ['left', 'center', 'right', 'justify'], true)) {
+            if (in_array($attrs['align'] ?? null, ['left', 'center', 'right', 'justify', 'thai-distributed'], true)) {
                 $settings['record_text_align'] = $attrs['align'];
             }
         }
@@ -404,7 +404,15 @@ class BoundDocumentService
         }
         $html = implode('', array_map(fn (array $child): string => $this->richHtml($child), $node['content'] ?? []));
 
-        return in_array($type, ['paragraph', 'heading'], true) ? '<div>'.$html.'</div>' : $html;
+        $alignment = $node['attrs']['textAlign'] ?? ($type === 'recordBody' && ($node['attrs']['align'] ?? '') === 'thai-distributed' ? 'thai-distributed' : null);
+        $style = $alignment === 'thai-distributed'
+            ? 'text-align:justify;text-align-last:left;text-justify:inter-character'
+            : (in_array($alignment, ['left', 'center', 'right', 'justify'], true) ? 'text-align:'.$alignment.';text-align-last:auto;text-justify:auto' : '');
+        if (in_array($type, ['paragraph', 'heading'], true) || ($style !== '' && in_array($type, ['recordInfoCell', 'recordSectionTitle', 'recordBody'], true))) {
+            return '<div'.($style !== '' ? ' style="'.$style.'"' : '').'>'.$html.'</div>';
+        }
+
+        return $html;
     }
 
     private function removeSignatureParens(array &$node): void

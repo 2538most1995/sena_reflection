@@ -375,3 +375,26 @@ test('manual page breaks within a record body remain outside native Word tables'
   assert.match(tables[0], /w:trHeight w:val="780"/)
   assert.match(tables[1], /w:trHeight w:val="390"/)
 })
+
+test('Thai distribution uses the native Word thaiDistribute value in paragraphs, headings, cells and record bodies', async () => {
+  const thai = text => paragraph(text, { textAlign: 'thai-distributed' })
+  const model = fixture({ content: { type: 'doc', content: [
+    thai('น้ำ กำลังเรียนรู้ภาษาไทย'),
+    { type: 'heading', attrs: { level: 2, textAlign: 'thai-distributed' }, content: [{ type: 'text', text: 'หัวข้อกระจายไทย' }] },
+    { type: 'recordBody', attrs: { align: 'thai-distributed' }, content: [paragraph('เนื้อหาแม่แบบกระจายไทย')] },
+    { type: 'recordInfoRow', content: [{ type: 'recordInfoCell', attrs: { textAlign: 'thai-distributed', width: 100 }, content: [{ type: 'text', text: 'ช่องแม่แบบกระจายไทย' }] }] },
+    { type: 'table', content: [{ type: 'tableRow', content: [
+      { type: 'tableHeader', attrs: { textAlign: 'thai-distributed' }, content: [paragraph('หัวตารางกระจายไทย')] },
+      { type: 'tableCell', attrs: { align: 'thai-distributed' }, content: [paragraph('ช่องตารางกระจายไทย'), paragraph('ย่อหน้ากำหนดซ้าย', { textAlign: 'left' })] },
+    ] }] },
+    paragraph('ชิดขอบธรรมดา', { textAlign: 'justify' }),
+    paragraph('ข้อความปกติ'),
+  ] } })
+  const { xml } = await archive(model)
+  for (const text of ['น้ำ กำลังเรียนรู้ภาษาไทย', 'หัวข้อกระจายไทย', 'เนื้อหาแม่แบบกระจายไทย', 'ช่องแม่แบบกระจายไทย', 'หัวตารางกระจายไทย', 'ช่องตารางกระจายไทย']) {
+    assert.match(paragraphWith(xml, text), /w:jc w:val="thaiDistribute"/)
+  }
+  assert.match(paragraphWith(xml, 'ย่อหน้ากำหนดซ้าย'), /w:jc w:val="left"/)
+  assert.match(paragraphWith(xml, 'ชิดขอบธรรมดา'), /w:jc w:val="both"/)
+  assert.doesNotMatch(paragraphWith(xml, 'ข้อความปกติ'), /w:jc w:val="thaiDistribute"/)
+})

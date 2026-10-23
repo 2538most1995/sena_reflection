@@ -96,13 +96,17 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     await page.getByRole('button', { name: 'ตัวหนา', exact: true }).click()
     await page.getByRole('combobox', { name: 'ขนาดตัวอักษร', exact: true }).selectOption('24')
     await page.getByRole('textbox', { name: 'สีตัวอักษร', exact: true }).fill('#2563eb')
+    await page.getByRole('button', { name: 'กระจายแบบไทย (Thai Distributed)', exact: true }).click()
     await expect(editor.locator('strong')).toHaveText(selected)
+    await expect(editor.locator('p').first()).toHaveCSS('text-align', 'justify')
+    await expect(editor.locator('p').first()).toHaveCSS('text-justify', 'inter-character')
     await saved(page)
     await page.reload()
     await expect(editor).toHaveText(`${selected} และข้อความปกติ`)
     await expect(editor.locator('strong')).toHaveText(selected)
     const persisted = await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)
     const runs = persisted.data.document.content.content?.flatMap(node => node.content || []) || []
+    expect(persisted.data.document.content.content?.[0].attrs?.textAlign).toBe('thai-distributed')
     const formatted = runs.find(node => node.text === selected)
     expect(formatted?.marks).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'bold' }),
@@ -158,6 +162,67 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     await expect(page.getByRole('textbox', { name: 'ชื่อเอกสาร', exact: true })).toHaveValue(`${localTitle} (สำเนา)`)
     expect((await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document.title).toBe(remoteTitle)
     expect(copied.document.id).not.toBe(document.id)
+  })
+
+  test('signature and image body drags keep physical positions across zoom, undo and reload', async ({ page }) => {
+    const id = process.env.SENA_E2E_DOCUMENT_ID
+    test.skip(!id, 'Provide a dedicated native-template document fixture to test signature dragging.')
+    await page.goto(`/documents/${id}/edit`)
+    const editor = page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })
+    await expect(editor).toBeVisible()
+    await saved(page)
+    const original = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${id}`)).data.document
+    const versions = await api<{ versions: { id: string; revision: number }[] }>(page, 'GET', `/api/documents/${id}/versions`)
+    const originalVersion = versions.data.versions.find(version => version.revision === original.revision)!.id
+    const drag = async (element: ReturnType<Page['locator']>, x: number, y: number) => {
+      await element.scrollIntoViewIfNeeded()
+      const box = (await element.boundingBox())!
+      const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+      await page.mouse.move(start.x, start.y)
+      await page.mouse.down()
+      await page.mouse.move(start.x + x, start.y + y, { steps: 12 })
+      await page.mouse.up()
+    }
+    try {
+      const zoom = page.getByRole('slider', { name: 'ซูมเอกสาร', exact: true })
+      await zoom.focus(); await zoom.press('Home')
+      await expect(zoom).toHaveValue('0.5')
+      const signature = page.locator('.record-signature').first()
+      const handle = signature.locator('.record-signature-move-handle')
+      await expect(handle).toBeVisible()
+      const offset = () => signature.evaluate(element => [Number((element as HTMLElement).dataset.recordOffsetX), Number((element as HTMLElement).dataset.recordOffsetY)])
+      const before = await offset()
+      await drag(handle, 40, 15)
+      await expect.poll(offset).toEqual([before[0] + 80, before[1] + 30])
+      await saved(page)
+      await page.getByRole('button', { name: 'ย้อนกลับ', exact: true }).click()
+      await expect.poll(offset).toEqual(before)
+      await page.getByRole('button', { name: 'ทำซ้ำ', exact: true }).click()
+      await expect.poll(offset).toEqual([before[0] + 80, before[1] + 30])
+      await saved(page)
+      await page.reload()
+      await expect.poll(offset).toEqual([before[0] + 80, before[1] + 30])
+      await zoom.focus(); await zoom.press('End')
+      await expect(zoom).toHaveValue('2')
+      const image = await uploadImage(page)
+      const imageId = await image.getAttribute('data-object-id')
+      const imageBefore = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${id}`)).data.document.objects.find(object => object.id === imageId) as { x: number; y: number }
+      await editor.locator('p').first().click()
+      await drag(image.locator('.document-object-body'), 40, 20)
+      await saved(page)
+      const moved = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${id}`)).data.document.objects.find(object => object.id === imageId) as { x: number; y: number }
+      expect(moved.x).toBeCloseTo(imageBefore.x + 40 / 2 * 25.4 / 96, 2)
+      expect(moved.y).toBeCloseTo(imageBefore.y + 20 / 2 * 25.4 / 96, 2)
+      await page.getByRole('button', { name: 'ย้อนกลับ', exact: true }).click()
+      await expect.poll(() => image.evaluate(element => parseFloat((element as HTMLElement).style.left))).toBeCloseTo(imageBefore.x * 96 / 25.4, 2)
+      await page.getByRole('button', { name: 'ทำซ้ำ', exact: true }).click()
+      await saved(page)
+      await page.reload()
+      await expect.poll(() => image.evaluate(element => parseFloat((element as HTMLElement).style.left))).toBeCloseTo(moved.x * 96 / 25.4, 2)
+    } finally {
+      const current = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${id}`)).data.document
+      expect((await api(page, 'POST', `/api/documents/${id}/versions/${originalVersion}/restore`, { revision: current.revision })).status).toBe(200)
+    }
   })
 
   test('the original record route uses the advanced editor with the original Thai form and saves before printing', async ({ page }) => {

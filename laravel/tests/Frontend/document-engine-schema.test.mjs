@@ -2,9 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { getSchema } from '@tiptap/core'
 import { EditorState } from '@tiptap/pm/state'
+import { history, undo, redo, closeHistory } from '@tiptap/pm/history'
 import StarterKit from '@tiptap/starter-kit'
 import { TextStyleKit } from '@tiptap/extension-text-style'
-import { ObjectTextFlow, objectFlowKey, ParagraphFormatting, RecordTemplate } from '../../resources/js/components/editor/document-extensions.ts'
+import { ObjectTextFlow, objectFlowKey, ParagraphFormatting, RecordTemplate, signatureMoveTransaction } from '../../resources/js/components/editor/document-extensions.ts'
 
 const schema = getSchema([StarterKit, TextStyleKit, ParagraphFormatting, RecordTemplate])
 
@@ -15,6 +16,24 @@ test('the shared record extension provides a complete schema for floating object
   assert.equal(document.textContent, 'กล่องข้อความภาษาไทย')
   assert.ok(objectSchema.nodes.pageBreak)
   objectSchema.nodeFromJSON({ type: 'recordBody', content: [{ type: 'paragraph' }, { type: 'pageBreak' }] }).check()
+})
+
+test('each signature movement is one independent undo item and leaves text untouched', () => {
+  let state = EditorState.create({ schema, plugins: [history()], doc: schema.nodeFromJSON({ type: 'doc', content: [{ type: 'recordSignature', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'ครูผู้สอน ภาษาไทย' }] }] }] }) })
+  const apply = transaction => { state = state.apply(transaction) }
+  apply(signatureMoveTransaction(state, 0, 80, 30))
+  apply(closeHistory(state.tr).setMeta('addToHistory', false))
+  apply(signatureMoveTransaction(state, 0, 81, 30))
+  assert.equal(state.doc.firstChild.attrs.offsetX, 81)
+  assert.equal(state.doc.textContent, 'ครูผู้สอน ภาษาไทย')
+  assert.equal(undo(state, apply), true)
+  assert.equal(state.doc.firstChild.attrs.offsetX, 80)
+  assert.equal(state.doc.firstChild.attrs.offsetY, 30)
+  assert.equal(undo(state, apply), true)
+  assert.equal(state.doc.firstChild.attrs.offsetX, 0)
+  assert.equal(redo(state, apply), true)
+  assert.equal(state.doc.firstChild.attrs.offsetX, 80)
+  assert.equal(signatureMoveTransaction(state, 0, 80, 30), null)
 })
 
 test('Thai content, stable paragraph anchors and paragraph formatting survive JSON round trips', () => {

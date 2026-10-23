@@ -199,7 +199,7 @@ class RecordDocumentOptions
         Validator::make($settings, [
             'paper_size' => ['required', Rule::in(['A4'])],
             'paper_orientation' => ['required', Rule::in(['portrait', 'landscape'])],
-            'record_text_align' => ['required', Rule::in(['left', 'justify', 'center', 'right'])],
+            'record_text_align' => ['required', Rule::in(['left', 'justify', 'center', 'right', 'thai-distributed'])],
             'sig1_align' => ['required', Rule::in(['flex-start', 'center', 'flex-end'])],
             'sig2_align' => ['required', Rule::in(['flex-start', 'center', 'flex-end'])],
             'sig3_align' => ['required', Rule::in(['flex-start', 'center', 'flex-end'])],

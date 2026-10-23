@@ -11,6 +11,7 @@ use App\Models\TeachingDraft;
 use App\Models\TeachingRecord;
 use App\Models\User;
 use App\Services\LegacyPrintService;
+use App\Services\RecordEditorTemplate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
@@ -89,6 +90,46 @@ class BoundDocumentTest extends TestCase
         $this->record->update(['problem' => 'เปลี่ยนจากหน้าอื่น']);
         $this->actingAs($this->teacher)->putJson('/api/documents/'.$document->id, ['revision' => 1, 'title' => 'conflict'])->assertConflict()->assertJsonPath('code', 'source_record_conflict');
         $this->assertSame(1, $document->fresh()->revision);
+    }
+
+    public function test_thai_distributed_bound_fields_keep_semantics_in_json_rich_projection_and_source_reimport(): void
+    {
+        $this->actingAs($this->teacher)->get(route('records.document.edit', $this->record))->assertOk();
+        $document = Document::query()->whereNotNull('binding_key')->firstOrFail();
+        $content = $document->content_json;
+        $markAlignment = function (array &$node) use (&$markAlignment): void {
+            if (($node['type'] ?? '') === 'recordBody') {
+                $node['attrs']['align'] = 'thai-distributed';
+            }
+            if (($node['attrs']['field'] ?? null) === 'record_result') {
+                $node['content'][0]['attrs']['textAlign'] = 'thai-distributed';
+            }
+            if (($node['attrs']['field'] ?? null) === 'record_subject') {
+                $node['attrs']['textAlign'] = 'thai-distributed';
+            }
+            if (isset($node['content'])) {
+                foreach ($node['content'] as &$child) {
+                    $markAlignment($child);
+                }
+                unset($child);
+            }
+        };
+        $markAlignment($content);
+        $this->putJson('/api/documents/'.$document->id, ['revision' => 1, 'content' => $content])->assertOk()->assertJsonPath('document.content', $content);
+        $settings = $this->record->fresh()->documentLayout->settings;
+        $this->assertSame('thai-distributed', $settings['record_text_align']);
+        $rich = json_decode($settings['document_rich_text'], true, flags: JSON_THROW_ON_ERROR);
+        $this->assertStringContainsString('text-align:justify;text-align-last:left;text-justify:inter-character', $rich['record_result']['html']);
+        $this->assertStringContainsString('text-justify:inter-character', $rich['record_subject']['html']);
+        $snapshot = app(LegacyPrintService::class)->savedSnapshot($this->record->fresh(), $this->teacher);
+        $snapshot['settings']['record_text_align'] = 'justify';
+        $rebuilt = app(RecordEditorTemplate::class)->build($snapshot);
+        $this->assertSame('thai-distributed', $this->fieldNode($rebuilt['content'], 'record_result')['attrs']['align']);
+        $this->assertSame('thai-distributed', $this->fieldNode($rebuilt['content'], 'record_subject')['attrs']['textAlign']);
+        $this->record->refresh()->update(['problem' => 'เปลี่ยนข้อมูลจากหน้าอื่น']);
+        $saved = $this->getJson('/api/documents/'.$document->id)->assertOk()->json('document.content');
+        $this->assertSame('thai-distributed', $this->fieldNode($saved, 'record_result')['content'][0]['attrs']['textAlign']);
+        $this->assertSame('thai-distributed', $this->fieldNode($saved, 'record_result')['attrs']['align']);
     }
 
     public function test_draft_bound_save_remains_a_private_active_draft_and_tracks_the_new_lock_version(): void

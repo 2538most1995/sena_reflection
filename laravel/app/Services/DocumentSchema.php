@@ -131,7 +131,7 @@ class DocumentSchema
     {
         $rules = [
             'id' => ['nullable', 'string', 'max:100', 'regex:/^[A-Za-z0-9_-]+$/'],
-            'textAlign' => ['nullable', Rule::in(['left', 'center', 'right', 'justify'])],
+            'textAlign' => ['nullable', Rule::in(['left', 'center', 'right', 'justify', 'thai-distributed'])],
             'lineHeight' => ['nullable', 'numeric', 'between:0.7,4'],
             'spaceBefore' => ['nullable', 'numeric', 'between:0,120'], 'spaceAfter' => ['nullable', 'numeric', 'between:0,120'],
             'spacingBefore' => ['nullable', 'numeric', 'between:0,120'], 'spacingAfter' => ['nullable', 'numeric', 'between:0,120'],
@@ -149,11 +149,11 @@ class DocumentSchema
             'codeBlock' => ['language' => ['nullable', 'string', 'max:50', 'regex:/^[a-zA-Z0-9_+.-]*$/']],
             'image' => ['src' => ['required', 'string', 'max:2000'], 'assetId' => ['nullable', 'uuid'], 'alt' => ['nullable', 'string', 'max:500'], 'title' => ['nullable', 'string', 'max:500'], 'width' => ['nullable', 'numeric', 'between:1,4000'], 'height' => ['nullable', 'numeric', 'between:1,4000']],
             'table' => ['columnSize' => ['nullable', 'string', 'max:2000', 'regex:/^(?:[0-9]+(?:\.[0-9]+)?(?:,[0-9]+(?:\.[0-9]+)?)*)?$/']],
-            'tableCell', 'tableHeader' => ['colspan' => ['nullable', 'integer', 'between:1,100'], 'rowspan' => ['nullable', 'integer', 'between:1,100'], 'colwidth' => ['nullable', 'array', 'max:100'], 'colwidth.*' => ['integer', 'between:0,4000'], 'align' => ['nullable', Rule::in(['left', 'center', 'right', 'justify'])], 'backgroundColor' => ['nullable', $this->colorRule()]],
+            'tableCell', 'tableHeader' => ['colspan' => ['nullable', 'integer', 'between:1,100'], 'rowspan' => ['nullable', 'integer', 'between:1,100'], 'colwidth' => ['nullable', 'array', 'max:100'], 'colwidth.*' => ['integer', 'between:0,4000'], 'align' => ['nullable', Rule::in(['left', 'center', 'right', 'justify', 'thai-distributed'])], 'backgroundColor' => ['nullable', $this->colorRule()]],
             'recordInfoRow' => ['compact' => ['nullable', 'boolean']],
             'recordInfoCell' => ['width' => ['nullable', 'numeric', 'between:0,1000'], 'unit' => ['nullable', Rule::in(['percent', 'px'])], 'dotted' => ['nullable', 'boolean'], 'label' => ['nullable', 'boolean'], 'nowrap' => ['nullable', 'boolean']],
             'recordSectionTitle' => ['spaceBefore' => ['nullable', 'numeric', 'between:0,300']],
-            'recordBody' => ['minLines' => ['nullable', 'integer', 'between:0,100'], 'lineSpacing' => ['nullable', 'numeric', 'between:12,100'], 'align' => ['nullable', Rule::in(['left', 'center', 'right', 'justify'])], 'spaceAfter' => ['nullable', 'numeric', 'between:0,300']],
+            'recordBody' => ['minLines' => ['nullable', 'integer', 'between:0,100'], 'lineSpacing' => ['nullable', 'numeric', 'between:12,100'], 'align' => ['nullable', Rule::in(['left', 'center', 'right', 'justify', 'thai-distributed'])], 'spaceAfter' => ['nullable', 'numeric', 'between:0,300']],
             'recordSignature' => ['index' => ['required', 'integer', 'between:1,3'], 'align' => ['nullable', Rule::in(['left', 'center', 'right'])], 'width' => ['nullable', 'numeric', 'between:80,1000'], 'marginTop' => ['nullable', 'numeric', 'between:0,500']],
             'recordGroup' => ['spaceBefore' => ['nullable', 'numeric', 'between:-120,500'], 'borderTop' => ['nullable', 'boolean']],
             default => [],

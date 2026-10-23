@@ -100,7 +100,7 @@ class RecordEditorTemplate
     {
         return ['type' => 'paragraph', 'attrs' => ['id' => (string) Str::uuid(), 'field' => $field, 'role' => $role, 'spaceBefore' => 0, 'spaceAfter' => match ($role) {
             'recordTitle' => 6, 'signatureName', 'signaturePosition' => 0.75, default => 0
-        }], ...($text === '' ? [] : ['content' => $this->inline($text, $field, $marks)])];
+        }, ...(($alignment = $this->richAlignment($text, $field)) ? ['textAlign' => $alignment] : [])], ...($text === '' ? [] : ['content' => $this->inline($text, $field, $marks)])];
     }
 
     private function infoRow(array $segments): array
@@ -125,12 +125,12 @@ class RecordEditorTemplate
 
     private function cell(string $text, float $width, bool $dotted, bool $label, ?string $field = null, string $unit = 'percent'): array
     {
-        return ['type' => 'recordInfoCell', 'attrs' => ['width' => $width, 'unit' => $unit, 'dotted' => $dotted, 'label' => $label, 'nowrap' => true, 'field' => $field], ...($text === '' ? [] : ['content' => $this->inline($text, $field)])];
+        return ['type' => 'recordInfoCell', 'attrs' => ['width' => $width, 'unit' => $unit, 'dotted' => $dotted, 'label' => $label, 'nowrap' => true, 'field' => $field, ...(($alignment = $this->richAlignment($text, $field)) ? ['textAlign' => $alignment] : [])], ...($text === '' ? [] : ['content' => $this->inline($text, $field)])];
     }
 
     private function sectionTitle(string $text, string $field, ?int $signature = null): array
     {
-        return ['type' => 'recordSectionTitle', 'attrs' => ['field' => $field, 'spaceBefore' => $signature ? 0 : 8, 'offsetX' => $signature ? $this->number("sig{$signature}_title_offset_x") : 0, 'offsetY' => $signature ? $this->number("sig{$signature}_title_offset_y") : 0], 'content' => $this->inline($text, $field, [['type' => 'bold']])];
+        return ['type' => 'recordSectionTitle', 'attrs' => ['field' => $field, 'spaceBefore' => $signature ? 0 : 8, 'offsetX' => $signature ? $this->number("sig{$signature}_title_offset_x") : 0, 'offsetY' => $signature ? $this->number("sig{$signature}_title_offset_y") : 0, ...(($alignment = $this->richAlignment($text, $field)) ? ['textAlign' => $alignment] : [])], 'content' => $this->inline($text, $field, [['type' => 'bold']])];
     }
 
     private function body(string $text, ?string $field): array
@@ -145,7 +145,7 @@ class RecordEditorTemplate
             $content[] = $node;
         }
 
-        return ['type' => 'recordBody', 'attrs' => ['field' => $field, 'minLines' => 1, 'lineSpacing' => $this->number('pdf_line_spacing', 26), 'firstIndent' => $this->number('record_text_indent_px', 42), 'align' => $this->settings['record_text_align'] ?? 'justify', 'spaceAfter' => $this->number('record_paragraph_spacing_px')], 'content' => $content];
+        return ['type' => 'recordBody', 'attrs' => ['field' => $field, 'minLines' => 1, 'lineSpacing' => $this->number('pdf_line_spacing', 26), 'firstIndent' => $this->number('record_text_indent_px', 42), 'align' => $this->richAlignment($text, $field) ?? $this->settings['record_text_align'] ?? 'justify', 'spaceAfter' => $this->number('record_paragraph_spacing_px')], 'content' => $content];
     }
 
     private function signature(int $index, string $teacher = ''): array
@@ -183,6 +183,26 @@ class RecordEditorTemplate
     private function number(string $key, float $default = 0): float
     {
         return is_numeric($this->settings[$key] ?? null) ? (float) $this->settings[$key] : $default;
+    }
+
+    private function richAlignment(string $text, ?string $field): ?string
+    {
+        if (! $field) {
+            return null;
+        }
+        $html = DocumentRichText::render($text, $field, (string) ($this->settings['document_rich_text'] ?? '{}'));
+        preg_match_all('/<(?:p|div)\b[^>]*\bstyle="([^"]*)"/i', $html, $elements);
+        foreach ($elements[1] as $style) {
+            if (! preg_match('/(?:^|;)\s*text-align\s*:\s*(left|center|right|justify)\s*(?:;|$)/i', $style, $match)) {
+                continue;
+            }
+            $alignment = strtolower($match[1]);
+
+            return $alignment === 'justify' && preg_match('/(?:^|;)\s*text-justify\s*:\s*inter-character\s*(?:;|$)/i', $style)
+                ? 'thai-distributed' : $alignment;
+        }
+
+        return null;
     }
 
     private function inline(string $text, ?string $field = null, array $marks = []): array

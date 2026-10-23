@@ -1,5 +1,6 @@
 import { Extension, Node, mergeAttributes, type CommandProps, type JSONContent } from '@tiptap/core'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state'
+import { closeHistory } from '@tiptap/pm/history'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import interact from 'interactjs'
@@ -142,15 +143,24 @@ export const RecordBody = Node.create({
   addAttributes() { return {
     field: recordFieldAttribute(), minLines: numericAttribute('minLines', 1, 1, 100), lineSpacing: numericAttribute('lineSpacing', 26, 12, 80),
     firstIndent: numericAttribute('firstIndent', 42, 0, 160), spaceAfter: numericAttribute('spaceAfter', 0, 0, 240),
-    align: { default: 'justify', parseHTML: element => element.getAttribute('data-record-align') || 'justify', renderHTML: attributes => ({ 'data-record-align': ['left', 'center', 'right', 'justify'].includes(String(attributes.align)) ? String(attributes.align) : 'justify' }) },
+    align: { default: 'justify', parseHTML: element => element.getAttribute('data-record-align') || 'justify', renderHTML: attributes => ({ 'data-record-align': ['left', 'center', 'right', 'justify', 'thai-distributed'].includes(String(attributes.align)) ? String(attributes.align) : 'justify' }) },
   } },
   parseHTML: () => [{ tag: 'div[data-record-node="body"]' }],
   renderHTML({ node, HTMLAttributes }) {
     const line = Math.min(80, Math.max(12, Number(node.attrs.lineSpacing) || 26))
-    const align = ['left', 'center', 'right', 'justify'].includes(node.attrs.align) ? node.attrs.align : 'justify'
-    return ['div', mergeAttributes(HTMLAttributes, { 'data-record-node': 'body', class: 'record-body', style: `--record-body-line:${line}px;--record-first-indent:${Math.min(160, Math.max(0, Number(node.attrs.firstIndent) || 0))}px;--record-body-align:${align};min-height:${Math.max(1, Number(node.attrs.minLines) || 1) * line}px;margin-bottom:${Number(node.attrs.spaceAfter) || 0}px` }), 0]
+    const align = ['left', 'center', 'right', 'justify', 'thai-distributed'].includes(node.attrs.align) ? node.attrs.align : 'justify'
+    return ['div', mergeAttributes(HTMLAttributes, { 'data-record-node': 'body', class: 'record-body', style: `--record-body-line:${line}px;--record-first-indent:${Math.min(160, Math.max(0, Number(node.attrs.firstIndent) || 0))}px;--record-body-align:${align === 'thai-distributed' ? 'justify' : align};--record-body-justify:inter-character;min-height:${Math.max(1, Number(node.attrs.minLines) || 1) * line}px;margin-bottom:${Number(node.attrs.spaceAfter) || 0}px` }), 0]
   },
 })
+
+export function signatureMoveTransaction(state: EditorState, position: number, x: number, y: number) {
+  const node = state.doc.nodeAt(position)
+  if (node?.type.name !== 'recordSignature') return null
+  const offsetX = Math.round(Math.max(-2400, Math.min(2400, x)) * 100) / 100
+  const offsetY = Math.round(Math.max(-2400, Math.min(2400, y)) * 100) / 100
+  if (offsetX === Number(node.attrs.offsetX) && offsetY === Number(node.attrs.offsetY)) return null
+  return closeHistory(state.tr).setNodeMarkup(position, undefined, { ...node.attrs, offsetX, offsetY }).setMeta('documentGestureBoundary', true)
+}
 
 export const RecordSignature = Node.create({
   name: 'recordSignature', group: 'block', content: 'block+', defining: true,
@@ -180,7 +190,10 @@ export const RecordSignature = Node.create({
       handle.className = 'record-signature-move-handle'
       handle.dataset.printHidden = 'true'
       handle.contentEditable = 'false'
-      handle.textContent = '✥ ย้ายลายเซ็น'
+      handle.textContent = '✥ ย้าย'
+      let dragging = false
+      let offsetX = 0, offsetY = 0, originalY = 0, scale = 1
+      let interaction: { stop: () => void } | null = null
       box.append(handle, contentDOM)
       dom.append(box)
       const update = (next: ProseMirrorNode) => {
@@ -194,36 +207,88 @@ export const RecordSignature = Node.create({
         dom.dataset.recordOffsetX = String(next.attrs.offsetX)
         dom.dataset.recordOffsetY = String(next.attrs.offsetY)
         dom.style.justifyContent = next.attrs.align === 'left' ? 'flex-start' : next.attrs.align === 'center' ? 'center' : 'flex-end'
-        dom.style.marginTop = `${(Number(next.attrs.marginTop) || 0) + (Number(next.attrs.offsetY) || 0)}px`
+        if (!dragging) dom.style.marginTop = `${(Number(next.attrs.marginTop) || 0) + (Number(next.attrs.offsetY) || 0)}px`
         box.style.width = `${Number(next.attrs.width) || 430}px`
-        box.style.transform = `translateX(${Number(next.attrs.offsetX) || 0}px)`
-        handle.title = `ลากเพื่อย้ายลายเซ็นที่ ${next.attrs.index}`
-        handle.setAttribute('aria-label', handle.title)
+        if (!dragging) box.style.transform = `translateX(${Number(next.attrs.offsetX) || 0}px)`
+        handle.title = `ลากเพื่อย้ายลายเซ็นที่ ${next.attrs.index} · ลูกศรขยับ 1 px · Shift 10 px`
+        handle.setAttribute('aria-label', `ลากเพื่อย้ายลายเซ็นที่ ${next.attrs.index}`)
         return true
       }
       update(node)
       handle.addEventListener('pointerdown', event => {
         event.preventDefault()
         const position = getPos()
-        if (typeof position === 'number' && editor.isEditable) editor.commands.setNodeSelection(position)
+        if (typeof position === 'number' && editor.isEditable) {
+          editor.commands.setNodeSelection(position)
+          handle.focus({ preventScroll: true })
+        }
       })
-      let offsetX = 0, offsetY = 0
+      const commit = (x: number, y: number) => {
+        const position = getPos()
+        if (!editor.isEditable || typeof position !== 'number' || editor.view.composing) return
+        const transaction = signatureMoveTransaction(editor.state, position, x, y)
+        if (transaction) {
+          editor.view.dispatch(transaction)
+          editor.view.dispatch(closeHistory(editor.state.tr).setMeta('addToHistory', false))
+        }
+      }
+      const finish = (save: boolean) => {
+        if (!dragging) return
+        dragging = false
+        interaction = null
+        dom.classList.remove('is-dragging')
+        box.style.willChange = ''
+        if (save) commit(offsetX, offsetY)
+        update(currentNode)
+      }
+      handle.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && dragging) {
+          event.preventDefault()
+          const active = interaction
+          finish(false)
+          active?.stop()
+          return
+        }
+        if (event.ctrlKey || event.metaKey) {
+          if (event.key.toLowerCase() === 'z' || event.key.toLowerCase() === 'y') {
+            event.preventDefault()
+            if (event.shiftKey || event.key.toLowerCase() === 'y') editor.commands.redo()
+            else editor.commands.undo()
+          }
+          return
+        }
+        const moves: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+        const move = moves[event.key]
+        if (move && !dragging && editor.isEditable) {
+          event.preventDefault()
+          const step = event.shiftKey ? 10 : event.altKey ? 0.25 : 1
+          commit((Number(currentNode.attrs.offsetX) || 0) + move[0] * step, (Number(currentNode.attrs.offsetY) || 0) + move[1] * step)
+        }
+      })
+      handle.addEventListener('pointercancel', () => {
+        const active = interaction
+        finish(false)
+        active?.stop()
+      })
       const draggable = interact(handle).draggable({ listeners: {
         start(event) {
-          if (!editor.isEditable) { event.interaction.stop(); return }
+          if (!editor.isEditable || editor.view.composing) { event.interaction.stop(); return }
           offsetX = Number(currentNode.attrs.offsetX) || 0
           offsetY = Number(currentNode.attrs.offsetY) || 0
+          originalY = offsetY
+          scale = editor.view.dom.getBoundingClientRect().width / editor.view.dom.offsetWidth || 1
+          dragging = true
+          interaction = event.interaction
+          dom.classList.add('is-dragging')
+          box.style.willChange = 'transform'
         },
         move(event) {
-          const position = getPos()
-          if (!editor.isEditable || typeof position !== 'number' || editor.view.composing) return
-          const view = editor.view.dom
-          const scale = view.getBoundingClientRect().width / view.offsetWidth || 1
+          if (!dragging) return
           offsetX = Math.max(-2400, Math.min(2400, offsetX + event.dx / scale))
           offsetY = Math.max(-2400, Math.min(2400, offsetY + event.dy / scale))
-          const next = editor.state.doc.nodeAt(position)
-          if (next?.type.name === 'recordSignature') editor.view.dispatch(editor.state.tr.setNodeMarkup(position, undefined, { ...next.attrs, offsetX: Math.round(offsetX * 100) / 100, offsetY: Math.round(offsetY * 100) / 100 }))
+          box.style.transform = `translate(${offsetX}px,${offsetY - originalY}px)`
         },
+        end: () => finish(true),
       } })
       return {
         dom, contentDOM, update,
@@ -231,7 +296,7 @@ export const RecordSignature = Node.create({
         deselectNode: () => dom.classList.remove('ProseMirror-selectednode'),
         stopEvent: event => event.target instanceof Element && (event.target === handle || handle.contains(event.target)),
         ignoreMutation: mutation => mutation.type !== 'selection' && ((mutation.type === 'attributes' && ([dom, box, handle] as HTMLElement[]).includes(mutation.target as HTMLElement)) || handle.contains(mutation.target)),
-        destroy: () => { draggable.unset() },
+        destroy: () => { finish(false); draggable.unset() },
       }
     }
   },

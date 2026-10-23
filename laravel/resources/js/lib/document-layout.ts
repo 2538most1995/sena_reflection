@@ -36,6 +36,12 @@ export function objectCanvasTop(object: Pick<DocumentObject, 'page' | 'y'>, sett
   return (Math.max(1, object.page) - 1) * (canvasPageDimensions(settings).height + PAGE_GAP) + object.y * MM_TO_PX
 }
 
+export function objectAnchorAfterMove(object: Pick<DocumentObject, 'anchor'>, previousTop: number, geometry: ObjectGeometry, settings: PageSettings): DocumentObject['anchor'] {
+  return object.anchor.kind === 'paragraph'
+    ? { ...object.anchor, offsetY: (object.anchor.offsetY || 0) + (objectCanvasTop(geometry, settings) - previousTop) / MM_TO_PX }
+    : { kind: 'page', page: geometry.page }
+}
+
 export function canvasPositionToPage(top: number, settings: PageSettings): { page: number; y: number } {
   const { height } = canvasPageDimensions(settings)
   const page = Math.max(1, Math.floor(Math.max(0, top) / (height + PAGE_GAP)) + 1)

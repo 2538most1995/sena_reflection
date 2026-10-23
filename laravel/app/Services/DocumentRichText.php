@@ -168,6 +168,8 @@ class DocumentRichText
                 'font-family' => self::fontFamily($value),
                 'color', 'background-color' => self::color($value),
                 'text-align' => in_array(strtolower($value), ['left', 'right', 'center', 'justify'], true) ? strtolower($value) : null,
+                'text-align-last' => in_array(strtolower($value), ['auto', 'left', 'right', 'center', 'justify'], true) ? strtolower($value) : null,
+                'text-justify' => in_array(strtolower($value), ['auto', 'inter-word', 'inter-character'], true) ? strtolower($value) : null,
                 'font-weight' => preg_match('/^(normal|bold|[1-9]00)$/i', $value) === 1 ? strtolower($value) : null,
                 'font-style' => in_array(strtolower($value), ['normal', 'italic'], true) ? strtolower($value) : null,
                 'text-decoration', 'text-decoration-line' => self::textDecoration($value),
