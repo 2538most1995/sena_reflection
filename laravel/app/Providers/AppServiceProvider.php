@@ -32,6 +32,10 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('exports', fn (Request $request) => [
             Limit::perMinute(3)->by((string) ($request->user()?->id ?? $request->ip())),
         ]);
+        RateLimiter::for('export-requests', fn (Request $request) => [
+            Limit::perMinute(12)->by((string) ($request->user()?->id ?? $request->ip()))
+                ->response(fn (Request $request, array $headers) => response()->json(['message' => 'ส่งคำขอสร้างเอกสารถี่เกินไป กรุณารอสักครู่แล้วลองใหม่'], 429, $headers)),
+        ]);
         RateLimiter::for('document-previews', fn (Request $request) => [
             Limit::perMinute(12)->by((string) ($request->user()?->id ?? $request->ip())),
         ]);

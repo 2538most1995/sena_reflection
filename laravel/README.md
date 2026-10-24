@@ -81,6 +81,8 @@ npm run check:production-build
 php artisan queue:work exports --queue=exports --tries=1 --timeout=1800 --sleep=1
 ```
 
+บน Plesk ที่เปิด worker ค้างไม่ได้ ตั้ง PHP Scheduled Task ของ `laravel/artisan` arguments `sena:work-exports` ทุกนาที หรือใช้ Laravel `schedule:run` ทุกนาทีที่เรียก worker นี้อยู่แล้ว คำสั่งมี lock กันรันซ้อนและหยุดเมื่อคิวว่าง หลัง deploy ให้ migrate/l้าง cache/restart worker รุ่นเก่า ดูรายละเอียด [docs.md](../docs.md) หากค้าง `0/N รอคิว` ต้องตรวจตัวรันคิว ไม่กดสร้างซ้ำ งานตัวกรองและฉบับเดิมจะ reuse งาน/ไฟล์เดิม ส่วนข้อมูลหรือ renderer ที่เปลี่ยนจะสร้างใหม่
+
 ระหว่างพัฒนาใช้ `composer run dev` เพื่อเปิดเว็บ Vite และ worker รวมกันได้ ตรวจ MySQL ของ MAMP ให้ทำงานก่อนเสมอ
 
 เปิด `http://localhost:8000` หรือตั้ง MAMP Document Root เป็นโฟลเดอร์ `laravel/public`

@@ -53,6 +53,8 @@ Browser print ใช้ DOM จาก canvas เดียวกับ editor แ
 
 PDF รวมใช้ Python3 + `pypdf` งานส่งออกใช้ queue `exports` ต้อง deploy production build ที่มี snapshot entry และดูแล worker ส่วน DOCX ใช้แก้ต่อใน Word การแบ่งหน้า การล้อมข้อความ และเส้นบรรทัดบางส่วนอาจต่างจาก PDF
 
+งานส่งออกใช้ fingerprint ต่อ user + normalized filters + frozen revision manifest + renderer/build เพื่อ reuse queued/ready job อย่างถูกฉบับ ใช้ user row lock กันคำขอซ้ำพร้อมกัน และยังจำกัดงาน active โหลด revision เป็นชุดละ 25 รายการ; PDF cache แยกผู้ใช้และรุ่น renderer ใช้ filesystem lock/atomic rename และ pruner ไม่ลบ lock ที่ยังต้องใช้ `sena:work-exports` เป็น worker แบบจำกัดรอบสำหรับ Plesk cron; scheduler เรียกทุกนาที ต้องตั้ง `schedule:run` หรือ cron คำสั่งนี้จริงบน hosting จึงจะประมวลผลงาน ไม่ใช้ polling เปิด worker
+
 Hosting จริงคือ `https://krumost.com/sena_reflection` ใช้ `npm run build:production` และ `npm run check:production-build` โดย commit `laravel/public/build/` พร้อม source ส่วน `npm run build` ใช้กับเครื่อง local/การติดตั้ง root อย่าส่ง artifact คนละ base path ปะปนกัน
 
 ## ข้อมูลและ schema

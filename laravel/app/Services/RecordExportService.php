@@ -27,20 +27,22 @@ class RecordExportService
         }
         $files = [];
         $csv = "\xEF\xBB\xBF"."รหัสบันทึก,ฉบับ,ปี,ภาคเรียน,สัปดาห์,ระดับ,รายวิชา\n";
-        foreach ($export->manifest as $entry) {
-            $revision = RecordRevision::query()->findOrFail($entry['revision_id']);
-            $cache = 'export-cache/'.$user->id.'/'.$revision->content_hash.'.pdf';
-            if (! Storage::disk('local')->exists($cache)) {
-                if (! Storage::disk('local')->put($cache, $print->snapshotPdf($revision->snapshot, $user))) {
-                    throw new RuntimeException('บันทึกไฟล์ PDF ไม่สำเร็จ');
+        $rendererVersion = $this->rendererFingerprint();
+        foreach (array_chunk($export->manifest, 25) as $entries) {
+            $revisions = RecordRevision::query()->whereKey(array_column($entries, 'revision_id'))->get()->keyBy('id');
+            foreach ($entries as $entry) {
+                $revision = $revisions->get($entry['revision_id']);
+                if (! $revision || (string) $revision->record_id !== (string) $entry['record_id']
+                    || (string) ($revision->snapshot['record']['id'] ?? '') !== (string) $entry['record_id']) {
+                    throw new RuntimeException('ฉบับเอกสารไม่ตรงกับรายการส่งออก');
                 }
+                $files[] = $this->cachedPdf($revision, $user, $print, $rendererVersion);
+                $row = $revision->snapshot['record'];
+                $csv .= implode(',', array_map(fn ($value) => $this->csvCell($value), [
+                    $row['id'], $revision->revision, $row['year'], $row['semester'], $row['week'], $row['level'], $row['subject'],
+                ]))."\n";
+                $export->increment('completed');
             }
-            $files[] = Storage::disk('local')->path($cache);
-            $row = $revision->snapshot['record'];
-            $csv .= implode(',', array_map(fn ($value) => $this->csvCell($value), [
-                $row['id'], $revision->revision, $row['year'], $row['semester'], $row['week'], $row['level'], $row['subject'],
-            ]))."\n";
-            $export->increment('completed');
         }
         if ($export->filters['scope'] === 'week') {
             $relative = $directory.'/รายงานรายสัปดาห์.pdf';
@@ -77,6 +79,88 @@ class RecordExportService
             }
         }
         $export->update(['status' => 'ready', 'path' => $relative, 'error' => null]);
+    }
+
+    public function rendererFingerprint(): string
+    {
+        $files = [
+            public_path('build/manifest.json'),
+            public_path('build/source-version.json'),
+            public_path('build/fonts-manifest.json'),
+            __FILE__,
+            app_path('Services/LegacyPrintService.php'),
+            app_path('Services/BoundDocumentRenderer.php'),
+            base_path('scripts/render_document_snapshot.php'),
+            dirname(base_path()).'/print.php',
+        ];
+
+        return hash('sha256', 'record-pdf-v2|'.implode('|', array_map(
+            static fn (string $file): string => is_file($file) ? hash_file('sha256', $file) : 'missing',
+            $files,
+        )));
+    }
+
+    private function cachedPdf(RecordRevision $revision, User $user, LegacyPrintService $print, string $rendererVersion): string
+    {
+        $disk = Storage::disk('local');
+        $directory = 'export-cache/'.$user->id;
+        if (! $disk->makeDirectory($directory)) {
+            throw new RuntimeException('สร้างโฟลเดอร์เก็บ PDF ไม่สำเร็จ');
+        }
+        $key = hash('sha256', $rendererVersion.'|'.$revision->content_hash);
+        $path = $disk->path($directory.'/'.$key.'.pdf');
+        $lock = fopen($path.'.lock', 'c');
+        if ($lock === false) {
+            throw new RuntimeException('จองพื้นที่สร้าง PDF ไม่สำเร็จ');
+        }
+        $temporary = null;
+        try {
+            $deadline = microtime(true) + 45;
+            while (! flock($lock, LOCK_EX | LOCK_NB)) {
+                if (microtime(true) >= $deadline) {
+                    throw new RuntimeException('PDF ฉบับเดียวกันกำลังสร้าง กรุณาลองอีกครั้ง');
+                }
+                usleep(50000);
+            }
+            if (! $this->isPdf($path)) {
+                $pdf = $print->snapshotPdf($revision->snapshot, $user);
+                if (! str_starts_with($pdf, '%PDF-')) {
+                    throw new RuntimeException('ตัวสร้างเอกสารส่งคืนไฟล์ PDF ไม่สมบูรณ์');
+                }
+                $temporary = tempnam(dirname($path), '.pdf-');
+                if ($temporary === false || file_put_contents($temporary, $pdf, LOCK_EX) !== strlen($pdf)
+                    || ! rename($temporary, $path)) {
+                    throw new RuntimeException('บันทึกไฟล์ PDF ไม่สำเร็จ');
+                }
+            }
+
+            touch($path);
+
+            return $path;
+        } finally {
+            if (is_string($temporary) && is_file($temporary)) {
+                unlink($temporary);
+            }
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    private function isPdf(string $path): bool
+    {
+        clearstatcache(true, $path);
+        if (! is_file($path)) {
+            return false;
+        }
+        $stream = fopen($path, 'rb');
+        if ($stream === false) {
+            return false;
+        }
+        try {
+            return fread($stream, 5) === '%PDF-';
+        } finally {
+            fclose($stream);
+        }
     }
 
     private function csvCell(mixed $value): string
