@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Tambon;
-use App\Models\TeachingRecord;
 use App\Models\TeachingDraft;
+use App\Models\TeachingRecord;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +34,12 @@ class DashboardController extends Controller
             (clone $base)->select(['year', 'semester', 'week'])->distinct(),
             'visible_periods'
         )->count();
+        $uniquePresentStudents = DB::table('record_attendance')
+            ->whereIn('record_id', (clone $base)->select('id'))
+            ->where('present', true)
+            ->whereRaw("TRIM(student_id) <> ''")
+            ->distinct()
+            ->count(DB::raw('TRIM(student_id)'));
 
         $records = (clone $base)
             ->select(['id', 'weekly_submission_id', 'tambon', 'week', 'date', 'level', 'semester', 'year', 'subject', 'subject_code', 'total', 'present', 'created_by', 'created_at'])
@@ -66,6 +72,7 @@ class DashboardController extends Controller
             'week_count' => (int) ($summary->week_count ?? 0),
             'total_students' => (int) ($summary->total_students ?? 0),
             'total_present' => (int) ($summary->total_present ?? 0),
+            'unique_present_students' => $uniquePresentStudents,
         ];
 
         return Inertia::render('dashboard', [

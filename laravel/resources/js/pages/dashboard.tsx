@@ -30,7 +30,7 @@ type DraftSummary = {
 }
 type Props = {
   records: Paginated<RecordRow>
-  summary: { record_count: number; week_count: number; total_students: number; total_present: number }
+  summary: { record_count: number; week_count: number; total_students: number; total_present: number; unique_present_students: number }
   availableWeeks: number[]
   tambonOptions: Tambon[]
   filters: Partial<Record<'year' | 'semester' | 'week' | 'tambon' | 'search', string>>
@@ -122,7 +122,7 @@ export default function Dashboard(props: Props) {
     <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-12" aria-label="สรุปข้อมูล">
       <Metric label="รายการที่แสดง" value={number(props.summary.record_count)} unit="บันทึก" icon={Books} />
       <Metric label="จำนวนสัปดาห์" value={number(props.summary.week_count)} unit="สัปดาห์" icon={CalendarBlank} />
-      <Metric label="ผู้เรียนในรายการ" value={number(props.summary.total_students)} unit="คน" icon={UsersThree} />
+      <Metric label="ผู้มาเรียน (ไม่ซ้ำ)" value={number(props.summary.unique_present_students)} unit="คน" icon={UsersThree} detail="นับรหัสผู้เรียนคนละ 1 ครั้ง" />
       <Metric emphasized label="อัตรามาเรียน" value={`${rate.toFixed(1)}%`} unit="ของผู้เรียน" icon={CheckCircle} detail={`${number(props.summary.total_present)} คน จาก ${number(props.summary.total_students)} คน`} />
     </section>
     <Card>
