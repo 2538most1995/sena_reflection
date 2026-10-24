@@ -6,7 +6,7 @@ const hook = registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === './types' && context.parentURL?.endsWith('/review-state.ts')) return nextResolve('./types.ts', context)
   return nextResolve(specifier, context)
 } })
-const { reviewIssues, teachingAttendanceReady, teachingLevelReady, teachingSaveSummary } = await import('../../resources/js/components/teaching-workspace/review-state.ts')
+const { attendanceRowIssues, normalizeTeachingAttendance, reviewIssues, teachingAttendanceReady, teachingLevelReady, teachingSaveSummary } = await import('../../resources/js/components/teaching-workspace/review-state.ts')
 const { emptyTeachingDraft } = await import('../../resources/js/components/teaching-workspace/types.ts')
 hook.deregister()
 
@@ -75,4 +75,38 @@ test('confirmation derives roster counts and selected classes without marking an
     { code: '2', total: 5, present: 0, images: 1, group: 'G2' },
   ])
   assert.equal(JSON.stringify(payload), original)
+})
+
+test('legacy whitespace and blank methods normalize without changing 26 students, 7 present or 4 images', () => {
+  const payload = fixture()
+  payload.enabled_level_codes = ['3']
+  const legacy = Array.from({ length: 26 }, (_, index) => ({ student_id: ` 00${index + 1} `, full_name: ` นักศึกษาที่ ${index + 1} `, group_code: ' G3 ', class_name: null, present: index < 7 ? [true, 1, '1'][index % 3] : '0', learning_method: index === 0 ? ' ออนไลน์ ' : ' ' }))
+  const original = JSON.stringify(legacy)
+  const attendance = normalizeTeachingAttendance(legacy)
+  Object.assign(payload.levels['3'], { ...payload.levels['1'], class_group_code: 'G3', attendance_mode: 'roster', attendance, total: 26, present: 7 })
+  const images = Array.from({ length: 4 }, (_, index) => ({ id: String(index), level_code: '3' }))
+  assert.deepEqual(reviewIssues(payload, images), [])
+  assert.equal(attendance[0].student_id, '001')
+  assert.equal(attendance[0].learning_method, 'ออนไลน์')
+  assert.equal(attendance[1].learning_method, 'พบกลุ่ม')
+  assert.equal(attendance[7].present, false)
+  assert.equal(attendance[7].learning_method, null)
+  assert.equal(teachingSaveSummary(payload, images)[0].present, 7)
+  assert.equal(JSON.stringify(legacy), original)
+})
+
+test('real imported roster errors identify the exact row and field without inventing missing identity or methods', () => {
+  const payload = fixture()
+  const rows = normalizeTeachingAttendance([
+    { student_id: ' 001 ', full_name: null, present: true, learning_method: 'ไม่รู้จัก' },
+    { student_id: '001', full_name: 'คนที่สอง', group_code: 'OTHER', present: true, learning_method: null },
+  ])
+  Object.assign(payload.levels['1'], { attendance_mode: 'roster', attendance: rows })
+  assert.equal(rows[0].full_name, '')
+  assert.equal(rows[0].learning_method, 'ไม่รู้จัก')
+  const fields = reviewIssues(payload, []).map(issue => issue.field)
+  assert.deepEqual(fields, ['attendance.0.full_name', 'attendance.0.learning_method', 'attendance.1.student_id', 'attendance.1.group_code'])
+  assert.match(reviewIssues(payload, [])[0].message, /ลำดับ 1.*001/)
+  assert.match(attendanceRowIssues(rows, 'G1').find(issue => issue.field === 'student_id').message, /ซ้ำกับลำดับ 1/)
+  assert.equal(teachingAttendanceReady(payload.levels['1']), false)
 })

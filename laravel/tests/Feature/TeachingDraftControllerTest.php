@@ -3,6 +3,9 @@
 namespace Tests\Feature;
 
 use App\Exceptions\DocumentRuntimeUnavailableException;
+use App\Models\RecordAttendance;
+use App\Models\RecordDocumentLayout;
+use App\Models\RecordImage;
 use App\Models\RecordRevision;
 use App\Models\Setting;
 use App\Models\Tambon;
@@ -11,12 +14,16 @@ use App\Models\TeachingRecord;
 use App\Models\User;
 use App\Services\DraftService;
 use App\Services\LegacyPrintService;
+use App\Services\RecordRevisionService;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class TeachingDraftControllerTest extends TestCase
@@ -191,6 +198,7 @@ class TeachingDraftControllerTest extends TestCase
             [['attendance_mode' => 'roster', 'attendance' => [$row, $row]], 'payload.levels.1.attendance'],
             [['attendance_mode' => 'roster', 'attendance' => [[...$row, 'group_code' => 'other-group']]], 'payload.levels.1.attendance'],
             [['attendance_mode' => 'roster', 'attendance' => [[...$row, 'student_id' => '']]], 'payload.levels.1.attendance.0.student_id'],
+            [['attendance_mode' => 'roster', 'attendance' => [[...$row, 'present' => true, 'learning_method' => 'วิธีที่ไม่รองรับ']]], 'payload.levels.1.attendance.0.learning_method'],
             [['attendance_mode' => 'counts', 'total' => -1, 'present' => 0], 'payload.levels.1.total'],
             [['attendance_mode' => 'counts', 'total' => 2, 'present' => 3], 'payload.levels.1.present'],
             [['result' => ''], 'payload.levels.1.result'],
@@ -358,6 +366,90 @@ class TeachingDraftControllerTest extends TestCase
         $this->assertDatabaseHas('records', ['level' => 'ประถมศึกษา', 'total' => 2, 'present' => 1]);
         $this->assertDatabaseCount('record_attendance', 2);
         $this->assertDatabaseHas('record_attendance', ['student_id' => 'S02', 'present' => false, 'learning_method' => null]);
+    }
+
+    #[DataProvider('imageKeySchemas')]
+    public function test_district_can_confirm_an_imported_single_level_record_with_26_roster_rows_and_four_photos(bool $stringImageKeys): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+        if ($stringImageKeys) {
+            Schema::drop('record_images');
+            Schema::create('record_images', static function (Blueprint $table): void {
+                $table->string('id', 20)->primary();
+                $table->string('record_id', 20)->index();
+                $table->string('file_path');
+                $table->timestamp('created_at')->nullable();
+            });
+        }
+        $teacher = $this->createTeacher('source-teacher', 't1');
+        $district = User::create(['id' => 'district', 'name' => 'ผู้ดูแลอำเภอ', 'username' => 'district', 'password' => Hash::make('secret'), 'role' => 'district', 'tambon' => null]);
+        $source = TeachingRecord::create(['id' => 'source-level-three', 'tambon' => 't1', 'week' => 16, 'date' => '2026-10-23', 'semester' => '1', 'year' => '2569', 'level' => 'มัธยมศึกษาตอนปลาย', 'subject' => 'ภาษาไทย', 'class_group_code' => 'G3', 'class_name' => 'กลุ่ม 3', 'total' => 26, 'present' => 7, 'result' => 'ผลการจัดการเรียนรู้เดิม', 'created_by' => $teacher->id]);
+        for ($index = 1; $index <= 26; $index++) {
+            RecordAttendance::create(['record_id' => $source->id, 'student_id' => '00'.str_pad((string) $index, 3, '0', STR_PAD_LEFT), 'full_name' => ' ผู้เรียน '.$index.' ', 'group_code' => ' G3 ', 'class_name' => ' กลุ่ม 3 ', 'present' => $index <= 7 ? 1 : 0, 'learning_method' => $index <= 7 ? '  ' : 'ออนไลน์']);
+        }
+        $layouts = [];
+        foreach (range(1, 4) as $index) {
+            $file = UploadedFile::fake()->image('source-'.$index.'.jpg', 300, 300);
+            $path = 'records/source-'.$index.'.jpg';
+            Storage::disk('public')->put($path, file_get_contents($file->getRealPath()));
+            $image = RecordImage::create(['record_id' => $source->id, 'file_path' => 'storage/'.$path]);
+            $layouts[(string) $image->id] = ['width_px' => (string) (250 + $index * 20), 'height_px' => '180', 'x_px' => (string) (($index - 1) * 30), 'y_px' => '8'];
+        }
+        RecordDocumentLayout::create(['record_id' => $source->id, 'settings' => ['image_layout_by_id' => json_encode($layouts, JSON_THROW_ON_ERROR)], 'content' => [], 'updated_by' => $teacher->id]);
+        $created = $this->actingAs($district)->postJson(route('teaching-drafts.store'), ['source_record_id' => $source->id])->assertCreated();
+        $id = $created->json('data.draft.id');
+        $created->assertJsonPath('data.draft.payload.enabled_level_codes', ['3'])->assertJsonCount(26, 'data.draft.payload.levels.3.attendance')->assertJsonCount(4, 'data.draft.payload.levels.3.image_ids');
+        $created->assertJsonPath('data.draft.payload.levels.3.attendance.0.present', true)->assertJsonPath('data.draft.payload.levels.3.attendance.0.learning_method', 'พบกลุ่ม')
+            ->assertJsonPath('data.draft.payload.levels.3.attendance.25.present', false)->assertJsonPath('data.draft.payload.levels.3.attendance.25.learning_method', null)
+            ->assertJsonPath('data.draft.payload.levels.3.attendance.0.student_id', '00001')->assertJsonPath('data.draft.payload.levels.3.attendance.0.group_code', 'G3');
+        $draft = TeachingDraft::query()->findOrFail($id);
+        $legacyPayload = $draft->payload;
+        foreach ($legacyPayload['levels']['3']['attendance'] as $index => &$row) {
+            $row['present'] = $index < 7 ? '1' : '0';
+            $row['group_code'] = ' G3 ';
+            $row['learning_method'] = $index < 7 ? '  ' : 'ออนไลน์';
+        }
+        unset($row);
+        $draft->update(['payload' => $legacyPayload]);
+        $this->getJson(route('teaching-drafts.index'))->assertOk()->assertJsonPath('data.drafts.0.progress.completed_levels', 1);
+        $key = (string) Str::uuid();
+        $request = ['lock_version' => 1, 'idempotency_key' => $key, 'confirmed' => true];
+        if ($stringImageKeys) {
+            $originalIds = $source->images()->pluck('id')->all();
+            $this->mock(RecordRevisionService::class)->shouldReceive('capture')->once()->andThrow(new \RuntimeException('fixture revision failure after four photo inserts'));
+            $this->postJson(route('teaching-drafts.finalize', $id), $request)->assertInternalServerError();
+            $this->assertSame($originalIds, $source->images()->pluck('id')->all());
+            $this->assertCount(4, Storage::disk('public')->allFiles());
+            $this->assertDatabaseHas('teaching_drafts', ['id' => $id, 'status' => 'active', 'lock_version' => 1]);
+            $this->assertDatabaseCount('weekly_submissions', 0);
+            $this->app->forgetInstance(RecordRevisionService::class);
+        }
+        $result = $this->postJson(route('teaching-drafts.finalize', $id), $request)->assertOk();
+        $result->assertJsonPath('data.record_ids', [$source->id]);
+        $saved = $source->fresh();
+        $this->assertNotNull($saved->weekly_submission_id);
+        $this->assertSame($teacher->id, $saved->created_by);
+        $this->assertSame(26, $saved->total);
+        $this->assertSame(7, $saved->present);
+        $this->assertSame(26, $saved->attendance()->count());
+        $this->assertSame(4, $saved->images()->count());
+        $this->assertSame(7, $saved->attendance()->where('present', true)->where('learning_method', 'พบกลุ่ม')->count());
+        $this->assertSame(19, $saved->attendance()->where('present', false)->whereNull('learning_method')->count());
+        $map = json_decode($saved->documentLayout->settings['image_layout_by_id'], true, flags: JSON_THROW_ON_ERROR);
+        $this->assertEqualsCanonicalizing($saved->images()->pluck('id')->all(), array_map('strval', array_keys($map)));
+        $this->assertEqualsCanonicalizing(['270', '290', '310', '330'], array_column($map, 'width_px'));
+        foreach ($saved->images as $image) {
+            $this->assertNotEmpty($image->id);
+            $this->assertTrue($stringImageKeys ? str_starts_with($image->id, 'i') && strlen($image->id) === 20 : ctype_digit($image->id));
+        }
+        $this->postJson(route('teaching-drafts.finalize', $id), $request)->assertOk()->assertJsonPath('data.record_ids', [$source->id]);
+        $this->assertDatabaseCount('records', 1);
+    }
+
+    public static function imageKeySchemas(): array
+    {
+        return ['integer auto increment' => [false], 'legacy string primary key' => [true]];
     }
 
     public function test_failed_document_validation_rolls_back_all_levels_and_leaves_the_draft_editable(): void

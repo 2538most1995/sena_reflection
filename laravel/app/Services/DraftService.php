@@ -284,6 +284,9 @@ class DraftService
                 'present' => ['required', 'integer', 'between:0,10000', 'lte:total'],
             ])->passes();
         }
+        if (is_array($entry['attendance'] ?? null)) {
+            $entry['attendance'] = $this->normalizeAttendanceRows($entry['attendance']);
+        }
         $valid = Validator::make($entry, [
             'attendance' => ['required', 'array', 'min:1', 'max:2000'],
             'attendance.*.student_id' => ['required', 'string', 'max:50', 'distinct'],
@@ -292,7 +295,7 @@ class DraftService
             'attendance.*.learning_method' => ['nullable', 'in:พบกลุ่ม,ออนไลน์'],
         ])->passes();
 
-        return $valid && collect($entry['attendance'])->every(static fn (array $row): bool => empty($row['group_code']) || empty($entry['class_group_code']) || $row['group_code'] === $entry['class_group_code']);
+        return $valid && collect($entry['attendance'])->every(static fn (array $row): bool => empty($row['group_code']) || empty($entry['class_group_code']) || $row['group_code'] === trim((string) $entry['class_group_code']));
     }
 
     public function assertVersion(User $user, TeachingDraft|string $draft, int $lockVersion): TeachingDraft
@@ -384,7 +387,7 @@ class DraftService
             'created_by' => $user->id,
         ]);
         $attendance = ($entry['attendance_mode'] ?? 'counts') === 'roster'
-            ? array_values($entry['attendance'] ?? []) : [];
+            ? $this->normalizeAttendanceRows($entry['attendance'] ?? []) : [];
         if (($entry['attendance_mode'] ?? 'counts') === 'roster') {
             $record->total = count($attendance);
             $record->present = collect($attendance)->where('present', true)->count();
@@ -446,16 +449,7 @@ class DraftService
                 'result', 'problem', 'suggestion', 'supervisor_comment', 'attendance_reviewed', 'attendance_mode',
                 'attendance', 'image_ids', 'document',
             ])->all();
-            $normalizedLevels[$code]['attendance'] = collect($entry['attendance'] ?? [])
-                ->filter(fn ($row): bool => is_array($row))
-                ->map(fn (array $row): array => [
-                    'student_id' => trim((string) ($row['student_id'] ?? '')),
-                    'full_name' => trim((string) ($row['full_name'] ?? '')),
-                    'group_code' => trim((string) ($row['group_code'] ?? '')),
-                    'class_name' => trim((string) ($row['class_name'] ?? '')),
-                    'present' => (bool) ($row['present'] ?? false),
-                    'learning_method' => ! empty($row['present']) ? ($row['learning_method'] ?? 'พบกลุ่ม') : null,
-                ])->values()->all();
+            $normalizedLevels[$code]['attendance'] = $this->normalizeAttendanceRows($entry['attendance'] ?? []);
             $normalizedLevels[$code]['attendance_reviewed'] = (bool) ($entry['attendance_reviewed'] ?? false);
             $normalizedLevels[$code]['document'] = [
                 'settings' => collect($entry['document']['settings'] ?? [])->only(RecordDocumentOptions::SETTING_KEYS)->all(),
@@ -546,10 +540,13 @@ class DraftService
                 ...$record->only(['subject', 'subject_code', 'class_group_code', 'class_name', 'total', 'present', 'result', 'problem', 'suggestion', 'supervisor_comment']),
                 'attendance_reviewed' => true,
                 'attendance_mode' => $record->attendance->isNotEmpty() ? 'roster' : 'counts',
-                'attendance' => $record->attendance->map(fn ($row) => $row->only(['student_id', 'full_name', 'group_code', 'class_name', 'present', 'learning_method']))->all(),
+                'attendance' => $this->normalizeAttendanceRows($record->attendance->map(fn ($row) => $row->only(['student_id', 'full_name', 'group_code', 'class_name', 'present', 'learning_method']))->all()),
                 'image_ids' => [],
                 'document' => ['settings' => $record->documentLayout?->settings ?? [], 'content' => []],
             ];
+            foreach (['subject', 'subject_code', 'class_group_code', 'class_name'] as $field) {
+                $levels[$code][$field] = trim((string) ($levels[$code][$field] ?? ''));
+            }
         }
 
         $enabledLevelCodes = array_values(array_unique(array_filter(array_map(fn ($r) => $this->levels->code($r->level), $records->all()))));
@@ -597,6 +594,27 @@ class DraftService
         ])->all();
 
         return hash('sha256', json_encode($snapshot, JSON_THROW_ON_ERROR));
+    }
+
+    public function normalizeAttendanceRows(array $rows): array
+    {
+        return array_values(array_map(static function ($row): mixed {
+            if (! is_array($row)) {
+                return $row;
+            }
+            $string = static fn (mixed $value): mixed => is_scalar($value) || $value === null ? trim((string) ($value ?? '')) : $value;
+            $present = in_array($row['present'] ?? false, [true, 1, '1'], true);
+            $method = $string($row['learning_method'] ?? '');
+
+            return [
+                'student_id' => $string($row['student_id'] ?? ''),
+                'full_name' => $string($row['full_name'] ?? ''),
+                'group_code' => $string($row['group_code'] ?? ''),
+                'class_name' => $string($row['class_name'] ?? ''),
+                'present' => $present,
+                'learning_method' => $present ? ($method === '' ? 'พบกลุ่ม' : $method) : null,
+            ];
+        }, $rows));
     }
 
     /** @param list<string> $storedPaths */

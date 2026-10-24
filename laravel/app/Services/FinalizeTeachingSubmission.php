@@ -280,6 +280,12 @@ class FinalizeTeachingSubmission
                 throw ValidationException::withMessages(['payload.levels' => "กรุณากรอกข้อมูลระดับ{$levelName}"]);
             }
             $entry = $entries[$levelCode];
+            if (is_array($entry['attendance'] ?? null)) {
+                $entry['attendance'] = $this->drafts->normalizeAttendanceRows($entry['attendance']);
+            }
+            foreach (['class_group_code', 'class_name'] as $field) {
+                $entry[$field] = trim((string) ($entry[$field] ?? ''));
+            }
             if (trim((string) ($entry['subject'] ?? '')) === '') {
                 throw ValidationException::withMessages(["payload.levels.{$levelCode}.subject" => 'กรุณาระบุรายวิชา']);
             }
@@ -327,7 +333,7 @@ class FinalizeTeachingSubmission
             if ($payloadIds !== $images->pluck('id')->all()) {
                 throw ValidationException::withMessages(["payload.levels.{$levelCode}.image_ids" => 'รายการรูปในร่างไม่ตรงกับรูปที่บันทึกไว้']);
             }
-            $entries[$levelCode]['attendance_mode'] = $mode;
+            $entries[$levelCode] = [...$entry, 'attendance_mode' => $mode];
         }
 
         return $entries;

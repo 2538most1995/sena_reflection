@@ -28,8 +28,17 @@ export async function waitForBrowserDocument(document: Document | null): Promise
 
 export function draftRequestError(status: number): string {
   if (status === 503) return 'ระบบสร้างเอกสารยังไม่พร้อมใช้งาน ร่างยังอยู่ กรุณาลองใหม่ หรือเลือกตรวจเอกสารผ่านเบราว์เซอร์'
+  if (status >= 500) return 'ระบบบันทึกขัดข้องชั่วคราว ข้อมูลในหน้านี้ยังอยู่ กรุณาลองอีกครั้ง หากยังไม่สำเร็จให้ติดต่อผู้ดูแลระบบ'
   if (status === 419) return 'เซสชันหมดอายุ กรุณาเปิดหน้านี้ใหม่แล้วเข้าสู่ระบบเพื่อทำต่อจากร่างที่บันทึกไว้'
   if (status === 413) return 'ไฟล์หรือข้อมูลมีขนาดเกินที่เซิร์ฟเวอร์รองรับ กรุณาลดขนาดแล้วลองใหม่'
   if (status === 429) return 'เรียกใช้งานถี่เกินไป กรุณารอสักครู่แล้วลองใหม่'
   return `ไม่สามารถดำเนินการได้ (${status}) กรุณาลองใหม่`
+}
+
+export function safeDraftResponseMessage(status: number, envelope: { message?: unknown; errors?: unknown }): string | undefined {
+  if (status >= 500) return draftRequestError(status)
+  const errors = envelope.errors && typeof envelope.errors === 'object' ? Object.values(envelope.errors).flat().filter((value): value is string => typeof value === 'string') : []
+  if (errors.length) return errors.slice(0, 3).join(' · ')
+  if (typeof envelope.message === 'string' && envelope.message.trim()) return envelope.message
+  return status >= 400 ? draftRequestError(status) : undefined
 }

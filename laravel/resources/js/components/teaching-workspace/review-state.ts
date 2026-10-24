@@ -1,7 +1,40 @@
-import type { LevelCode, TeachingDraftImage, TeachingDraftPayload, TeachingLevelDraft } from './types'
+import type { LevelCode, TeachingDraftImage, TeachingDraftPayload, TeachingLevelDraft, WorkspaceAttendanceRow } from './types'
 import { selectedTeachingLevels } from './types'
 
 export type LevelIssue = { levelCode: LevelCode; message: string; field: string }
+export type AttendanceIssue = { index: number; field: 'student_id' | 'full_name' | 'group_code' | 'present' | 'learning_method'; message: string }
+
+function scalarText(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : ''
+}
+
+export function normalizeTeachingAttendance(value: unknown): WorkspaceAttendanceRow[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(row => row && typeof row === 'object' && !Array.isArray(row)).map(row => {
+    const present = row.present === true || row.present === 1 || row.present === '1'
+    const method = scalarText(row.learning_method)
+    return { student_id: scalarText(row.student_id), full_name: scalarText(row.full_name), group_code: scalarText(row.group_code), class_name: scalarText(row.class_name), present, learning_method: present ? method || 'พบกลุ่ม' : null }
+  })
+}
+
+export function attendanceRowIssues(rows: WorkspaceAttendanceRow[], groupCode = ''): AttendanceIssue[] {
+  const issues: AttendanceIssue[] = []
+  const firstIds = new Map<string, number>()
+  rows.forEach((row, index) => {
+    const id = scalarText(row.student_id)
+    const name = scalarText(row.full_name)
+    if (!id) issues.push({ index, field: 'student_id', message: 'กรอกรหัสนักศึกษาให้ตรงทะเบียน' })
+    else if (id.length > 50) issues.push({ index, field: 'student_id', message: 'รหัสนักศึกษายาวเกิน 50 ตัวอักษร' })
+    if (id && firstIds.has(id)) issues.push({ index, field: 'student_id', message: `รหัสนักศึกษาซ้ำกับลำดับ ${(firstIds.get(id) || 0) + 1} กรุณาตรวจรหัสให้ถูกต้อง` })
+    else if (id) firstIds.set(id, index)
+    if (!name) issues.push({ index, field: 'full_name', message: 'กรอกชื่อผู้เรียนให้ตรงทะเบียน' })
+    else if (name.length > 255) issues.push({ index, field: 'full_name', message: 'ชื่อผู้เรียนยาวเกิน 255 ตัวอักษร' })
+    if (typeof row.present !== 'boolean') issues.push({ index, field: 'present', message: 'เลือกสถานะมาเรียนให้ถูกต้อง' })
+    if (row.group_code && groupCode && scalarText(row.group_code) !== scalarText(groupCode)) issues.push({ index, field: 'group_code', message: 'กลุ่มในรายชื่อไม่ตรงกับกลุ่มที่เลือก กรุณาอัปเดตรายชื่อจากกลุ่มนี้' })
+    if (row.learning_method != null && row.learning_method !== 'พบกลุ่ม' && row.learning_method !== 'ออนไลน์') issues.push({ index, field: 'learning_method', message: 'เลือกวิธีเรียนเป็นพบกลุ่มหรือออนไลน์' })
+  })
+  return issues
+}
 
 export function teachingAttendanceCounts(level: TeachingLevelDraft) {
   return level.attendance_mode === 'roster'
@@ -11,7 +44,7 @@ export function teachingAttendanceCounts(level: TeachingLevelDraft) {
 
 export function teachingAttendanceReady(level: TeachingLevelDraft): boolean {
   if (level.attendance_mode === 'counts') return Number.isInteger(level.total) && Number.isInteger(level.present) && level.total >= 0 && level.total <= 10000 && level.present >= 0 && level.present <= level.total
-  return level.attendance.length > 0 && level.attendance.length <= 2000 && new Set(level.attendance.map(row => row.student_id)).size === level.attendance.length && level.attendance.every(row => row.student_id.trim() && row.student_id.length <= 50 && row.full_name.trim() && row.full_name.length <= 255 && typeof row.present === 'boolean' && (!row.group_code || !level.class_group_code || row.group_code === level.class_group_code) && (row.learning_method == null || row.learning_method === 'พบกลุ่ม' || row.learning_method === 'ออนไลน์'))
+  return level.attendance.length > 0 && level.attendance.length <= 2000 && attendanceRowIssues(level.attendance, level.class_group_code).length === 0
 }
 
 export function teachingLevelReady(level: TeachingLevelDraft, imageCount = level.image_ids.length): boolean {
@@ -34,7 +67,15 @@ export function reviewIssues(payload: TeachingDraftPayload, images: TeachingDraf
     if (!level.class_name.trim() && !level.class_group_code.trim()) issues.push({ levelCode: code, message: 'ยังไม่ได้เลือกกลุ่มเรียน', field: 'group' })
     if (!level.subject.trim()) issues.push({ levelCode: code, message: 'ยังไม่ได้ระบุรายวิชา', field: 'subject' })
     if (!level.result.trim()) issues.push({ levelCode: code, message: 'ยังไม่ได้บันทึกผลการจัดการเรียนรู้', field: 'result' })
-    if (!teachingAttendanceReady(level)) issues.push({ levelCode: code, message: level.attendance_mode === 'roster' ? level.attendance.length ? 'ตรวจรายชื่อและวิธีเรียนให้ถูกต้อง' : 'ยังไม่มีรายชื่อนักศึกษา' : 'ตรวจยอดผู้เรียนทั้งหมดและจำนวนมาเรียนให้ถูกต้อง', field: 'attendance' })
+    if (level.attendance_mode === 'counts' && !teachingAttendanceReady(level)) issues.push({ levelCode: code, message: 'ตรวจยอดผู้เรียนทั้งหมดและจำนวนมาเรียนให้ถูกต้อง', field: 'attendance' })
+    if (level.attendance_mode === 'roster') {
+      if (!level.attendance.length) issues.push({ levelCode: code, message: 'ยังไม่มีรายชื่อนักศึกษา', field: 'attendance' })
+      if (level.attendance.length > 2000) issues.push({ levelCode: code, message: 'รายชื่อเกิน 2,000 คน กรุณาตรวจกลุ่มเรียน', field: 'attendance' })
+      for (const issue of attendanceRowIssues(level.attendance, level.class_group_code)) {
+        const row = level.attendance[issue.index]
+        issues.push({ levelCode: code, message: `ลำดับ ${issue.index + 1} (${scalarText(row.full_name) || scalarText(row.student_id) || 'ยังไม่มีชื่อ'}) — ${issue.message}`, field: `attendance.${issue.index}.${issue.field}` })
+      }
+    }
     const imageCount = images.filter(image => image.level_code === code).length
     if (![0, 2, 4].includes(imageCount)) issues.push({ levelCode: code, message: `รูปภาพต้องมี 0, 2 หรือ 4 รูป (ขณะนี้ ${imageCount})`, field: 'images' })
     return issues

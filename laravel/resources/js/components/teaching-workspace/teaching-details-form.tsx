@@ -85,7 +85,7 @@ export function TeachingDetailsForm({
       {value.attendance_mode === 'counts' ? <div className="grid gap-4 rounded-xl border bg-muted/15 p-4">
         <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"><WarningCircle size={17} className="mt-0.5 shrink-0" />ระบุยอดรวมผู้เรียนและจำนวนมาเรียนตามข้อมูลจริง</div>
         <div className="grid gap-4 sm:grid-cols-2"><FormField label="ผู้เรียนทั้งหมด"><Input data-workspace-field="attendance" type="number" min={0} max={10000} value={value.total} onChange={(event) => { const total = Math.max(0, Number(event.target.value)); onChange({ ...value, total, present: Math.min(value.present, total), attendance_reviewed: false }) }} /></FormField><FormField label="มาเรียน"><Input type="number" min={0} max={value.total} value={value.present} onChange={(event) => onChange({ ...value, present: Math.max(0, Math.min(Number(event.target.value), value.total)), attendance_reviewed: false })} /></FormField></div>
-      </div> : <AttendancePicker rows={value.attendance} state={loadState} onChange={(attendance) => onChange({ ...value, attendance, attendance_mode: 'roster', total: attendance.length, present: attendance.filter((row) => row.present).length })} />}
+      </div> : <AttendancePicker rows={value.attendance} levelCode={levelCode} groupCode={value.class_group_code} state={loadState} onReload={() => void onSelectGroup(selectedGroup)} onChange={(attendance) => onChange({ ...value, attendance, attendance_mode: 'roster', total: attendance.length, present: attendance.filter((row) => row.present).length })} />}
     </section>
 
     <section className="border-t pt-6">

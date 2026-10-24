@@ -277,6 +277,50 @@ function normalizeRecordAttendance($attendance) {
     return $normalized;
 }
 
+function insertRecordImages(PDO $pdo, string $recordId, array $images): void {
+    if (empty($images)) {
+        return;
+    }
+
+    static $requiresStringId = null;
+    if ($requiresStringId === null) {
+        $requiresStringId = false;
+        try {
+            $stmt = $pdo->query("SHOW COLUMNS FROM `record_images` LIKE 'id'");
+            $col = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : null;
+            if ($col) {
+                $isAuto = strpos(strtolower($col['Extra'] ?? ''), 'auto_increment') !== false;
+                $isString = preg_match('/char|text/i', $col['Type'] ?? '') === 1;
+                $requiresStringId = !$isAuto && $isString;
+            }
+        } catch (Throwable) {
+            $requiresStringId = false;
+        }
+    }
+
+    $stmt = $requiresStringId
+        ? $pdo->prepare("INSERT INTO record_images (id, record_id, file_path) VALUES (?, ?, ?)")
+        : $pdo->prepare("INSERT INTO record_images (record_id, file_path) VALUES (?, ?)");
+
+    foreach ($images as $imgData) {
+        $path = null;
+        if (is_string($imgData) && normalizeUploadPath($imgData) !== null) {
+            $path = $imgData;
+        } else if (is_array($imgData) && isset($imgData['data']) && strpos($imgData['data'], 'data:image') === 0) {
+            $path = saveBase64Image($imgData['data']);
+        }
+
+        if ($path !== null) {
+            if ($requiresStringId) {
+                $imgId = 'i' . substr(str_replace('-', '', bin2hex(random_bytes(10))), 0, 19);
+                $stmt->execute([$imgId, $recordId, $path]);
+            } else {
+                $stmt->execute([$recordId, $path]);
+            }
+        }
+    }
+}
+
 function replaceRecordAttendance(PDO $pdo, $recordId, array $attendance) {
     $pdo->prepare("DELETE FROM record_attendance WHERE record_id = ?")->execute([$recordId]);
 
@@ -384,20 +428,7 @@ if ($method === 'POST') {
         ]);
         
         // Handle images (array of server paths or base64 backward compat)
-        if (!empty($images)) {
-            $imgStmt = $pdo->prepare("INSERT INTO record_images (record_id, file_path) VALUES (?, ?)");
-            foreach ($images as $imgData) {
-                // If it's a direct path from upload_image.php
-                if (is_string($imgData) && normalizeUploadPath($imgData) !== null) {
-                    $imgStmt->execute([$id, $imgData]);
-                } 
-                // Backward compatibility if somehow still sends old format
-                else if (is_array($imgData) && isset($imgData['data']) && strpos($imgData['data'], 'data:image') === 0) {
-                    $path = saveBase64Image($imgData['data']);
-                    if ($path) $imgStmt->execute([$id, $path]);
-                }
-            }
-        }
+        insertRecordImages($pdo, $id, $images);
 
         replaceRecordAttendance($pdo, $id, $attendance);
         
@@ -450,18 +481,7 @@ if ($method === 'PUT') {
         
         // Replace images simply
         $pdo->prepare("DELETE FROM record_images WHERE record_id = ?")->execute([$id]);
-        
-        if (!empty($images)) {
-            $imgStmt = $pdo->prepare("INSERT INTO record_images (record_id, file_path) VALUES (?, ?)");
-            foreach ($images as $imgData) {
-                if (is_string($imgData) && normalizeUploadPath($imgData) !== null) {
-                    $imgStmt->execute([$id, $imgData]);
-                } else if (is_array($imgData) && isset($imgData['data']) && strpos($imgData['data'], 'data:image') === 0) {
-                    $path = saveBase64Image($imgData['data']);
-                    if ($path) $imgStmt->execute([$id, $path]);
-                }
-            }
-        }
+        insertRecordImages($pdo, $id, $images);
 
         replaceRecordAttendance($pdo, $id, $attendance);
         

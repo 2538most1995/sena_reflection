@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { draftRequestError, waitForBrowserDocument } from '../../resources/js/lib/browser-document-review.ts'
+import { draftRequestError, safeDraftResponseMessage, waitForBrowserDocument } from '../../resources/js/lib/browser-document-review.ts'
 
 function documentFixture({ missing = false, pages = true, fonts = [], images = [] } = {}) {
   fonts.ready = Promise.resolve()
@@ -49,4 +49,14 @@ test('non-JSON proxy errors explain recovery without exposing HTML diagnostics',
   assert.match(draftRequestError(419), /เซสชันหมดอายุ/)
   assert.match(draftRequestError(413), /ขนาดเกิน/)
   assert.match(draftRequestError(429), /รอสักครู่/)
+})
+
+test('JSON server errors use safe Thai recovery text and keep genuine validation details', () => {
+  for (const status of [500, 502, 504]) {
+    const message = safeDraftResponseMessage(status, { message: 'Server Error: SQLSTATE secret-value', errors: { internal: ['Stack trace secret-value'] } })
+    assert.match(message, /ข้อมูลในหน้านี้ยังอยู่/)
+    assert.doesNotMatch(message, /SQLSTATE|Stack|secret|Server Error/)
+  }
+  assert.equal(safeDraftResponseMessage(422, { errors: { 'payload.levels.3.attendance.2.full_name': ['กรอกชื่อผู้เรียนลำดับ 3'] } }), 'กรอกชื่อผู้เรียนลำดับ 3')
+  assert.equal(safeDraftResponseMessage(200, {}), undefined)
 })

@@ -30,9 +30,9 @@ export type StudentOption = {
   class_name: string
 }
 
-export type WorkspaceAttendanceRow = AttendanceRow & {
+export type WorkspaceAttendanceRow = Omit<AttendanceRow, 'present' | 'learning_method'> & {
   present: boolean
-  learning_method: 'พบกลุ่ม' | 'ออนไลน์' | null
+  learning_method: string | null
 }
 
 export type TeachingLevelDraft = {

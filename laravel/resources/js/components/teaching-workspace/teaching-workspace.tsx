@@ -13,7 +13,8 @@ import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { draftRequestError, waitForBrowserDocument } from '@/lib/browser-document-review'
+import { draftRequestError, safeDraftResponseMessage, waitForBrowserDocument } from '@/lib/browser-document-review'
+import { normalizeTeachingAttendance } from './review-state'
 import type { SharedProps } from '@/types'
 import { RecordReview, RecordSaveConfirmation, WorkspaceIssues, WorkspaceSummary, reviewIssues } from './record-review'
 import { TeachingDetailsForm } from './teaching-details-form'
@@ -51,10 +52,10 @@ function normalizeDraftPayload(payload: Partial<TeachingDraftPayload> | null | u
     const value = { ...fallback.levels[code], ...(payload?.levels?.[code] || {}) }
     return {
       ...value,
-      subject: value.subject || '', subject_code: value.subject_code || '', class_group_code: value.class_group_code || '', class_name: value.class_name || '',
+      subject: value.subject || '', subject_code: value.subject_code || '', class_group_code: String(value.class_group_code || '').trim(), class_name: String(value.class_name || '').trim(),
       result: value.result || '', problem: value.problem || '', suggestion: value.suggestion || '',
       total: Number(value.total) || 0, present: Number(value.present) || 0,
-      attendance: Array.isArray(value.attendance) ? value.attendance : [], image_ids: Array.isArray(value.image_ids) ? value.image_ids : [],
+      attendance: normalizeTeachingAttendance(value.attendance), image_ids: Array.isArray(value.image_ids) ? value.image_ids : [],
     }
   }
   const enabledCodes = Array.isArray(payload?.enabled_level_codes) && payload.enabled_level_codes.length
@@ -211,8 +212,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const parseError = async (response: Response): Promise<DraftEnvelope> => {
     try {
       const envelope = await response.json() as DraftEnvelope
-      const details = Object.values(envelope.errors || {}).flat().slice(0, 3)
-      if (details.length) envelope.message = details.join(' · ')
+      envelope.message = safeDraftResponseMessage(response.status, envelope)
       return envelope
     } catch {
       return { message: draftRequestError(response.status) }
@@ -343,10 +343,11 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }, [activeLevel, editorMode, focusRequest])
 
   const fixReviewIssue = (level: LevelCode, field?: string) => {
-    focusAfterReview.current = { section: field?.startsWith('scope.') ? 'workspace-scope' : field === 'attendance' ? `teaching-attendance-${level}` : field === 'result' ? `teaching-content-${level}` : field === 'images' ? 'workspace-images-heading' : `teaching-basics-${level}`, field }
+    focusAfterReview.current = { section: field?.startsWith('scope.') ? 'workspace-scope' : field?.startsWith('attendance') ? `teaching-attendance-${level}` : field === 'result' ? `teaching-content-${level}` : field === 'images' ? 'workspace-images-heading' : `teaching-basics-${level}`, field }
     setActiveLevel(level)
     setEditorMode('edit')
     setFocusRequest(request => request + 1)
+    if (field?.startsWith('attendance')) window.dispatchEvent(new CustomEvent('sena-workspace-attendance-focus', { detail: { level } }))
   }
 
   const requestConfirmation = () => {
