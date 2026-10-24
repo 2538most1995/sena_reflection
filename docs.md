@@ -217,6 +217,28 @@ SENA_WORKFLOW_E2E=1 npx playwright test teaching-workflow.spec.ts --workers=1
 
 ชุดนี้สร้าง SQLite, บัญชีจำลอง, รายชื่อ และพื้นที่เก็บไฟล์ชั่วคราวเอง เปิด PHP ที่พอร์ต 8777 และ Vite ที่ 5187 แล้วล้างทรัพยากรเมื่อเสร็จ ต้องไม่มี Vite dev server เดิมหรือ `public/hot` ค้างอยู่ ทดสอบการชี้ช่องข้อมูลไม่ครบ ยกเลิกสรุปบนมือถือและเปิดร่างซ้ำ รวมถึงบันทึกเฉพาะระดับที่เลือกโดยไม่มีคำขอ preview PDF และไม่เปลี่ยนผู้ขาดเรียนเป็นมาเรียน
 
+## แก้ปัญหาบันทึกไม่ได้จากรหัสรูปภาพ (MySQL 1364 / 1366)
+
+อาการแรกคือ `Field 'id' doesn't have a default value` ระหว่างสร้างแถว `record_images` ส่วน `Incorrect integer value: 'i...'` หมายถึงมีการส่งรหัสข้อความไปยังคอลัมน์ตัวเลข ห้ามสรุปว่าคอลัมน์เป็นข้อความจาก error 1364 เพราะคอลัมน์ตัวเลขที่ขาด `AUTO_INCREMENT` ก็เกิดอาการเดียวกัน
+
+หลังอัปเดตโค้ดบน hosting ให้เข้าโฟลเดอร์ `laravel/` และรัน:
+
+```bash
+php artisan migrate --force
+php artisan optimize:clear
+php artisan sena:health
+```
+
+Migration `2026_10_24_142034_restore_auto_increment_on_legacy_record_keys` ตรวจชนิดคอลัมน์จริงของ `record_images.id` และ `record_attendance.id` บน MySQL/MariaDB แล้วคืน `AUTO_INCREMENT` เฉพาะ primary key ตัวเลขที่ขาดคุณสมบัตินี้ รักษาชนิด/ขนาด/unsigned รวมถึง ID เดิมและค่า 0 ไว้ คอลัมน์ข้อความและคอลัมน์ที่ทำงานถูกต้องอยู่แล้วไม่ถูกแปลง ไม่ต้องสร้างบันทึกหรือร่างใหม่
+
+หากใช้ Plesk Scheduled Tasks ให้เลือก **Run a PHP script** ตั้ง Script path เป็น `httpdocs/sena_reflection/laravel/artisan` และใส่ `migrate --force` ในช่อง arguments แล้วกด **Run Now** จากนั้นรัน `optimize:clear` และ `sena:health` ด้วยวิธีเดียวกัน ใช้ PHP CLI รุ่นที่รองรับโปรเจกต์ หากบัญชีฐานไม่มีสิทธิ์ ALTER ระบบจะแจ้ง migration ล้มเหลว ต้องให้ผู้ดูแลฐานรัน migration ให้สำเร็จก่อนลองบันทึกใหม่
+
+ผล health ที่ถูกต้องสำหรับคอลัมน์ตัวเลขต้องเป็น `auto_increment=YES` หากยังเป็น NO คำสั่งจะคืนสถานะไม่สำเร็จ ส่วนการเก็บรหัสข้อความเดิมยังรองรับตามชนิดคอลัมน์จริง โค้ดไม่สลับชนิดรหัสจากข้อความ exception อีก
+
+โหลดหน้าร่างเดิมใหม่หลังอัปเดต ตรวจยอดมาเรียนและรูป แล้วกดยืนยันอีกครั้ง การล้มเหลวระหว่างบันทึกจะ rollback ข้อมูล/รูปที่เพิ่งสร้าง และยังเก็บร่างให้ลองใหม่ ไม่มีการสร้างตารางใน transaction บันทึกหรือประวัติฉบับ การสร้างตารางเป็นหน้าที่ของ migrations
+
+ชุดทดสอบ `LegacyRecordKeyMySqlTest` ใช้ MySQL แยกที่สร้างเพื่อทดสอบโดยเฉพาะ ผ่าน `SENA_MYSQL_TEST_SOCKET` ซึ่งต้องเป็น socket ภายในโฟลเดอร์ `sena-save-mysql-*` ชุดนี้สร้างและลบเฉพาะฐานชื่อสุ่ม `sena_key_test_*` ของตนเอง ครอบคลุม numeric key ที่ขาด AUTO_INCREMENT, text key, การรักษา ID เดิม, rollback/retry และตัวอย่างทั้ง 26 คน/7 คน/4 รูป กับ 26 คน/4 คน/2 รูป
+
 ## แก้ปัญหาที่พบบ่อย
 
 | อาการ | วิธีตรวจ |

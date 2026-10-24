@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\DraftVersionConflictException;
 use App\Http\Requests\FinalizeTeachingDraftRequest;
 use App\Http\Requests\PreviewTeachingDraftRequest;
 use App\Http\Requests\StoreTeachingDraftRequest;
@@ -10,9 +11,13 @@ use App\Models\TeachingDraft;
 use App\Services\DraftService;
 use App\Services\FinalizeTeachingSubmission;
 use App\Services\LegacyPrintService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class TeachingDraftController extends Controller
 {
@@ -108,23 +113,24 @@ class TeachingDraftController extends Controller
                 'message' => 'ยืนยันบันทึกเรียบร้อยแล้ว',
                 'data' => $result,
             ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             throw $e;
-        } catch (\App\Exceptions\DraftVersionConflictException $e) {
+        } catch (DraftVersionConflictException $e) {
             throw $e;
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+        } catch (ModelNotFoundException $e) {
             throw $e;
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+        } catch (HttpException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('Draft finalization failed: '.$e->getMessage(), [
+            Log::error('Draft finalization failed: '.$e->getMessage(), [
                 'draft_id' => $teachingDraft->id,
                 'user_id' => $request->user()->id,
                 'exception' => $e,
             ]);
 
             return response()->json([
-                'message' => 'ระบบบันทึกขัดข้อง: '.$e->getMessage(),
+                'message' => 'ระบบบันทึกขัดข้องชั่วคราว ร่างยังอยู่ กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ',
+                'code' => 'draft_finalization_failed',
             ], 500);
         }
     }

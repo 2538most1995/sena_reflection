@@ -53,7 +53,10 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     page.on('request', request => {
       if (request.method() === 'POST' && /\/(?:preview|pdf-preview|browser-preview)$/.test(new URL(request.url()).pathname)) previewRequests.get(page)!.push(request.url())
     })
-    page.on('dialog', dialog => dialog.type() === 'beforeunload' ? dialog.accept() : dialog.dismiss())
+    page.on('dialog', async dialog => {
+      try { if (dialog.type() === 'beforeunload') await dialog.accept(); else await dialog.dismiss() }
+      catch (error) { if (!/Not attached to an active page|has been closed/.test(String(error))) throw error }
+    })
     await page.goto('/login')
     await page.getByRole('textbox', { name: 'ชื่อผู้ใช้', exact: true }).fill(workflowCredentials.user)
     await page.getByRole('textbox', { name: 'รหัสผ่าน', exact: true }).fill(workflowCredentials.password)
@@ -145,4 +148,45 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     }
     expect(previewRequests.get(page)).toEqual([])
   })
+
+  test('district edits 26 legacy students and four photos, keeps its draft after a server failure, then retries', async ({ page }) => {
+    const sourceId = fixture.seedLegacyRecord()
+    const original = fixture.records().find(record => record.id === sourceId)!
+    expect(original.images).toHaveLength(4)
+    await page.context().clearCookies()
+    await page.goto('/login')
+    await page.getByRole('textbox', { name: 'ชื่อผู้ใช้', exact: true }).fill('workflow-district')
+    await page.getByRole('textbox', { name: 'รหัสผ่าน', exact: true }).fill(workflowCredentials.password)
+    await page.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
+    await expect(page).not.toHaveURL(/\/login$/)
+    await page.goto(`/records/${sourceId}/edit`)
+    await expect(page.getByRole('textbox', { name: 'ผลการจัดการเรียนรู้ *', exact: true })).toHaveValue('ผลการสอนเดิม')
+    const result = `แก้ผลการสอน ${randomUUID()}`
+    await page.getByRole('textbox', { name: 'ผลการจัดการเรียนรู้ *', exact: true }).fill(result)
+    await page.getByRole('button', { name: 'บันทึก 1 ระดับ', exact: true }).last().click()
+    const confirmation = page.getByRole('dialog', { name: 'ยืนยันบันทึกประจำสัปดาห์', exact: true })
+    await expect(confirmation).toContainText('มาเรียน 7/26 คน')
+    await expect(confirmation).toContainText('4 รูป')
+    expect(fixture.records().find(record => record.id === sourceId)?.images).toEqual(original.images)
+    const endpoint = '**/teaching-drafts/*/finalize'
+    await page.route(endpoint, route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'SQLSTATE[22007]: private database diagnostic' }) }))
+    await confirmation.getByRole('button', { name: 'ยืนยันบันทึก 1 ระดับ', exact: true }).click()
+    await expect(confirmation.getByRole('alert')).toContainText('ระบบบันทึกขัดข้องชั่วคราว')
+    await expect(confirmation).not.toContainText('SQLSTATE')
+    expect(fixture.records().find(record => record.id === sourceId)?.images).toEqual(original.images)
+    await page.unroute(endpoint)
+    const completed = page.waitForResponse(response => /\/teaching-drafts\/[^/]+\/finalize$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST')
+    await confirmation.getByRole('button', { name: 'ยืนยันบันทึก 1 ระดับ', exact: true }).click()
+    expect((await completed).status()).toBe(200)
+    await expect.poll(() => new URL(page.url()).searchParams.get('week')).toBe('16')
+    const saved = fixture.records().find(record => record.id === sourceId)!
+    expect(saved.total).toBe(26)
+    expect(saved.present).toBe(7)
+    expect(saved.attendance.filter(row => row.present)).toHaveLength(7)
+    expect(saved.images).toHaveLength(4)
+    expect(saved.images.every(image => image.id.startsWith('i'))).toBe(true)
+    expect(fixture.records().filter(record => record.id === sourceId)).toHaveLength(1)
+    expect(previewRequests.get(page)).toEqual([])
+  })
+
 })

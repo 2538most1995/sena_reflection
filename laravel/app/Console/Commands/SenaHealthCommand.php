@@ -34,15 +34,20 @@ class SenaHealthCommand extends Command
         $counts = collect($required)->mapWithKeys(fn ($table) => [$table => DB::table($table)->count()]);
         $this->table(['Table', 'Rows'], $counts->map(fn ($count, $table) => [$table, $count])->values()->all());
 
-        // Report ID schema for critical tables
+        $invalidKeySchemas = 0;
         foreach (['record_images', 'record_attendance'] as $tableName) {
             try {
                 $cols = Schema::getColumns($tableName);
                 $idCol = collect($cols)->firstWhere('name', 'id');
                 if ($idCol) {
                     $this->line(sprintf('Table %s.id: type=%s, auto_increment=%s', $tableName, $idCol['type_name'] ?? 'unknown', ($idCol['auto_increment'] ?? false) ? 'YES' : 'NO'));
+                    if (in_array(strtolower($idCol['type_name']), ['tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint'], true) && ! ($idCol['auto_increment'] ?? false)) {
+                        $invalidKeySchemas++;
+                        $this->error("{$tableName}.id requires AUTO_INCREMENT. Run php artisan migrate --force before saving records.");
+                    }
                 }
             } catch (\Throwable $e) {
+                $invalidKeySchemas++;
                 $this->warn("Could not inspect {$tableName}: ".$e->getMessage());
             }
         }
@@ -87,7 +92,7 @@ class SenaHealthCommand extends Command
             }
         }
 
-        if ($orphanImages + $orphanAttendance + $duplicates > 0) {
+        if ($orphanImages + $orphanAttendance + $duplicates + $invalidKeySchemas > 0) {
             $this->error('Database integrity checks failed.');
 
             return self::FAILURE;

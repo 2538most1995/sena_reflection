@@ -74,3 +74,7 @@ root `index.php`, `assets/js/app.js`, `assets/css/style.css`, `api/`, `config.ph
 - ใช้ `php artisan test --compact`, `npm run typecheck`, `npm run build:production`, `npm run test:frontend` และ `npm run check:production-build` ก่อนส่งงาน hosting ตรวจ PDF จริงบนเครื่องที่มี Chrome และฟอนต์ครบ
 - Playwright ใช้เฉพาะ loopback ของฐาน fixture แยก ผ่าน `SENA_E2E_BASE_URL`, `SENA_E2E_USER`, `SENA_E2E_PASSWORD` และ `SENA_E2E_RECORD_ID`; ไม่ทดสอบเขียนข้อมูลบน production
 - `php artisan sena:health` ตรวจข้อมูล/ไฟล์พื้นฐาน ไม่ใช่การรับรองความเหมือนของ layout PDF
+
+## ความเข้ากันได้ของรหัสรูปและรายชื่อ
+
+`record_images.id` / `record_attendance.id` อาจมาจาก numeric AUTO_INCREMENT หรือ text primary key ของฐานนำเข้า ต้องอ่าน schema จริง ห้ามตีความ error 1364 ว่าเป็น text key Migration `2026_10_24_142034_restore_auto_increment_on_legacy_record_keys` คืน AUTO_INCREMENT ให้ numeric key ที่ขาดโดยรักษา ID เดิม การสร้างตาราง/ซ่อม schema ทำตอน migrate เท่านั้น ไม่อยู่ใน transaction ของ finalize/revision และไม่ส่ง exception/SQL กลับหน้าเว็บ

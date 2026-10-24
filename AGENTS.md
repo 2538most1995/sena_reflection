@@ -12,6 +12,7 @@
 - ตรวจ `resources/js/components/editor/`, `resources/js/pages/documents/`, `document-print.ts`, `document-export.ts` และ `document-snapshot.tsx` เมื่อแก้ canvas, การจัดหน้า, PDF หรือ DOCX
 - เอกสารผูกบันทึกต้องบันทึกข้อความกลับข้อมูลหลัก; เอกสารผูกร่างต้องใช้ `lock_version` และห้ามยืนยันร่างระหว่าง autosave
 - รักษา paragraph IDs ที่ใช้เป็น anchors และเก็บ revision เดิมเมื่อ sync ข้อมูลจากหน้าอื่น ห้ามสร้างแม่แบบทับฉบับที่ผู้ใช้แก้ไขแล้ว
+- เมื่อแก้การบันทึกรูป/รายชื่อ ต้องตรวจ schema จริงของ ID รวม numeric ที่ขาด AUTO_INCREMENT; ห้ามเดาชนิดจากข้อความ exception และห้ามสร้าง/แก้ตารางใน transaction finalize/revision
 - การเปลี่ยน PDF ต้องตรวจทั้งพิมพ์จาก canvas และ backend snapshot ซึ่งใช้ข้อมูลเอกสารฉบับเดียวกัน พร้อมตรวจไฟล์ build ที่ commit
 
 ## 1. Project Context Agent

@@ -55,3 +55,5 @@ php artisan queue:work exports --queue=exports --tries=1 --timeout=1800 --sleep=
 Repository นี้ไม่มี `.env`, คีย์ API, database dump, ไฟล์สำรอง, รูปผู้เรียน, uploads, เอกสารที่สร้างแล้ว หรือ dependencies ต้องย้ายข้อมูลจริงแยกด้วยช่องทางที่ปลอดภัย ไม่ใช่ Git
 
 ดูรายละเอียดเพิ่มเติมใน [คู่มือ Laravel](laravel/README.md)
+
+แก้ปัญหาบันทึก MySQL 1364/1366: หลังอัปเดตต้องรัน `php artisan migrate --force` ใน `laravel/` เพื่อคืน AUTO_INCREMENT ที่ขาดของรหัสตัวเลข โดยรักษารูปและรหัสเดิม ดูขั้นตอน Plesk และการตรวจผลใน [docs.md](docs.md)

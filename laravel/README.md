@@ -135,3 +135,7 @@ E2E ใช้ `npm run test:e2e` โดยกำหนด `SENA_E2E_BASE_URL` �
 - ดูแล export worker ด้วย Supervisor/launchd และตั้ง Laravel scheduler ทุกนาที เพื่อเรียกงานล้าง export ที่หมดอายุรายวัน (`sena:prune-exports`)
 - เครื่องสร้างเอกสารต้องมี Chrome/Chromium และ Python3 พร้อม `pypdf` สำหรับรวม PDF; ไฟล์ส่งออกและร่างเก็บ private local storage ต้องรวมในนโยบายสำรองข้อมูล
 - ทดสอบปลายทาง API ภายนอกจริงด้วยบัญชี/เครือข่ายใช้งาน และทดลองกับครูกลุ่มเล็กก่อนเปิดทั้งสถานศึกษา
+
+### ซ่อมรหัสรูป/รายชื่อสำหรับฐานเก่า (24 ตุลาคม 2569)
+
+รัน `php artisan migrate --force` ตามด้วย `php artisan optimize:clear` และ `php artisan sena:health` หลัง deploy รุ่นแก้บันทึก Migration ตรวจชนิดคอลัมน์จริงและคืน AUTO_INCREMENT เฉพาะ numeric primary key ที่ขาด โดยไม่เปลี่ยนรหัสเดิมหรือแปลง text key โมเดลไม่เดาชนิดจาก exception และไม่สร้างตารางระหว่าง transaction บันทึก ดูรายละเอียด MySQL 1364/1366 และการรันผ่าน Plesk ใน [docs.md](../docs.md)

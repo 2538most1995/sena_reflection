@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 const project = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 export const workflowBaseUrl = 'http://127.0.0.1:8777'
 export const workflowCredentials = { user: 'workflow-e2e', password: 'WorkflowE2E2026!' }
-export type WorkflowFixture = { close: () => Promise<void>; records: () => { id: string; level: string; subject: string; present: number; total: number; attendance: { present: boolean }[] }[] }
+export type WorkflowFixture = { seedLegacyRecord: () => string; close: () => Promise<void>; records: () => { id: string; level: string; subject: string; present: number; total: number; attendance: { present: boolean }[]; images: { id: string; file_path: string }[] }[] }
 
 function php(source: string, environment: NodeJS.ProcessEnv) {
   const result = spawnSync('php', [], { cwd: project, env: environment, input: `<?php\n${source}`, encoding: 'utf8' })
@@ -68,6 +68,7 @@ export async function startWorkflowFixture(): Promise<WorkflowFixture> {
       if(config('database.default')!=='sqlite'||config('database.connections.sqlite.database')!==getenv('DB_DATABASE'))throw new RuntimeException('Refusing non-fixture database.');
       $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->call('migrate',['--force'=>true]);
       App\\Models\\Tambon::create(['id'=>'workflow-tambon','name'=>'ตำบลทดสอบขั้นตอนบันทึก']);
+      App\\Models\\User::create(['id'=>'workflow-district','username'=>'workflow-district','name'=>'ผู้ดูแลทดสอบ','password'=>Illuminate\\Support\\Facades\\Hash::make('WorkflowE2E2026!'),'role'=>'district','tambon'=>null]);
       App\\Models\\User::create(['id'=>'workflow-user','username'=>'workflow-e2e','name'=>'ครูทดสอบขั้นตอนบันทึก','password'=>Illuminate\\Support\\Facades\\Hash::make('WorkflowE2E2026!'),'role'=>'tambon','tambon'=>'workflow-tambon']);
       $groups=[];
       foreach(['1'=>'ประถมศึกษา','2'=>'มัธยมศึกษาตอนต้น','3'=>'มัธยมศึกษาตอนปลาย']as$code=>$name){
@@ -96,7 +97,15 @@ export async function startWorkflowFixture(): Promise<WorkflowFixture> {
     await Promise.all([waitForServer(`${workflowBaseUrl}/login`, server), waitForServer('http://127.0.0.1:5187/@vite/client', vite)])
     return {
       close,
-      records: () => JSON.parse(php(`${bootstrap} echo App\\Models\\TeachingRecord::query()->with('attendance')->orderBy('level')->get(['id','level','subject','present','total'])->toJson();`, environment)),
+      seedLegacyRecord: () => php(`${bootstrap}
+        Illuminate\\Support\\Facades\\Schema::drop('record_images');
+        Illuminate\\Support\\Facades\\Schema::create('record_images',function(Illuminate\\Database\\Schema\\Blueprint $t){$t->string('id',20)->primary();$t->string('record_id',20)->index();$t->string('file_path');$t->timestamp('created_at')->nullable();});
+        $r=App\\Models\\TeachingRecord::create(['id'=>'workflow-legacy-3','tambon'=>'workflow-tambon','week'=>16,'date'=>'2026-09-30','semester'=>'1','year'=>'2569','level'=>'มัธยมศึกษาตอนปลาย','class_group_code'=>'WORKFLOW-3','class_name'=>'กลุ่มทดสอบ มัธยมศึกษาตอนปลาย','subject'=>'วิชาเดิมทดสอบ','result'=>'ผลการสอนเดิม','total'=>26,'present'=>7,'created_by'=>'workflow-user']);
+        foreach(range(1,26)as$i)App\\Models\\RecordAttendance::create(['record_id'=>$r->id,'student_id'=>str_pad((string)$i,10,'0',STR_PAD_LEFT),'full_name'=>' ผู้เรียนเดิม '.$i.' ','group_code'=>' WORKFLOW-3 ','present'=>$i<=7?1:0,'learning_method'=>$i<=7?' ':null]);
+        foreach(range(1,4)as$i){$p='records/original-'.$i.'.png';Illuminate\\Support\\Facades\\Storage::disk('public')->put($p,base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jhx0AAAAASUVORK5CYII='));App\\Models\\RecordImage::create(['record_id'=>$r->id,'file_path'=>'storage/'.$p]);}
+        echo $r->id;
+      `, environment).trim(),
+      records: () => JSON.parse(php(`${bootstrap} echo App\\Models\\TeachingRecord::query()->with(['attendance','images'])->orderBy('level')->get(['id','level','subject','present','total'])->toJson();`, environment)),
     }
   } catch (error) { await close(); throw error }
 }

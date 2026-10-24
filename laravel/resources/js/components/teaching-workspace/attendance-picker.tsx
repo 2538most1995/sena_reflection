@@ -67,7 +67,7 @@ export function AttendancePicker({ rows, levelCode, groupCode, state, onChange, 
     <div className="grid gap-3 border-b bg-muted/25 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2"><UsersThree size={19} className="text-primary" /><b className="text-sm">มาเรียน {selected} จาก {rows.length} คน</b></div>
-        <div className="flex gap-2"><Button type="button" variant="outline" size="sm" onClick={setEveryonePresent}>เลือกมาเรียนทั้งหมด</Button><Button type="button" variant="ghost" size="sm" onClick={() => onChange(rows.map((row) => ({ ...row, present: false, learning_method: null })))}>ทำเครื่องหมายขาดทั้งหมด</Button></div>
+        <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={setEveryonePresent}>เลือกมาเรียนทั้งหมด</Button><Button type="button" variant="ghost" size="sm" onClick={() => onChange(rows.map((row) => ({ ...row, present: false, learning_method: null })))}>ทำเครื่องหมายขาดทั้งหมด</Button></div>
       </div>
       <p className="text-xs text-muted-foreground">ทำเครื่องหมายเฉพาะผู้มาเรียน ระบบเก็บการเปลี่ยนแปลงให้อัตโนมัติ</p>
       <div className="relative"><MagnifyingGlass size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 pl-9" placeholder="ค้นหาชื่อหรือรหัสนักศึกษา" aria-label="ค้นหารายชื่อนักศึกษา" /></div>
