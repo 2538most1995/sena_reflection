@@ -15,7 +15,15 @@ class SenaHealthCommand extends Command
     public function handle(): int
     {
         $required = ['users', 'tambons', 'records', 'record_images', 'record_attendance', 'settings', 'weekly_submissions', 'teaching_drafts', 'draft_images', 'record_revisions'];
-        $missing = collect($required)->reject(fn ($table) => Schema::hasTable($table))->values();
+
+        try {
+            $missing = collect($required)->reject(fn ($table) => Schema::hasTable($table))->values();
+        } catch (\Throwable $e) {
+            $this->error('Database connection failed: '.$e->getMessage());
+
+            return self::FAILURE;
+        }
+
         if ($missing->isNotEmpty()) {
             $this->error('Missing tables: '.$missing->join(', '));
             $this->warn('Tip: Run "php artisan migrate --force" to create missing tables.');
