@@ -12,8 +12,10 @@ use App\Models\TeachingRecord;
 use App\Models\User;
 use App\Models\WeeklySubmission;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -30,6 +32,7 @@ class FinalizeTeachingSubmission
     /** @return array{submission_id: string, record_ids: list<string>, redirect_url: string} */
     public function finalize(User $user, TeachingDraft $draft, int $lockVersion, string $idempotencyKey, ?array $reviewedLevelCodes = null, bool $confirmed = false): array
     {
+        $this->ensureTables();
         $owned = $this->drafts->owned($user, $draft)->load('images');
         if ($owned->status === 'finalized') {
             if (hash_equals((string) $owned->finalize_key, $idempotencyKey)) {
@@ -184,7 +187,7 @@ class FinalizeTeachingSubmission
 
                     $record->attendance()->delete();
                     if ($isRoster && $attendance->isNotEmpty()) {
-                        RecordAttendance::query()->insert($attendance->map(fn (array $row): array => [
+                        $attendanceRows = $attendance->map(fn (array $row): array => [
                             'record_id' => $record->id,
                             'student_id' => $row['student_id'],
                             'full_name' => $row['full_name'],
@@ -193,7 +196,9 @@ class FinalizeTeachingSubmission
                             'present' => (bool) $row['present'],
                             'learning_method' => $row['present'] ? ($row['learning_method'] ?? 'พบกลุ่ม') : null,
                             'created_at' => now(),
-                        ])->all());
+                        ])->all();
+
+                        RecordAttendance::insertAdaptively($attendanceRows);
                     }
 
                     $record->images()->delete();
@@ -205,7 +210,7 @@ class FinalizeTeachingSubmission
                             throw ValidationException::withMessages(["payload.levels.{$levelCode}.image_ids" => 'บันทึกไฟล์รูปภาพไม่สำเร็จ']);
                         }
                         $copiedPaths[] = $targetPath;
-                        $recordImage = RecordImage::create([
+                        $recordImage = RecordImage::createWithAdaptiveKey([
                             'record_id' => $record->id,
                             'file_path' => 'storage/'.$targetPath,
                             'created_at' => now(),
@@ -353,5 +358,48 @@ class FinalizeTeachingSubmission
                 'week' => $submission->week,
             ]),
         ];
+    }
+
+    private function ensureTables(): void
+    {
+        if (! Schema::hasTable('weekly_submissions')) {
+            try {
+                Schema::create('weekly_submissions', static function (Blueprint $table): void {
+                    $table->uuid('id')->primary();
+                    $table->string('tambon', 20)->index();
+                    $table->unsignedTinyInteger('week');
+                    $table->string('semester', 10);
+                    $table->string('year', 10);
+                    $table->string('submitted_by', 20)->index();
+                    $table->string('status', 20)->default('complete');
+                    $table->timestamps();
+                    $table->unique(['tambon', 'year', 'semester', 'week'], 'uq_weekly_submission_scope');
+                    $table->index(['year', 'semester', 'week'], 'idx_weekly_period');
+                });
+            } catch (\Throwable) {
+            }
+        }
+
+        if (! Schema::hasColumn('records', 'weekly_submission_id')) {
+            try {
+                Schema::table('records', static function (Blueprint $table): void {
+                    $table->uuid('weekly_submission_id')->nullable()->after('id')->index();
+                });
+            } catch (\Throwable) {
+            }
+        }
+
+        if (! Schema::hasTable('record_document_layouts')) {
+            try {
+                Schema::create('record_document_layouts', static function (Blueprint $table): void {
+                    $table->string('record_id', 20)->primary();
+                    $table->json('settings');
+                    $table->json('content');
+                    $table->string('updated_by', 20)->nullable()->index();
+                    $table->timestamps();
+                });
+            } catch (\Throwable) {
+            }
+        }
     }
 }

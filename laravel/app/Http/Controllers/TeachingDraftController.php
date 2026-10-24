@@ -110,13 +110,22 @@ class TeachingDraftController extends Controller
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
+        } catch (\App\Exceptions\DraftVersionConflictException $e) {
+            throw $e;
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            throw $e;
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('Draft finalization failed: '.$e->getMessage(), [
                 'draft_id' => $teachingDraft->id,
                 'user_id' => $request->user()->id,
                 'exception' => $e,
             ]);
-            throw $e;
+
+            return response()->json([
+                'message' => 'ระบบบันทึกขัดข้อง: '.$e->getMessage(),
+            ], 500);
         }
     }
 }

@@ -36,7 +36,12 @@ export function draftRequestError(status: number): string {
 }
 
 export function safeDraftResponseMessage(status: number, envelope: { message?: unknown; errors?: unknown }): string | undefined {
-  if (status >= 500) return draftRequestError(status)
+  if (status >= 500) {
+    if (typeof envelope?.message === 'string' && envelope.message.startsWith('ระบบบันทึกขัดข้อง:')) {
+      return envelope.message
+    }
+    return draftRequestError(status)
+  }
   const errors = envelope.errors && typeof envelope.errors === 'object' ? Object.values(envelope.errors).flat().filter((value): value is string => typeof value === 'string') : []
   if (errors.length) return errors.slice(0, 3).join(' · ')
   if (typeof envelope.message === 'string' && envelope.message.trim()) return envelope.message
