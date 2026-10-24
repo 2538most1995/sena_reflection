@@ -120,6 +120,90 @@ class LegacyRecordKeyMySqlTest extends TestCase
         }
     }
 
+    public function test_mysql_unindexed_duplicate_zero_ids_keep_every_legacy_row_and_generate_new_ids(): void
+    {
+        $this->removeAutoIncrement();
+        DB::statement('ALTER TABLE record_images DROP PRIMARY KEY, MODIFY id INT NOT NULL');
+        $rows = [];
+        foreach (range(1, 1932) as $index) {
+            $rows[] = ['id' => $index <= 1890 ? 0 : $index - 1890, 'record_id' => 'legacy-'.($index % 631), 'file_path' => 'uploads/legacy-'.$index.'.jpg', 'created_at' => '2026-10-01 12:00:00'];
+        }
+        foreach (array_chunk($rows, 500) as $chunk) {
+            DB::table('record_images')->insert($chunk);
+        }
+        $before = DB::table('record_images')->orderBy('file_path')->get()->toArray();
+        $mode = DB::selectOne('SELECT @@SESSION.sql_mode AS mode')->mode;
+        $indexes = Schema::getIndexes('record_images');
+        $this->repairKeys();
+        $this->repairKeys();
+        $this->assertEquals($before, DB::table('record_images')->orderBy('file_path')->get()->toArray());
+        $this->assertSame(1890, DB::table('record_images')->where('id', 0)->count());
+        $this->assertSame($mode, DB::selectOne('SELECT @@SESSION.sql_mode AS mode')->mode);
+        $afterIndexes = Schema::getIndexes('record_images');
+        foreach ($indexes as $index) {
+            $this->assertContains($index, $afterIndexes);
+        }
+        $this->assertCount(count($indexes) + 1, $afterIndexes);
+        $this->assertFalse(collect($afterIndexes)->firstWhere('name', 'record_images_generated_id_index')['unique']);
+        $this->assertSame('int', collect(Schema::getColumns('record_images'))->firstWhere('name', 'id')['type_name']);
+        $image = RecordImage::createWithAdaptiveKey(['record_id' => 'new-record', 'file_path' => 'storage/new.jpg']);
+        $this->assertSame('43', (string) $image->id);
+        RecordAttendance::insertAdaptively([['record_id' => 'new-record', 'student_id' => '0001', 'full_name' => 'ผู้เรียน', 'present' => false]]);
+        $this->assertDatabaseCount('record_images', 1933);
+        $this->assertDatabaseCount('record_attendance', 1);
+    }
+
+    public function test_mysql_repair_reuses_leading_id_indexes_and_preserves_other_primary_keys(): void
+    {
+        foreach (['INDEX legacy_id (id)', 'UNIQUE INDEX legacy_id (id)', 'PRIMARY KEY (id, record_id)', 'PRIMARY KEY (file_path), INDEX legacy_id (id, record_id)'] as $indexDefinition) {
+            DB::statement('DROP TABLE record_images');
+            $nullable = str_contains($indexDefinition, 'PRIMARY KEY (id,') ? 'NOT NULL' : 'NULL';
+            DB::statement('CREATE TABLE record_images (id INT '.$nullable.', record_id VARCHAR(20) NOT NULL, file_path VARCHAR(255) NOT NULL, created_at DATETIME NULL, '.$indexDefinition.') ENGINE=InnoDB');
+            DB::table('record_images')->insert(['id' => 17, 'record_id' => 'fixture', 'file_path' => 'uploads/old.jpg']);
+            $beforeIndexes = Schema::getIndexes('record_images');
+            $this->repairKeys();
+            $this->repairKeys();
+            $this->assertEquals($beforeIndexes, Schema::getIndexes('record_images'));
+            $this->assertDatabaseHas('record_images', ['id' => 17, 'file_path' => 'uploads/old.jpg']);
+            $image = RecordImage::createWithAdaptiveKey(['record_id' => 'fixture', 'file_path' => 'storage/new.jpg']);
+            $this->assertSame('18', (string) $image->id);
+        }
+    }
+
+    public function test_mysql_repair_adds_an_index_without_replacing_a_different_primary_key(): void
+    {
+        DB::statement('DROP TABLE record_images');
+        DB::statement('CREATE TABLE record_images (id INT NOT NULL, record_id VARCHAR(20), file_path VARCHAR(255) PRIMARY KEY, created_at DATETIME NULL, INDEX record_images_generated_id_index (record_id)) ENGINE=InnoDB');
+        DB::table('record_images')->insert(['id' => 0, 'record_id' => 'fixture', 'file_path' => 'uploads/old.jpg']);
+        $beforeIndexes = Schema::getIndexes('record_images');
+        $this->repairKeys();
+        foreach ($beforeIndexes as $index) {
+            $this->assertContains($index, Schema::getIndexes('record_images'));
+        }
+        $this->assertDatabaseHas('record_images', ['id' => 0, 'file_path' => 'uploads/old.jpg']);
+        $this->assertNotNull(collect(Schema::getIndexes('record_images'))->firstWhere('name', 'record_images_generated_id_index_1'));
+        $this->assertSame('1', (string) RecordImage::createWithAdaptiveKey(['record_id' => 'fixture', 'file_path' => 'storage/new.jpg'])->id);
+    }
+
+    public function test_mysql_repair_rejects_null_identities_before_altering_any_table(): void
+    {
+        $this->removeAutoIncrement();
+        DB::statement('ALTER TABLE record_attendance DROP PRIMARY KEY, MODIFY id INT NULL');
+        DB::table('record_attendance')->insert(['id' => null, 'record_id' => 'fixture', 'student_id' => '0001', 'full_name' => 'ผู้เรียน', 'present' => false]);
+        $beforeIndexes = Schema::getIndexes('record_images');
+        $mode = DB::selectOne('SELECT @@SESSION.sql_mode AS mode')->mode;
+        try {
+            $this->repairKeys();
+            $this->fail('Null identities require explicit repair before changing the schema.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('record_attendance.id generation: null_rows=1', $exception->getMessage());
+        }
+        $this->assertFalse(collect(Schema::getColumns('record_images'))->firstWhere('name', 'id')['auto_increment']);
+        $this->assertEquals($beforeIndexes, Schema::getIndexes('record_images'));
+        $this->assertSame($mode, DB::selectOne('SELECT @@SESSION.sql_mode AS mode')->mode);
+        $this->assertSame(1, DB::table('record_attendance')->whereNull('id')->count());
+    }
+
     public function test_mysql_legacy_text_keys_are_preserved_and_never_converted_to_numeric_keys(): void
     {
         foreach (['record_images', 'record_attendance'] as $table) {
@@ -143,12 +227,14 @@ class LegacyRecordKeyMySqlTest extends TestCase
         for ($index = 1; $index <= 26; $index++) {
             RecordAttendance::create(['record_id' => $source->id, 'student_id' => str_pad((string) $index, 10, '0', STR_PAD_LEFT), 'full_name' => ' ผู้เรียน '.$index.' ', 'group_code' => ' 230009 ', 'present' => $index <= 7, 'learning_method' => $index <= 7 ? ' ' : null]);
         }
+        $this->removeAutoIncrement();
+        DB::statement('ALTER TABLE record_images DROP PRIMARY KEY, MODIFY id INT NOT NULL');
+        DB::table('record_images')->insert(['id' => 0, 'record_id' => 'other-record', 'file_path' => 'uploads/other-record.jpg']);
         foreach (range(1, 4) as $index) {
             $path = UploadedFile::fake()->image('original-'.$index.'.jpg')->store('records/original', 'public');
-            RecordImage::create(['record_id' => $source->id, 'file_path' => 'storage/'.$path]);
+            DB::table('record_images')->insert(['id' => 0, 'record_id' => $source->id, 'file_path' => 'storage/'.$path]);
         }
         $originalImages = $source->images()->get()->toArray();
-        $this->removeAutoIncrement();
         $this->repairKeys();
         $created = $this->actingAs($district)->postJson(route('teaching-drafts.store'), ['source_record_id' => $source->id])->assertCreated();
         $draft = $created->json('data.draft');
@@ -168,6 +254,8 @@ class LegacyRecordKeyMySqlTest extends TestCase
         $this->assertSame(26, $source->fresh()->total);
         $this->assertSame(7, $source->fresh()->present);
         $this->assertSame(4, $source->images()->count());
+        $this->assertSame(4, $source->images()->where('id', '>', 0)->distinct()->count('id'));
+        $this->assertDatabaseHas('record_images', ['id' => 0, 'record_id' => 'other-record', 'file_path' => 'uploads/other-record.jpg']);
         $this->assertSame(7, $source->attendance()->where('present', true)->count());
         $this->postJson(route('teaching-drafts.finalize', $draft['id']), $request)->assertOk();
         $this->assertDatabaseCount('records', 1);

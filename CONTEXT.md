@@ -77,4 +77,4 @@ root `index.php`, `assets/js/app.js`, `assets/css/style.css`, `api/`, `config.ph
 
 ## ความเข้ากันได้ของรหัสรูปและรายชื่อ
 
-`record_images.id` / `record_attendance.id` อาจมาจาก numeric AUTO_INCREMENT หรือ text primary key ของฐานนำเข้า ต้องอ่าน schema จริง ห้ามตีความ error 1364 ว่าเป็น text key Migration `2026_10_24_142034_restore_auto_increment_on_legacy_record_keys` คืน AUTO_INCREMENT ให้ numeric key ที่ขาดโดยรักษา ID เดิม การสร้างตาราง/ซ่อม schema ทำตอน migrate เท่านั้น ไม่อยู่ใน transaction ของ finalize/revision และไม่ส่ง exception/SQL กลับหน้าเว็บ
+`record_images.id` / `record_attendance.id` อาจมาจาก numeric AUTO_INCREMENT หรือ text primary key ของฐานนำเข้า ต้องอ่าน schema จริง ห้ามตีความ error 1364 ว่าเป็น text key Migration `2026_10_24_142034_restore_auto_increment_on_legacy_record_keys` คืน AUTO_INCREMENT ให้ numeric key ที่ขาดโดยรักษา ID เดิม แม้ไม่มี primary key หรือมี id=0 ซ้ำ ใช้ leading-id nonunique index แทนการบังคับ UNIQUE/เปลี่ยนรหัสเก่า และหยุดก่อน ALTER หากพบ NULL การสร้างตาราง/ซ่อม schema ทำตอน migrate เท่านั้น ไม่อยู่ใน transaction ของ finalize/revision และไม่ส่ง exception/SQL กลับหน้าเว็บ

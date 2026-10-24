@@ -16,6 +16,7 @@ return new class extends Migration
         }
 
         $schema = $connection->getSchemaBuilder();
+        $repairs = [];
         foreach (['record_images', 'record_attendance'] as $table) {
             if (! $schema->hasTable($table)) {
                 continue;
@@ -25,24 +26,44 @@ return new class extends Migration
                 || ! in_array(strtolower($column['type_name']), ['tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint'], true)) {
                 continue;
             }
-            $primary = collect($schema->getIndexes($table))->firstWhere('primary', true);
-            if (($primary['columns'] ?? []) !== ['id'] || $connection->table($table)->whereNull('id')->exists()) {
-                throw new RuntimeException("Cannot restore {$table}.id generation: a non-null, single-column primary key is required.");
+            $nulls = $connection->table($table)->whereNull('id')->count();
+            if ($nulls) {
+                throw new RuntimeException("Cannot restore {$table}.id generation: null_rows={$nulls}. Existing IDs and rows were not changed; resolve null identities before retrying.");
             }
             $type = $column['type'];
             if (! preg_match('/\A(?:tinyint|smallint|mediumint|int|integer|bigint)(?:\(\d+\))?(?: unsigned)?\z/i', $type)) {
                 throw new RuntimeException("Unsupported numeric key type for {$table}.id.");
             }
 
-            $mode = (string) $connection->selectOne('SELECT @@SESSION.sql_mode AS mode')->mode;
-            $grammar = $connection->getQueryGrammar();
-            try {
-                // Keep imported zero IDs and their document anchors intact during ALTER.
-                $connection->statement('SET SESSION sql_mode = ?', [implode(',', array_unique([...array_filter(explode(',', $mode)), 'NO_AUTO_VALUE_ON_ZERO']))]);
-                $connection->statement('ALTER TABLE '.$grammar->wrapTable($table).' MODIFY '.$grammar->wrap('id').' '.$type.' NOT NULL AUTO_INCREMENT');
-            } finally {
-                $connection->statement('SET SESSION sql_mode = ?', [$mode]);
+            // InnoDB only needs a leading ID index, not uniqueness. Imported zero IDs
+            // can repeat across photos and must retain their document/history anchors.
+            $indexes = $schema->getIndexes($table);
+            $indexedId = collect($indexes)->contains(static fn (array $index): bool => ($index['columns'][0] ?? null) === 'id');
+            $indexName = $table.'_generated_id_index';
+            $suffix = 0;
+            while (in_array($indexName, array_column($indexes, 'name'), true)) {
+                $indexName = $table.'_generated_id_index_'.(++$suffix);
             }
+            $repairs[] = compact('table', 'type', 'indexedId', 'indexName');
+        }
+
+        if ($repairs === []) {
+            return;
+        }
+        $mode = (string) $connection->selectOne('SELECT @@SESSION.sql_mode AS mode')->mode;
+        $grammar = $connection->getQueryGrammar();
+        try {
+            // Keep imported zero IDs and their document anchors intact during ALTER.
+            $connection->statement('SET SESSION sql_mode = ?', [implode(',', array_unique([...array_filter(explode(',', $mode)), 'NO_AUTO_VALUE_ON_ZERO']))]);
+            foreach ($repairs as $repair) {
+                $statement = 'ALTER TABLE '.$grammar->wrapTable($repair['table']).' MODIFY '.$grammar->wrap('id').' '.$repair['type'].' NOT NULL AUTO_INCREMENT';
+                if (! $repair['indexedId']) {
+                    $statement .= ', ADD INDEX '.$grammar->wrap($repair['indexName']).' ('.$grammar->wrap('id').')';
+                }
+                $connection->statement($statement);
+            }
+        } finally {
+            $connection->statement('SET SESSION sql_mode = ?', [$mode]);
         }
     }
 

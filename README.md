@@ -56,4 +56,4 @@ Repository นี้ไม่มี `.env`, คีย์ API, database dump, ไ
 
 ดูรายละเอียดเพิ่มเติมใน [คู่มือ Laravel](laravel/README.md)
 
-แก้ปัญหาบันทึก MySQL 1364/1366: หลังอัปเดตต้องรัน `php artisan migrate --force` ใน `laravel/` เพื่อคืน AUTO_INCREMENT ที่ขาดของรหัสตัวเลข โดยรักษารูปและรหัสเดิม ดูขั้นตอน Plesk และการตรวจผลใน [docs.md](docs.md)
+แก้ปัญหาบันทึก MySQL 1364/1366: หลังอัปเดตต้องรัน `php artisan migrate --force` ใน `laravel/` เพื่อคืน AUTO_INCREMENT ที่ขาดของรหัสตัวเลข รองรับตารางไม่มี primary key และรหัส 0 ซ้ำ โดยรักษารูปและรหัสเดิม หาก migration รุ่นเดิมล้มเหลวให้อัปเดตไฟล์แล้วรันคำสั่งเดิมซ้ำ ดูขั้นตอน Plesk และการตรวจผลใน [docs.md](docs.md)

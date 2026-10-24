@@ -229,7 +229,11 @@ php artisan optimize:clear
 php artisan sena:health
 ```
 
-Migration `2026_10_24_142034_restore_auto_increment_on_legacy_record_keys` ตรวจชนิดคอลัมน์จริงของ `record_images.id` และ `record_attendance.id` บน MySQL/MariaDB แล้วคืน `AUTO_INCREMENT` เฉพาะ primary key ตัวเลขที่ขาดคุณสมบัตินี้ รักษาชนิด/ขนาด/unsigned รวมถึง ID เดิมและค่า 0 ไว้ คอลัมน์ข้อความและคอลัมน์ที่ทำงานถูกต้องอยู่แล้วไม่ถูกแปลง ไม่ต้องสร้างบันทึกหรือร่างใหม่
+Migration `2026_10_24_142034_restore_auto_increment_on_legacy_record_keys` ตรวจชนิดคอลัมน์จริงของ `record_images.id` และ `record_attendance.id` บน MySQL/MariaDB แล้วคืน `AUTO_INCREMENT` เฉพาะคอลัมน์ตัวเลขที่ขาดคุณสมบัตินี้ รักษาชนิด/ขนาด/unsigned รวมถึง ID เดิมและค่า 0 ไว้ คอลัมน์ข้อความและคอลัมน์ที่ทำงานถูกต้องอยู่แล้วไม่ถูกแปลง ไม่ต้องสร้างบันทึกหรือร่างใหม่
+
+หาก migration เดิมแจ้ง `a non-null, single-column primary key is required` ให้อัปเดตไฟล์ migration ชื่อเดิมแล้วรัน `migrate --force` ซ้ำ ไม่ต้อง rollback หรือแก้ตาราง `migrations` รุ่นแก้ไขรองรับตารางที่ไม่มี primary key หรือใช้ primary key แบบอื่น โดยเพิ่ม **ดัชนีธรรมดาที่ขึ้นต้นด้วย id** เฉพาะเมื่อยังไม่มี แล้วเปิด AUTO_INCREMENT ใน ALTER เดียว ใช้ `NO_AUTO_VALUE_ON_ZERO` ชั่วคราวและคืน SQL mode หลังทำงาน ไม่บังคับ UNIQUE เพราะข้อมูลนำเข้าอาจมีรูปหลายแถวใช้ id=0 ซ้ำกัน ห้ามลบแถว เปลี่ยนรหัสเก่า หรือเขียนทับประวัติ/ตำแหน่งรูปเพื่อให้ migration ผ่าน
+
+ก่อนและหลัง migrate ให้เทียบจำนวนรูปทั้งหมด จำนวน id=0 และแถวเดิมตาม record_id/file_path ให้ตรงกัน ชุดทดสอบจำลอง 1,932 รูป โดยมี id=0 จำนวน 1,890 รูปในหลายบันทึก ยืนยันว่าแถวเดิมอยู่ครบและรูปใหม่ได้เลขมากกว่าค่าสูงสุดเดิม การบันทึกร่างแทนรายการเก่าต้องเปลี่ยนเฉพาะรูปของรายการนั้น หากพบ id เป็น NULL migration จะหยุดก่อน ALTER ทั้งสองตาราง พร้อมระบุจำนวนแถวให้ผู้ดูแลตรวจ ไม่สุ่มรหัสให้ข้อมูลเดิม
 
 หากใช้ Plesk Scheduled Tasks ให้เลือก **Run a PHP script** ตั้ง Script path เป็น `httpdocs/sena_reflection/laravel/artisan` และใส่ `migrate --force` ในช่อง arguments แล้วกด **Run Now** จากนั้นรัน `optimize:clear` และ `sena:health` ด้วยวิธีเดียวกัน ใช้ PHP CLI รุ่นที่รองรับโปรเจกต์ หากบัญชีฐานไม่มีสิทธิ์ ALTER ระบบจะแจ้ง migration ล้มเหลว ต้องให้ผู้ดูแลฐานรัน migration ให้สำเร็จก่อนลองบันทึกใหม่
 
@@ -237,7 +241,7 @@ Migration `2026_10_24_142034_restore_auto_increment_on_legacy_record_keys` ต�
 
 โหลดหน้าร่างเดิมใหม่หลังอัปเดต ตรวจยอดมาเรียนและรูป แล้วกดยืนยันอีกครั้ง การล้มเหลวระหว่างบันทึกจะ rollback ข้อมูล/รูปที่เพิ่งสร้าง และยังเก็บร่างให้ลองใหม่ ไม่มีการสร้างตารางใน transaction บันทึกหรือประวัติฉบับ การสร้างตารางเป็นหน้าที่ของ migrations
 
-ชุดทดสอบ `LegacyRecordKeyMySqlTest` ใช้ MySQL แยกที่สร้างเพื่อทดสอบโดยเฉพาะ ผ่าน `SENA_MYSQL_TEST_SOCKET` ซึ่งต้องเป็น socket ภายในโฟลเดอร์ `sena-save-mysql-*` ชุดนี้สร้างและลบเฉพาะฐานชื่อสุ่ม `sena_key_test_*` ของตนเอง ครอบคลุม numeric key ที่ขาด AUTO_INCREMENT, text key, การรักษา ID เดิม, rollback/retry และตัวอย่างทั้ง 26 คน/7 คน/4 รูป กับ 26 คน/4 คน/2 รูป
+ชุดทดสอบ `LegacyRecordKeyMySqlTest` ใช้ MySQL แยกที่สร้างเพื่อทดสอบโดยเฉพาะ ผ่าน `SENA_MYSQL_TEST_SOCKET` ซึ่งต้องเป็น socket ภายในโฟลเดอร์ `sena-save-mysql-*` ชุดนี้สร้างและลบเฉพาะฐานชื่อสุ่ม `sena_key_test_*` ของตนเอง ครอบคลุม numeric key ที่ขาด AUTO_INCREMENT, text key, ค่า 0 ซ้ำ, ตารางไม่มี primary key/มี composite key/มี index เดิม, NULL guard, rollback/retry และตัวอย่างทั้ง 26 คน/7 คน/4 รูป กับ 26 คน/4 คน/2 รูป
 
 ## แก้ปัญหาที่พบบ่อย
 

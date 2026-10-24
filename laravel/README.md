@@ -138,4 +138,4 @@ E2E ใช้ `npm run test:e2e` โดยกำหนด `SENA_E2E_BASE_URL` �
 
 ### ซ่อมรหัสรูป/รายชื่อสำหรับฐานเก่า (24 ตุลาคม 2569)
 
-รัน `php artisan migrate --force` ตามด้วย `php artisan optimize:clear` และ `php artisan sena:health` หลัง deploy รุ่นแก้บันทึก Migration ตรวจชนิดคอลัมน์จริงและคืน AUTO_INCREMENT เฉพาะ numeric primary key ที่ขาด โดยไม่เปลี่ยนรหัสเดิมหรือแปลง text key โมเดลไม่เดาชนิดจาก exception และไม่สร้างตารางระหว่าง transaction บันทึก ดูรายละเอียด MySQL 1364/1366 และการรันผ่าน Plesk ใน [docs.md](../docs.md)
+รัน `php artisan migrate --force` ตามด้วย `php artisan optimize:clear` และ `php artisan sena:health` หลัง deploy รุ่นแก้บันทึก Migration ตรวจชนิดคอลัมน์จริงและคืน AUTO_INCREMENT เฉพาะคอลัมน์ numeric ที่ขาด โดยเพิ่ม nonunique index(id) หากจำเป็น รองรับตารางไม่มี primary key และ id=0 ซ้ำ โดยไม่เปลี่ยนรหัสเดิมหรือแปลง text key โมเดลไม่เดาชนิดจาก exception และไม่สร้างตารางระหว่าง transaction บันทึก ดูรายละเอียด MySQL 1364/1366 และการรันผ่าน Plesk ใน [docs.md](../docs.md)
