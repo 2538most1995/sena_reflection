@@ -55,6 +55,8 @@ PDF รวมใช้ Python3 + `pypdf` งานส่งออกใช้ qu
 
 งานส่งออกใช้ fingerprint ต่อ user + normalized filters + frozen revision manifest + renderer/build เพื่อ reuse queued/ready job อย่างถูกฉบับ ใช้ user row lock กันคำขอซ้ำพร้อมกัน และยังจำกัดงาน active โหลด revision เป็นชุดละ 25 รายการ; PDF cache แยกผู้ใช้และรุ่น renderer ใช้ filesystem lock/atomic rename และ pruner ไม่ลบ lock ที่ยังต้องใช้ `sena:work-exports` เป็น worker แบบจำกัดรอบสำหรับ Plesk cron; scheduler เรียกทุกนาที ต้องตั้ง `schedule:run` หรือ cron คำสั่งนี้จริงบน hosting จึงจะประมวลผลงาน ไม่ใช้ polling เปิด worker
 
+ตรวจ hosting 24 ต.ค. 2569: deploy `e068f2d` + migration แล้ว เติม Debian 12 libraries และ pypdf ลง private `storage/app/private/document-runtime` ใช้ executable wrappers ที่ตั้งผ่าน environment; version/รวม PDF จำลองผ่าน แต่ Chrome headless ยังติด `No usable sandbox` เพราะ user namespaces ปิดและไม่มี root-owned helper ต้องให้ provider เปิด sandbox ที่รองรับก่อนเปิด task worker ที่เตรียมไว้ ห้ามถือว่า Chrome --version หรือ sena:health ผ่านแล้วแปลว่าสร้าง PDF จริงได้ รายละเอียดและข้อความแจ้งผู้ให้บริการอยู่ใน docs.md
+
 Hosting จริงคือ `https://krumost.com/sena_reflection` ใช้ `npm run build:production` และ `npm run check:production-build` โดย commit `laravel/public/build/` พร้อม source ส่วน `npm run build` ใช้กับเครื่อง local/การติดตั้ง root อย่าส่ง artifact คนละ base path ปะปนกัน
 
 ## ข้อมูลและ schema

@@ -180,6 +180,20 @@ PHP_CLI_BINARY=/absolute/path/to/php
 
 ติดตั้ง `pypdf` ให้ Python executable ที่ระบุเข้าถึงได้ จากนั้นล้างหรือสร้าง config cache ใหม่ และ restart worker เพื่ออ่านค่าใหม่
 
+#### ผลตรวจ hosting วันที่ 24 ตุลาคม 2569
+
+โค้ดรุ่น `e068f2d` และ migration fingerprint ถูก deploy แล้ว พบคิวเดิม 3 งานโดยยังไม่มี worker ของโปรเจกต์ บน PHP CLI 8.4.27 ใช้ `proc_open` และ `pcntl` ได้ แต่ Chrome for Testing 148 ขาด shared libraries และ `/usr/bin/python3` ไม่มี `pypdf`
+
+เติม dependencies จากแพ็กเกจ Debian 12 ที่ตรงกับเครื่อง โดยใช้ `apt-get download` และ `dpkg-deb -x` ลง `storage/app/private/document-runtime/root` ไม่ติดตั้งทับ system libraries จากนั้นตั้ง wrapper ส่วนตัว `document-runtime/chrome` และ `document-runtime/python` ผ่าน `SENA_CHROME_BIN` / `SENA_PYTHON_BIN` ให้ `LD_LIBRARY_PATH` และ `PYTHONPATH` มีผลเฉพาะ subprocess ของเครื่องมือนั้น ค่า executable เดิมเก็บใน `document-runtime/original-tools.json` ต้องสำรองโฟลเดอร์ runtime นี้พร้อม private storage เมื่อย้ายเครื่อง ทดสอบ Chrome `--version` และ `pypdf 3.4.1` ผ่าน รวม PDF จำลองแล้วอ่านกลับได้ 2 หน้า
+
+**ยังต้องให้ผู้ดูแล hosting เปิด sandbox ที่รองรับก่อนประมวลผลงานจริง**: Chrome headless ตอบ `No usable sandbox`; ค่า `kernel.unprivileged_userns_clone` เป็น `0` และไม่มี root-owned sandbox helper ที่ใช้งานได้ ตัว `chrome_sandbox` ใน cache เป็นของผู้ใช้และมี mode `755` จึงใช้แทนไม่ได้ ไม่มีการเพิ่ม `--no-sandbox` หรือเปลี่ยนสิทธิ์ของ helper เพื่อข้ามข้อจำกัดนี้
+
+ข้อความสำหรับแจ้งผู้ให้บริการ:
+
+> เว็บไซต์ krumost.com/sena_reflection ใช้ Chrome for Testing 148 สร้าง PDF ผ่าน PHP CLI 8.4.27 ขณะนี้ shared libraries และ Python/pypdf พร้อมแล้ว แต่ Chrome headless แจ้ง `No usable sandbox` โดยเครื่องตั้ง `kernel.unprivileged_userns_clone=0` และไม่มี root-owned sandbox helper กรุณาจัดเตรียม Chrome sandbox ที่รองรับบัญชีเว็บไซต์นี้ หรืออนุญาต user namespaces ตามนโยบายของเซิร์ฟเวอร์ แล้วทดสอบ headless โดยคง sandbox ไว้
+
+เตรียม Plesk task ID `254` (`sena:work-exports`) ทุกนาทีไว้ในสถานะปิด รักษางานเดิมไว้ในคิว หลังผู้ดูแลแก้ sandbox ให้ทดสอบ headless และ PDF จริงก่อนเปิด task และกด Run Now ไม่สร้าง task ซ้ำ ถ้าใช้ helper ของระบบ ต้องกำหนด `CHROME_DEVEL_SANDBOX` เฉพาะ Chrome wrapper ให้ตรงกับ helper ที่ผู้ดูแลติดตั้ง
+
 สำรองฐานข้อมูลพร้อม `laravel/storage/app/private/`, `laravel/storage/app/public/` และ `uploads/` เดิม เก็บ private storage นอก public URL; `storage:link` ใช้กับ public storage เท่านั้น ไม่ย้ายเอกสารส่วนตัวไปไว้ใต้ `public/` ไม่ commit `.env`, API key, dump ฐานข้อมูล, รูปผู้เรียน หรือเอกสารที่สร้างแล้วเข้า Git
 
 ## ตรวจสอบหลังอัปเดต
