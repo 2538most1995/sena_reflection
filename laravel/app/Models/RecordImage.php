@@ -11,7 +11,10 @@ class RecordImage extends Model
 
     protected $table = 'record_images';
 
-    // Imported installations can retain string image IDs instead of auto-increment keys.
+    // Standard installations use auto-increment integers.
+    // Legacy/imported installations may use string IDs.
+    public $incrementing = true;
+
     protected $keyType = 'string';
 
     protected $fillable = ['id', 'record_id', 'file_path', 'created_at'];
@@ -26,6 +29,7 @@ class RecordImage extends Model
                 return;
             }
             $image->setIncrementing(false);
+            $image->setKeyType('string');
             if ($image->getKey() === null) {
                 $image->setAttribute($image->getKeyName(), 'i'.substr(str_replace('-', '', (string) Str::uuid()), 0, 19));
             }
@@ -51,9 +55,12 @@ class RecordImage extends Model
             // If MySQL complained about missing default value for id (error 1364 or 1048), force string key
             if (str_contains($msg, "Field 'id' doesn't have a default value")
                 || str_contains($msg, "Column 'id' cannot be null")
-                || str_contains($msg, 'NOT NULL constraint failed: record_images.id')) {
+                || str_contains($msg, 'NOT NULL constraint failed: record_images.id')
+                || str_contains($msg, '1364')
+                || str_contains($msg, '1048')) {
                 self::$needsStringKey[$connectionName] = true;
                 $instance->setIncrementing(false);
+                $instance->setKeyType('string');
                 $instance->setAttribute($instance->getKeyName(), 'i'.substr(str_replace('-', '', (string) Str::uuid()), 0, 19));
                 $instance->save();
 
@@ -61,9 +68,10 @@ class RecordImage extends Model
             }
 
             // If MySQL complained about incorrect integer value for id (error 1366), force auto-increment int
-            if (str_contains($msg, 'Incorrect integer value') && str_contains($msg, "'id'")) {
+            if (str_contains($msg, 'Incorrect integer value') || str_contains($msg, '1366')) {
                 self::$needsStringKey[$connectionName] = false;
                 $instance->setIncrementing(true);
+                $instance->setKeyType('int');
                 $instance->setAttribute($instance->getKeyName(), null);
                 $instance->save();
 
@@ -92,7 +100,7 @@ class RecordImage extends Model
             $driver = $connection->getDriverName();
 
             if ($driver === 'mysql') {
-                $column = $connection->selectOne("SHOW COLUMNS FROM `{$image->getTable()}` LIKE ?", [$image->getKeyName()]);
+                $column = $connection->selectOne("SHOW COLUMNS FROM `{$image->getTable()}` LIKE 'id'");
                 if ($column) {
                     $column = (object) array_change_key_case((array) $column, CASE_LOWER);
                     $isAutoIncrement = str_contains(strtolower((string) ($column->extra ?? '')), 'auto_increment');
@@ -121,7 +129,7 @@ class RecordImage extends Model
             }
 
             $type = strtolower((string) ($key['type_name'] ?? ''));
-            $isNumeric = in_array($type, ['int', 'integer', 'bigint', 'smallint', 'tinyint', 'mediumint'], true);
+            $isNumeric = preg_match('/^(int|bigint|smallint|tinyint|mediumint)/i', $type) === 1;
 
             return self::$needsStringKey[$connectionName] = ! $isNumeric;
         } catch (\Throwable) {

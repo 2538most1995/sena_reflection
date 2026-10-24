@@ -78,6 +78,22 @@ class RecordImageStringKeyTest extends TestCase
         ]);
     }
 
+    public function test_create_with_adaptive_key_works_on_integer_schema(): void
+    {
+        $image = RecordImage::createWithAdaptiveKey([
+            'record_id' => $this->record->id,
+            'file_path' => 'storage/records/adaptive-int.jpg',
+        ]);
+
+        $this->assertNotEmpty($image->id);
+        $this->assertTrue(ctype_digit((string) $image->id));
+        $this->assertDatabaseHas('record_images', [
+            'id' => $image->id,
+            'record_id' => $this->record->id,
+            'file_path' => 'storage/records/adaptive-int.jpg',
+        ]);
+    }
+
     public function test_legacy_string_schema_automatically_generates_string_id(): void
     {
         $this->migrateToStringImageKeys();
