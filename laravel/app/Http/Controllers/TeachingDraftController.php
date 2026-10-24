@@ -100,6 +100,7 @@ class TeachingDraftController extends Controller
             (int) $request->validated('lock_version'),
             $request->validated('idempotency_key'),
             $request->validated('reviewed_level_codes'),
+            $request->boolean('confirmed'),
         );
 
         return response()->json([

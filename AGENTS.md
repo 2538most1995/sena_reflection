@@ -6,6 +6,7 @@
 
 - ระบบหลักอยู่ใน `laravel/` ใช้ Laravel, Inertia และ React; ไฟล์ PHP เดิมยังใช้กับเอกสาร legacy และการเทียบผล
 - คู่มือการสร้าง จัดการ และพิมพ์เอกสารอยู่ที่ [`docs.md`](docs.md)
+- หน้าบันทึกหลังสอนยืนยันครั้งเดียวด้วย `confirmed: true` หลังบันทึกร่างล่าสุด ไม่บังคับตรวจ PDF หรือยืนยันรายชื่อแยกแต่ละระดับ; ห้ามเปลี่ยนสถานะมาเรียนอัตโนมัติ และต้องรักษา validation, lock version, idempotency และสิทธิ์เดิม
 - `/records/{record}/document` และหน้าเอกสารฉบับร่างเปิดตัวแก้ไขขั้นสูงโดยตรง โดยเริ่มจากแม่แบบเดิมของ `print.php`
 - ตรวจ `RecordEditorTemplate`, `BoundDocumentService`, `DocumentSchema` และ `DocumentController` เมื่อแก้การนำเข้า การบันทึก หรือสิทธิ์เอกสาร
 - ตรวจ `resources/js/components/editor/`, `resources/js/pages/documents/`, `document-print.ts`, `document-export.ts` และ `document-snapshot.tsx` เมื่อแก้ canvas, การจัดหน้า, PDF หรือ DOCX

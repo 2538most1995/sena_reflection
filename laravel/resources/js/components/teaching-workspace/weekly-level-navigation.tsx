@@ -2,6 +2,7 @@ import { Check, Circle, Warning } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import type { LevelCode, TeachingLevelDraft } from './types'
 import { teachingLevels } from './types'
+import { teachingLevelReady } from './review-state'
 
 type Props = {
   activeLevel: LevelCode
@@ -11,7 +12,7 @@ type Props = {
 }
 
 function levelState(level: TeachingLevelDraft): 'complete' | 'started' | 'empty' {
-  if ((level.class_name.trim() || level.class_group_code.trim()) && level.subject.trim() && level.result.trim() && level.attendance_reviewed && [0, 2, 4].includes(level.image_ids.length)) {
+  if (teachingLevelReady(level)) {
     return 'complete'
   }
 
@@ -43,10 +44,10 @@ export function WeeklyLevelNavigation({ activeLevel, levels, enabledLevelCodes, 
         <span className="min-w-0 flex-1">
           <b className="block truncate text-xs sm:text-sm">{level.shortName}</b>
           <small className={cn('block truncate text-[11px]', active ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
-            {state === 'complete' ? 'พร้อมตรวจ' : state === 'started' ? 'กำลังทำ' : 'ยังไม่เริ่ม'}
+            {state === 'complete' ? 'พร้อมบันทึก' : state === 'started' ? 'กำลังทำ' : 'ยังไม่เริ่ม'}
           </small>
         </span>
-        <span className="hidden xl:block">{state === 'complete' ? <Check size={17} weight="bold" aria-label="พร้อมตรวจ" /> : state === 'started' ? <Warning size={17} weight="fill" aria-label="กำลังทำ" /> : <Circle size={14} aria-label="ยังไม่เริ่ม" />}</span>
+        <span className="hidden xl:block">{state === 'complete' ? <Check size={17} weight="bold" aria-label="พร้อมบันทึก" /> : state === 'started' ? <Warning size={17} weight="fill" aria-label="กำลังทำ" /> : <Circle size={14} aria-label="ยังไม่เริ่ม" />}</span>
       </button>
     })}
   </nav>

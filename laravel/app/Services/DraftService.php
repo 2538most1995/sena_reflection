@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -258,9 +259,7 @@ class DraftService
                     && trim((string) ($entry['subject'] ?? '')) !== ''
                     && (trim((string) ($entry['class_group_code'] ?? '')) !== '' || trim((string) ($entry['class_name'] ?? '')) !== '')
                     && trim((string) ($entry['result'] ?? '')) !== ''
-                    && (($entry['attendance_mode'] ?? 'counts') === 'roster'
-                        ? ! empty($entry['attendance_reviewed']) && ! empty($entry['attendance'])
-                        : (int) ($entry['present'] ?? 0) <= (int) ($entry['total'] ?? 0))
+                    && $this->attendanceReady($entry)
                     && in_array($draft->images->where('level_code', $levelCode)->count(), [0, 2, 4], true))
                     ->count();
 
@@ -275,6 +274,25 @@ class DraftService
                     'images_count' => $draft->images->count(),
                 ];
             })->values()->all();
+    }
+
+    private function attendanceReady(array $entry): bool
+    {
+        if (($entry['attendance_mode'] ?? 'counts') !== 'roster') {
+            return Validator::make(['total' => $entry['total'] ?? 0, 'present' => $entry['present'] ?? 0], [
+                'total' => ['required', 'integer', 'between:0,10000'],
+                'present' => ['required', 'integer', 'between:0,10000', 'lte:total'],
+            ])->passes();
+        }
+        $valid = Validator::make($entry, [
+            'attendance' => ['required', 'array', 'min:1', 'max:2000'],
+            'attendance.*.student_id' => ['required', 'string', 'max:50', 'distinct'],
+            'attendance.*.full_name' => ['required', 'string', 'max:255'],
+            'attendance.*.present' => ['required', 'boolean'],
+            'attendance.*.learning_method' => ['nullable', 'in:พบกลุ่ม,ออนไลน์'],
+        ])->passes();
+
+        return $valid && collect($entry['attendance'])->every(static fn (array $row): bool => empty($row['group_code']) || empty($entry['class_group_code']) || $row['group_code'] === $entry['class_group_code']);
     }
 
     public function assertVersion(User $user, TeachingDraft|string $draft, int $lockVersion): TeachingDraft

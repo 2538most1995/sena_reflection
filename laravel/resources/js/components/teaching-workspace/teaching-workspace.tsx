@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { draftRequestError, waitForBrowserDocument } from '@/lib/browser-document-review'
 import type { SharedProps } from '@/types'
-import { RecordReview, WorkspaceSummary, reviewIssues } from './record-review'
+import { RecordReview, RecordSaveConfirmation, WorkspaceIssues, WorkspaceSummary, reviewIssues } from './record-review'
 import { TeachingDetailsForm } from './teaching-details-form'
 import type {
   DraftSaveState,
@@ -123,6 +123,9 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const [imageBusy, setImageBusy] = useState(false)
   const [bootstrapping, setBootstrapping] = useState(mode === 'edit' && !initialDraft)
   const [finalizing, setFinalizing] = useState(false)
+  const [confirmationOpen, setConfirmationOpen] = useState(false)
+  const [showIssues, setShowIssues] = useState(false)
+  const [focusRequest, setFocusRequest] = useState(0)
   const [previewing, setPreviewing] = useState(false)
   const [previewLevel, setPreviewLevel] = useState<LevelCode>(activeLevel)
   const [previewUrls, setPreviewUrls] = useState<Record<LevelCode, string | null>>({ '1': null, '2': null, '3': null })
@@ -145,7 +148,8 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const idempotencyKey = useRef(globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`)
   const conflicted = useRef(false)
   const finalizingRef = useRef(false)
-  const focusAfterReview = useRef<string | null>(null)
+  const confirmationOrigin = useRef<HTMLElement | null>(null)
+  const focusAfterReview = useRef<{ section: string; field?: string } | null>(null)
 
   const applyDraftMeta = useCallback((next: TeachingDraft, hydrate = false) => {
     draftRef.current = next
@@ -325,16 +329,34 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
 
   useEffect(() => {
     if (editorMode !== 'edit' || !focusAfterReview.current) return
-    const section = document.getElementById(focusAfterReview.current)
+    const requested = focusAfterReview.current
     focusAfterReview.current = null
-    section?.scrollIntoView({ block: 'start' })
-    section?.closest('section, fieldset')?.querySelector<HTMLElement>('input, select, textarea, button')?.focus({ preventScroll: true })
-  }, [activeLevel, editorMode])
+    const frame = requestAnimationFrame(() => {
+      const section = document.getElementById(requested.section)
+      const container = section?.closest('section, fieldset') || section
+      const exact = requested.field ? container?.querySelector<HTMLElement>(`[data-workspace-field="${CSS.escape(requested.field)}"]`) : null
+      const target = exact || container?.querySelector<HTMLElement>('input, select, textarea, button')
+      section?.scrollIntoView({ block: 'start' })
+      target?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [activeLevel, editorMode, focusRequest])
 
   const fixReviewIssue = (level: LevelCode, field?: string) => {
-    focusAfterReview.current = field?.startsWith('scope.') ? 'workspace-scope' : field === 'attendance' ? `teaching-attendance-${level}` : field === 'result' ? `teaching-content-${level}` : field === 'images' ? 'workspace-images-heading' : `teaching-basics-${level}`
+    focusAfterReview.current = { section: field?.startsWith('scope.') ? 'workspace-scope' : field === 'attendance' ? `teaching-attendance-${level}` : field === 'result' ? `teaching-content-${level}` : field === 'images' ? 'workspace-images-heading' : `teaching-basics-${level}`, field }
     setActiveLevel(level)
     setEditorMode('edit')
+    setFocusRequest(request => request + 1)
+  }
+
+  const requestConfirmation = () => {
+    if (imageBusy || finalizingRef.current || conflicted.current) return
+    const currentIssues = reviewIssues(payloadRef.current, imagesRef.current)
+    setShowIssues(true)
+    if (currentIssues.length) { fixReviewIssue(currentIssues[0].levelCode, currentIssues[0].field); return }
+    confirmationOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setPageError(null)
+    setConfirmationOpen(true)
   }
 
   useEffect(() => () => { Object.values(previewUrlsRef.current).forEach((url) => { if (url) URL.revokeObjectURL(url) }) }, [])
@@ -606,7 +628,14 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }
 
   const finalize = async () => {
-    if (imageBusy || previewing || conflicted.current) return
+    if (!confirmationOpen || finalizingRef.current || imageBusy || conflicted.current) return
+    const currentIssues = reviewIssues(payloadRef.current, imagesRef.current)
+    if (currentIssues.length) {
+      setConfirmationOpen(false)
+      setShowIssues(true)
+      fixReviewIssue(currentIssues[0].levelCode, currentIssues[0].field)
+      return
+    }
     setFinalizing(true)
     finalizingRef.current = true
     setPageError(null)
@@ -615,7 +644,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       const response = await fetch(`/teaching-drafts/${currentDraft.id}/finalize`, {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
-        body: JSON.stringify({ lock_version: draftRef.current?.lock_version, idempotency_key: idempotencyKey.current, reviewed_level_codes: selectedTeachingLevels(currentDraft.payload).map((level) => level.code) }),
+        body: JSON.stringify({ lock_version: currentDraft.lock_version, idempotency_key: idempotencyKey.current, confirmed: true }),
       })
       const envelope = await parseError(response)
       if (response.status === 409) handleConflict(envelope)
@@ -634,7 +663,6 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const totalSelectedLevels = selectedLevels.length
   const previewUrl = previewUrls[previewLevel]
   const previewStale = previewRevisions[previewLevel] === null || previewRevisions[previewLevel] !== currentFingerprint || previewVersions[previewLevel] !== draft?.lock_version
-  const previewedLevels = selectedLevels.filter((level) => previewUrls[level.code] && previewRevisions[level.code] === currentFingerprint && previewVersions[level.code] === draft?.lock_version).map((level) => level.code)
   const title = mode === 'edit' ? 'แก้ไขบันทึกประจำสัปดาห์' : 'สร้างบันทึกประจำสัปดาห์'
 
   if (bootstrapping) {
@@ -647,19 +675,19 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
 
   return <AppShell>
     <Head title={title} />
-    <PageHeader title={title} description="ทำบันทึกในพื้นที่เดียว ระบบเก็บร่างอัตโนมัติและให้ตรวจ PDF ก่อนยืนยัน" action={<Button asChild variant="outline"><Link href={sourceRecord ? `/records/${sourceRecord.id}` : '/'}><ArrowLeft size={17} />{sourceRecord ? 'ดูบันทึกเดิม' : 'กลับหน้าภาพรวม'}</Link></Button>} />
+    <PageHeader title={title} description="ระบบเก็บร่างอัตโนมัติ บันทึกเมื่อข้อมูลพร้อม หรือเปิดดูตัวอย่าง PDF ได้ตามต้องการ" action={<Button asChild variant="outline"><Link href={sourceRecord ? `/records/${sourceRecord.id}` : '/'}><ArrowLeft size={17} />{sourceRecord ? 'ดูบันทึกเดิม' : 'กลับหน้าภาพรวม'}</Link></Button>} />
     <FlashMessages />
 
     {pageError && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between" role="alert"><div className="flex items-start gap-2"><WarningCircle size={20} className="mt-0.5 shrink-0" /><span>{pageError}{sourceConflict && <small className="mt-1 block">ร่างที่กำลังทำยังถูกเก็บไว้ คุณสามารถเริ่มร่างใหม่จากบันทึกต้นฉบับล่าสุดได้</small>}</span></div>{conflictDraft && (sourceConflict ? <Button type="button" variant="outline" size="sm" onClick={() => void refreshFromSource()}>เริ่มร่างจากฉบับล่าสุด</Button> : <Button type="button" variant="outline" size="sm" onClick={() => { if (window.confirm('โหลดร่างล่าสุดจากเซิร์ฟเวอร์แทนข้อมูลในหน้านี้หรือไม่')) loadLatestConflict() }}>โหลดร่างล่าสุดจากเซิร์ฟเวอร์</Button>)}</div>}
 
     <Card className="mb-5">
-      <CardHeader className="gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle>ข้อมูลร่วมของสัปดาห์</CardTitle><p className="mt-1 text-sm text-muted-foreground">ใช้กับบันทึกระดับชั้นที่เลือก</p></div><div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">{saveState === 'saving' ? <CloudArrowUp size={18} className="animate-pulse text-primary" /> : saveState === 'saved' ? <CloudCheck size={18} className="text-primary" weight="fill" /> : <FloppyDisk size={17} />}<span>{saveState === 'saving' ? 'กำลังบันทึก...' : saveState === 'error' ? 'บันทึกไม่สำเร็จ กรุณาลองใหม่' : saveState === 'conflict' ? 'พบการแก้ไขจากอีกหน้าต่าง' : !draft && !payload.scope.week ? 'เลือกสัปดาห์เพื่อเริ่มเก็บร่าง' : saveState === 'idle' && changeVersion > savedVersionRef.current ? 'มีการแก้ไข รอบันทึก' : savedAtLabel(lastSavedAt)}</span>{saveState !== 'saving' && saveState !== 'conflict' && <Button type="button" variant="ghost" size="sm" disabled={finalizing || imageBusy} onClick={() => void saveNow().catch(() => undefined)}>บันทึกตอนนี้</Button>}</div></CardHeader>
+      <CardHeader className="gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle>ข้อมูลร่วมของสัปดาห์</CardTitle><p className="mt-1 text-sm text-muted-foreground">ใช้กับบันทึกระดับชั้นที่เลือก</p></div><div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">{saveState === 'saving' ? <CloudArrowUp size={18} className="animate-pulse text-primary" /> : saveState === 'saved' ? <CloudCheck size={18} className="text-primary" weight="fill" /> : <FloppyDisk size={17} />}<span>{saveState === 'saving' ? 'กำลังบันทึก...' : saveState === 'error' ? 'บันทึกไม่สำเร็จ กรุณาลองใหม่' : saveState === 'conflict' ? 'พบการแก้ไขจากอีกหน้าต่าง' : !draft && !payload.scope.week ? 'เลือกสัปดาห์เพื่อเริ่มเก็บร่าง' : saveState === 'idle' && changeVersion > savedVersionRef.current ? 'มีการแก้ไข รอบันทึก' : savedAtLabel(lastSavedAt)}</span>{saveState !== 'saving' && saveState !== 'conflict' && <Button type="button" variant="ghost" size="sm" disabled={finalizing || imageBusy} onClick={() => void saveNow().catch(() => undefined)}>เก็บร่างตอนนี้</Button>}</div></CardHeader>
       <CardContent><fieldset id="workspace-scope" disabled={finalizing} className={`grid min-w-0 scroll-mt-28 grid-cols-2 gap-4 ${district ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
-        {district && <FormField label="ตำบล *"><NativeSelect disabled={finalizing} value={payload.scope.tambon} onChange={(event) => changeTambon(event.target.value)}><option value="">เลือกตำบล</option>{tambonOptions.map((tambon) => <option key={tambon.id} value={tambon.id}>{tambon.name}</option>)}</NativeSelect></FormField>}
-        <FormField label="ปีการศึกษา *"><Input inputMode="numeric" value={payload.scope.year} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, year: event.target.value } }))} /></FormField>
-        <FormField label="ภาคเรียน *"><NativeSelect value={payload.scope.semester} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, semester: event.target.value } }))}>{['1', '2', '3'].map((term) => <option key={term} value={term}>ภาคเรียน {term}</option>)}</NativeSelect></FormField>
-        <FormField label="สัปดาห์ *"><NativeSelect value={payload.scope.week} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, week: event.target.value } }))}><option value="">เลือกสัปดาห์</option>{Array.from({ length: 20 }, (_, index) => index + 1).map((week) => <option key={week} value={week}>สัปดาห์ {week}</option>)}</NativeSelect></FormField>
-        <FormField label="วันที่สอน *"><Input type="date" value={payload.scope.date} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, date: event.target.value } }))} /></FormField>
+        {district && <FormField label="ตำบล *"><NativeSelect data-workspace-field="scope.tambon" disabled={finalizing} value={payload.scope.tambon} onChange={(event) => changeTambon(event.target.value)}><option value="">เลือกตำบล</option>{tambonOptions.map((tambon) => <option key={tambon.id} value={tambon.id}>{tambon.name}</option>)}</NativeSelect></FormField>}
+        <FormField label="ปีการศึกษา *"><Input data-workspace-field="scope.year" inputMode="numeric" value={payload.scope.year} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, year: event.target.value } }))} /></FormField>
+        <FormField label="ภาคเรียน *"><NativeSelect data-workspace-field="scope.semester" value={payload.scope.semester} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, semester: event.target.value } }))}>{['1', '2', '3'].map((term) => <option key={term} value={term}>ภาคเรียน {term}</option>)}</NativeSelect></FormField>
+        <FormField label="สัปดาห์ *"><NativeSelect data-workspace-field="scope.week" value={payload.scope.week} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, week: event.target.value } }))}><option value="">เลือกสัปดาห์</option>{Array.from({ length: 20 }, (_, index) => index + 1).map((week) => <option key={week} value={week}>สัปดาห์ {week}</option>)}</NativeSelect></FormField>
+        <FormField label="วันที่สอน *"><Input data-workspace-field="scope.date" type="date" value={payload.scope.date} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, date: event.target.value } }))} /></FormField>
       </fieldset>
       <div className="mt-4 border-t pt-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -682,7 +710,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
                   )}
                 >
                   <Switch
-                    aria-label={`สอนระดับ${lvl.name}`}
+                    data-workspace-field="scope.levels" aria-label={`สอนระดับ${lvl.name}`}
                     checked={isChecked}
                     disabled={finalizing || isOnlyOne || draft?.source_level_codes?.includes(lvl.code)}
                     onCheckedChange={() => toggleLevel(lvl.code)}
@@ -697,10 +725,12 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       </CardContent>
     </Card>
 
-    {editorMode === 'review' ? <RecordReview payload={payload} images={images} previewLevel={previewLevel} previewUrl={previewUrl} previewing={previewing} previewStale={previewStale} previewedLevels={previewedLevels} previewFormat={previewFormats[previewLevel]} rendererUnavailable={rendererUnavailable} onBrowserPreview={() => previewPdf('browser')} onBrowserPreviewLoaded={browserPreviewLoaded} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} onBack={() => setEditorMode('edit')} onFix={fixReviewIssue} onPreviewLevel={setPreviewLevel} onPreview={previewPdf} onEditDocument={editDocument} onFinalize={finalize} /> : <div className="grid items-start gap-5 xl:grid-cols-[180px_minmax(0,1fr)] 2xl:grid-cols-[180px_minmax(0,1fr)_260px]">
-      <aside className="rounded-xl border bg-card p-3 xl:sticky xl:top-24"><p className="mb-3 px-2 text-xs font-semibold text-muted-foreground">เลือกระดับชั้น</p><WeeklyLevelNavigation activeLevel={activeLevel} levels={payload.levels} enabledLevelCodes={payload.enabled_level_codes ?? ['1', '2', '3']} onChange={setActiveLevel} /><Button type="button" className="mt-3 w-full" disabled={imageBusy || saveState === 'conflict'} onClick={() => { setPreviewLevel(activeLevel); setEditorMode('review') }}>ตรวจและยืนยัน<CheckCircle size={18} /></Button></aside>
+    {showIssues && <WorkspaceIssues issues={issues} onFix={fixReviewIssue} />}
+    <RecordSaveConfirmation open={confirmationOpen} onOpenChange={setConfirmationOpen} payload={payload} images={images} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} error={pageError} onConfirm={finalize} onReturnFocus={() => { if (confirmationOrigin.current?.isConnected) confirmationOrigin.current.focus({ preventScroll: true }) }} />
+    {editorMode === 'review' ? <RecordReview payload={payload} previewLevel={previewLevel} previewUrl={previewUrl} previewing={previewing} previewStale={previewStale} previewFormat={previewFormats[previewLevel]} rendererUnavailable={rendererUnavailable} onBrowserPreview={() => previewPdf('browser')} onBrowserPreviewLoaded={browserPreviewLoaded} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} onBack={() => setEditorMode('edit')} onPreviewLevel={setPreviewLevel} onPreview={previewPdf} onEditDocument={editDocument} onSave={requestConfirmation} /> : <div className="grid items-start gap-5 xl:grid-cols-[180px_minmax(0,1fr)] 2xl:grid-cols-[180px_minmax(0,1fr)_260px]">
+      <aside className="rounded-xl border bg-card p-3 xl:sticky xl:top-24"><p className="mb-3 px-2 text-xs font-semibold text-muted-foreground">เลือกระดับชั้น</p><WeeklyLevelNavigation activeLevel={activeLevel} levels={payload.levels} enabledLevelCodes={payload.enabled_level_codes ?? ['1', '2', '3']} onChange={setActiveLevel} /><Button type="button" className="mt-3 w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={requestConfirmation}>บันทึก<CheckCircle size={18} /></Button></aside>
       <Card className="min-w-0"><CardContent className="p-4 sm:p-6"><TeachingDetailsForm key={activeLevel} levelCode={activeLevel} value={payload.levels[activeLevel]} groups={availableGroups} subjects={availableSubjects} loadState={loadStates[activeLevel]} images={images.filter((image) => image.level_code === activeLevel).sort((a, b) => a.sort_order - b.sort_order)} imageBusy={imageBusy} sourceLabel={sourceLabel(loadStates[activeLevel].source)} onChange={(value) => editLevel(activeLevel, value)} onSelectGroup={(group) => loadStudents(activeLevel, group)} onUploadImages={(files) => uploadImages(activeLevel, files)} onDeleteImage={(image) => mutateImages('DELETE', activeLevel, image.id)} onReorderImages={(imageIds) => mutateImages('PATCH', activeLevel, undefined, imageIds)} /></CardContent></Card>
-      <aside className="grid gap-4 rounded-xl border bg-card p-4 xl:col-span-2 2xl:sticky 2xl:top-24 2xl:col-span-1"><WorkspaceSummary payload={payload} images={images} activeLevel={activeLevel} onSelectLevel={setActiveLevel} /><div className="border-t pt-4"><Button type="button" size="lg" className="w-full" disabled={imageBusy || saveState === 'conflict'} onClick={() => { setPreviewLevel(activeLevel); setEditorMode('review') }}>ตรวจและยืนยัน {totalSelectedLevels} ระดับ<CheckCircle size={19} /></Button><p className="mt-2 text-center text-[11px] leading-5 text-muted-foreground">{issues.length ? `ยังมี ${issues.length} จุดให้ตรวจ ระบบจะแสดงตำแหน่งในขั้นถัดไป` : 'ข้อมูลพร้อมเข้าสู่หน้าตรวจและดู PDF จริง'}</p></div></aside>
+      <aside className="grid gap-4 rounded-xl border bg-card p-4 xl:col-span-2 2xl:sticky 2xl:top-24 2xl:col-span-1"><WorkspaceSummary payload={payload} images={images} activeLevel={activeLevel} onSelectLevel={setActiveLevel} /><div className="border-t pt-4"><Button type="button" size="lg" className="w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={requestConfirmation}>บันทึก {totalSelectedLevels} ระดับ<CheckCircle size={19} /></Button><p className="mt-2 text-center text-[11px] leading-5 text-muted-foreground">{issues.length ? `ยังมี ${issues.length} จุดให้ตรวจ กดบันทึกเพื่อไปแก้ไข` : 'ข้อมูลพร้อมบันทึก'}</p><Button type="button" variant="outline" className="mt-3 w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={() => { setPreviewLevel(activeLevel); setEditorMode('review') }}>ดูตัวอย่าง PDF</Button></div></aside>
     </div>}
   </AppShell>
 }

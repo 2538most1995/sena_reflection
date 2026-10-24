@@ -24,6 +24,7 @@ class FinalizeTeachingDraftRequest extends FormRequest
         return [
             'lock_version' => ['required', 'integer', 'min:1'],
             'idempotency_key' => ['required', 'uuid'],
+            'confirmed' => ['sometimes', 'required', 'accepted'],
             'reviewed_level_codes' => ['sometimes', 'required', 'array', 'min:1', 'max:3'],
             'reviewed_level_codes.*' => ['required', 'distinct', 'in:1,2,3'],
         ];

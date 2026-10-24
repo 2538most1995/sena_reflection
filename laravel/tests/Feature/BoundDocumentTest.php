@@ -205,7 +205,7 @@ class BoundDocumentTest extends TestCase
         $content = $document->content_json;
         $this->replaceField($content, 'record_result', 'ผลจากเอกสารที่ยืนยัน', [['type' => 'bold']]);
         $this->putJson('/api/documents/'.$document->id, ['revision' => 1, 'content' => $content])->assertOk();
-        $recordId = $this->postJson(route('teaching-drafts.finalize', $draft), ['lock_version' => 3, 'idempotency_key' => (string) Str::uuid()])->assertOk()->json('data.record_ids.0');
+        $recordId = $this->postJson(route('teaching-drafts.finalize', $draft), ['lock_version' => 3, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true])->assertOk()->json('data.record_ids.0');
         $this->assertSame('finalized', $draft->fresh()->status);
         $this->assertSame('record:'.$recordId, $document->fresh()->binding_key);
         $this->assertSame(3, $document->fresh()->revision);

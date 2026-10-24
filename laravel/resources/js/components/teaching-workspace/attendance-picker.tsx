@@ -9,12 +9,11 @@ import type { WorkspaceAttendanceRow, WorkspaceLoadState } from './types'
 
 type Props = {
   rows: WorkspaceAttendanceRow[]
-  reviewed: boolean
   state: WorkspaceLoadState
-  onChange: (rows: WorkspaceAttendanceRow[], reviewed?: boolean) => void
+  onChange: (rows: WorkspaceAttendanceRow[]) => void
 }
 
-export function AttendancePicker({ rows, reviewed, state, onChange }: Props) {
+export function AttendancePicker({ rows, state, onChange }: Props) {
   const [search, setSearch] = useState('')
   const normalizedSearch = search.trim().toLocaleLowerCase('th')
   const visibleRows = useMemo(() => rows.map((row, index) => ({ row, index })).filter(({ row }) => {
@@ -24,12 +23,12 @@ export function AttendancePicker({ rows, reviewed, state, onChange }: Props) {
   const selected = rows.filter((row) => row.present).length
 
   const updateRow = (index: number, patch: Partial<WorkspaceAttendanceRow>) => {
-    onChange(rows.map((row, current) => current === index ? { ...row, ...patch } : row), false)
+    onChange(rows.map((row, current) => current === index ? { ...row, ...patch } : row))
   }
 
   const setEveryonePresent = () => {
     if (!window.confirm(`ยืนยันว่าตรวจรายชื่อแล้ว และนักศึกษาทั้ง ${rows.length} คนมาเรียนทั้งหมด`)) return
-    onChange(rows.map((row) => ({ ...row, present: true, learning_method: row.learning_method || 'พบกลุ่ม' })), true)
+    onChange(rows.map((row) => ({ ...row, present: true, learning_method: row.learning_method || 'พบกลุ่ม' })))
   }
 
   if (state.loading) {
@@ -54,10 +53,10 @@ export function AttendancePicker({ rows, reviewed, state, onChange }: Props) {
     {state.error && <div role="alert" className="border-b bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">{state.error} ใช้รายชื่อที่บันทึกไว้ด้านล่างต่อได้</div>}
     <div className="grid gap-3 border-b bg-muted/25 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2"><UsersThree size={19} className="text-primary" /><b className="text-sm">มาเรียน {selected} จาก {rows.length} คน</b><Badge variant={reviewed ? 'secondary' : 'outline'}>{reviewed ? 'ตรวจแล้ว' : 'รอตรวจ'}</Badge></div>
-        <div className="flex gap-2"><Button type="button" variant="outline" size="sm" onClick={setEveryonePresent}>ยืนยันมาทั้งหมด</Button><Button type="button" variant="ghost" size="sm" onClick={() => onChange(rows.map((row) => ({ ...row, present: false, learning_method: null })), true)}>ทำเครื่องหมายขาดทั้งหมด</Button></div>
+        <div className="flex items-center gap-2"><UsersThree size={19} className="text-primary" /><b className="text-sm">มาเรียน {selected} จาก {rows.length} คน</b></div>
+        <div className="flex gap-2"><Button type="button" variant="outline" size="sm" onClick={setEveryonePresent}>เลือกมาเรียนทั้งหมด</Button><Button type="button" variant="ghost" size="sm" onClick={() => onChange(rows.map((row) => ({ ...row, present: false, learning_method: null })))}>ทำเครื่องหมายขาดทั้งหมด</Button></div>
       </div>
-      {!reviewed && <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-800 dark:text-amber-200">ระบบยังไม่เลือก “มาเรียน” ให้อัตโนมัติ กรุณาตรวจรายชื่อหรือกดยืนยันก่อนส่ง</p>}
+      <p className="text-xs text-muted-foreground">ทำเครื่องหมายเฉพาะผู้มาเรียน ระบบเก็บการเปลี่ยนแปลงให้อัตโนมัติ</p>
       <div className="relative"><MagnifyingGlass size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 pl-9" placeholder="ค้นหาชื่อหรือรหัสนักศึกษา" aria-label="ค้นหารายชื่อนักศึกษา" /></div>
     </div>
     <div className="max-h-[420px] overflow-y-auto p-2">
@@ -74,6 +73,6 @@ export function AttendancePicker({ rows, reviewed, state, onChange }: Props) {
         </NativeSelect>
       </div>) : <div className="grid min-h-24 place-items-center text-sm text-muted-foreground">ไม่พบรายชื่อที่ค้นหา</div>}
     </div>
-    <div className="border-t p-3"><Button type="button" className="w-full" variant={reviewed ? 'secondary' : 'outline'} onClick={() => onChange(rows, !reviewed)}><Check size={17} weight="bold" />{reviewed ? `ตรวจรายชื่อแล้ว มาเรียน ${selected} คน` : `ยืนยันตรวจรายชื่อ มาเรียน ${selected} คน`}</Button></div>
+
   </div>
 }

@@ -6,6 +6,7 @@ use App\Exceptions\DocumentRuntimeUnavailableException;
 use App\Models\RecordRevision;
 use App\Models\Setting;
 use App\Models\Tambon;
+use App\Models\TeachingDraft;
 use App\Models\TeachingRecord;
 use App\Models\User;
 use App\Services\DraftService;
@@ -125,6 +126,107 @@ class TeachingDraftControllerTest extends TestCase
         $this->assertDatabaseCount('weekly_submissions', 1);
         $this->assertDatabaseCount('records', 3);
         $this->assertDatabaseCount('record_revisions', 3);
+    }
+
+    public function test_consolidated_confirmation_saves_unreviewed_roster_without_pdf_and_preserves_actual_attendance(): void
+    {
+        $user = $this->createTeacher('u1', 't1');
+        $payload = $this->draftPayload();
+        $payload['enabled_level_codes'] = ['1'];
+        $payload['levels']['1'] = [...$payload['levels']['1'],
+            'attendance_mode' => 'roster', 'attendance_reviewed' => false,
+            'document' => ['settings' => ['pdf_margin_left_px' => '94']],
+            'attendance' => [
+                ['student_id' => 'S01', 'full_name' => 'ผู้เรียนที่ไม่มา', 'group_code' => 'G1', 'present' => false, 'learning_method' => null],
+                ['student_id' => 'S02', 'full_name' => 'ผู้เรียนออนไลน์', 'group_code' => 'G1', 'present' => true, 'learning_method' => 'ออนไลน์'],
+            ],
+        ];
+        $id = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->json('data.draft.id');
+        $this->getJson(route('teaching-drafts.index'))->assertOk()->assertJsonPath('data.drafts.0.progress.completed_levels', 1);
+        $print = $this->mock(LegacyPrintService::class);
+        $print->shouldNotReceive('snapshotPdf');
+        $print->shouldNotReceive('browserSnapshotHtml');
+        $this->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 1, 'idempotency_key' => (string) Str::uuid()])
+            ->assertUnprocessable()->assertJsonValidationErrors('payload.levels.1.attendance');
+        Cache::put(DraftService::reviewCacheKey($id, 1, '1'), ['pdf_margin_left_px' => '120'], now()->addHour());
+        $key = (string) Str::uuid();
+        $confirmed = $this->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 1, 'idempotency_key' => $key, 'confirmed' => true])
+            ->assertOk()->assertJsonCount(1, 'data.record_ids');
+        $record = TeachingRecord::query()->findOrFail($confirmed->json('data.record_ids.0'));
+        $this->assertSame(2, $record->total);
+        $this->assertSame(1, $record->present);
+        $this->assertSame('94', $record->documentLayout->settings['pdf_margin_left_px']);
+        $this->assertDatabaseHas('record_attendance', ['record_id' => $record->id, 'student_id' => 'S01', 'present' => false, 'learning_method' => null]);
+        $this->assertDatabaseHas('record_attendance', ['record_id' => $record->id, 'student_id' => 'S02', 'present' => true, 'learning_method' => 'ออนไลน์']);
+        $this->assertFalse(TeachingDraft::query()->findOrFail($id)->payload['levels']['1']['attendance_reviewed']);
+        $this->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 1, 'idempotency_key' => $key, 'confirmed' => true])
+            ->assertOk()->assertJsonPath('data.record_ids', [$record->id]);
+        $this->assertDatabaseCount('records', 1);
+        $this->assertDatabaseCount('record_attendance', 2);
+    }
+
+    public function test_explicit_consolidated_confirmation_must_be_accepted_when_supplied(): void
+    {
+        $user = $this->createTeacher('u1', 't1');
+        $id = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $this->draftPayload()])->assertCreated()->json('data.draft.id');
+        foreach ([false, null, 0, 'false', 'no', [], 'not-confirmed'] as $value) {
+            $this->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => $value])
+                ->assertUnprocessable()->assertJsonValidationErrors('confirmed');
+        }
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $id, 'status' => 'active', 'lock_version' => 1]);
+        $this->assertDatabaseCount('records', 0);
+        $this->assertDatabaseCount('weekly_submissions', 0);
+    }
+
+    public function test_consolidated_confirmation_does_not_bypass_data_validation_or_report_invalid_drafts_as_ready(): void
+    {
+        $user = $this->createTeacher('u1', 't1');
+        $base = $this->draftPayload();
+        $base['enabled_level_codes'] = ['1'];
+        $id = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $base])->assertCreated()->json('data.draft.id');
+        $draft = TeachingDraft::query()->findOrFail($id);
+        $row = ['student_id' => 'S01', 'full_name' => 'ผู้เรียน', 'group_code' => 'G1', 'present' => false, 'learning_method' => null];
+        $cases = [
+            [['attendance_mode' => 'roster', 'attendance' => []], 'payload.levels.1.attendance'],
+            [['attendance_mode' => 'roster', 'attendance' => [$row, $row]], 'payload.levels.1.attendance'],
+            [['attendance_mode' => 'roster', 'attendance' => [[...$row, 'group_code' => 'other-group']]], 'payload.levels.1.attendance'],
+            [['attendance_mode' => 'roster', 'attendance' => [[...$row, 'student_id' => '']]], 'payload.levels.1.attendance.0.student_id'],
+            [['attendance_mode' => 'counts', 'total' => -1, 'present' => 0], 'payload.levels.1.total'],
+            [['attendance_mode' => 'counts', 'total' => 2, 'present' => 3], 'payload.levels.1.present'],
+            [['result' => ''], 'payload.levels.1.result'],
+        ];
+        foreach ($cases as [$changes, $error]) {
+            $payload = $base;
+            $payload['levels']['1'] = [...$payload['levels']['1'], ...$changes];
+            $draft->update(['payload' => $payload]);
+            $this->getJson(route('teaching-drafts.index'))->assertOk()->assertJsonPath('data.drafts.0.progress.completed_levels', 0);
+            $this->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true])
+                ->assertUnprocessable()->assertJsonValidationErrors($error);
+            $this->assertDatabaseCount('records', 0);
+            $this->assertDatabaseCount('weekly_submissions', 0);
+            $this->assertSame('active', $draft->fresh()->status);
+        }
+    }
+
+    public function test_consolidated_confirmation_preserves_owner_scope_stale_locks_and_duplicate_protection(): void
+    {
+        $owner = $this->createTeacher('u1', 't1');
+        $other = $this->createTeacher('u2', 't2');
+        $payload = $this->draftPayload();
+        $payload['enabled_level_codes'] = ['1'];
+        $id = $this->actingAs($owner)->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->json('data.draft.id');
+        $this->actingAs($other)->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true])->assertNotFound();
+        $payload['levels']['1']['result'] = 'ฉบับล่าสุด';
+        $this->actingAs($owner)->patchJson(route('teaching-drafts.update', $id), ['lock_version' => 1, 'payload' => $payload])->assertOk();
+        $this->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true])
+            ->assertConflict()->assertJsonPath('code', 'draft_version_conflict');
+        $this->assertDatabaseCount('records', 0);
+        $this->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 2, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true])->assertOk();
+        $second = $this->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->json('data.draft.id');
+        $this->postJson(route('teaching-drafts.finalize', $second), ['lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true])
+            ->assertUnprocessable()->assertJsonValidationErrors('payload.scope.week');
+        $this->assertDatabaseCount('records', 1);
+        $this->assertDatabaseCount('weekly_submissions', 1);
     }
 
     public function test_finalize_saves_only_enabled_levels_when_some_levels_are_disabled(): void

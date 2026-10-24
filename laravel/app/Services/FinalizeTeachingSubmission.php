@@ -28,7 +28,7 @@ class FinalizeTeachingSubmission
     ) {}
 
     /** @return array{submission_id: string, record_ids: list<string>, redirect_url: string} */
-    public function finalize(User $user, TeachingDraft $draft, int $lockVersion, string $idempotencyKey, ?array $reviewedLevelCodes = null): array
+    public function finalize(User $user, TeachingDraft $draft, int $lockVersion, string $idempotencyKey, ?array $reviewedLevelCodes = null, bool $confirmed = false): array
     {
         $owned = $this->drafts->owned($user, $draft)->load('images');
         if ($owned->status === 'finalized') {
@@ -43,7 +43,7 @@ class FinalizeTeachingSubmission
 
         $copiedPaths = [];
         try {
-            return DB::transaction(function () use ($user, $owned, $lockVersion, $idempotencyKey, $reviewedLevelCodes, &$copiedPaths): array {
+            return DB::transaction(function () use ($user, $owned, $lockVersion, $idempotencyKey, $reviewedLevelCodes, $confirmed, &$copiedPaths): array {
                 $lockedDraft = TeachingDraft::query()->whereKey($owned->id)->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
                 if ($lockedDraft->status === 'finalized' && hash_equals((string) $lockedDraft->finalize_key, $idempotencyKey)) {
                     return $this->result($lockedDraft);
@@ -59,7 +59,7 @@ class FinalizeTeachingSubmission
                 Validator::make(['payload' => ['scope' => $scope]], [
                     'payload.scope.week' => ['required', 'integer', 'between:1,20'],
                 ])->validate();
-                $entries = $this->validatedEntries($lockedDraft->load('images'), $payload);
+                $entries = $this->validatedEntries($lockedDraft->load('images'), $payload, $confirmed);
                 $tambon = $user->isDistrict() ? (string) ($scope['tambon'] ?? '') : (string) $user->tambon;
                 if ($tambon === '' || ! Tambon::query()->whereKey($tambon)->exists()) {
                     throw ValidationException::withMessages(['payload.scope.tambon' => 'กรุณาเลือกตำบลที่ถูกต้อง']);
@@ -139,7 +139,8 @@ class FinalizeTeachingSubmission
                 foreach ($enabledCodes as $levelCode) {
                     $levelName = EducationLevelService::NAMES[$levelCode];
                     $entry = $entries[$levelCode];
-                    $reviewedSettings = Cache::get(DraftService::reviewCacheKey($lockedDraft->id, $lockVersion, $levelCode));
+                    $reviewedSettings = $confirmed && $reviewedLevelCodes === null
+                        ? null : Cache::get(DraftService::reviewCacheKey($lockedDraft->id, $lockVersion, $levelCode));
                     if ($reviewedLevelCodes !== null && ! is_array($reviewedSettings)) {
                         throw ValidationException::withMessages(['reviewed_level_codes' => 'ตัวอย่าง PDF หมดอายุหรือร่างเปลี่ยนแปลง กรุณาสร้างตัวอย่างใหม่ก่อนยืนยัน']);
                     }
@@ -269,7 +270,7 @@ class FinalizeTeachingSubmission
     }
 
     /** @param array<string, mixed> $payload @return array<string, array<string, mixed>> */
-    private function validatedEntries(TeachingDraft $draft, array $payload): array
+    private function validatedEntries(TeachingDraft $draft, array $payload, bool $confirmed): array
     {
         $entries = is_array($payload['levels'] ?? null) ? $payload['levels'] : [];
         $enabledCodes = EducationLevelService::enabledCodes($payload);
@@ -289,13 +290,23 @@ class FinalizeTeachingSubmission
                 throw ValidationException::withMessages(["payload.levels.{$levelCode}.result" => 'กรุณาบันทึกผลการจัดการเรียนการสอน']);
             }
             $mode = $entry['attendance_mode'] ?? 'counts';
-            if ($mode === 'roster' && (empty($entry['attendance_reviewed']) || empty($entry['attendance']))) {
+            if ($mode === 'roster' && ((! $confirmed && empty($entry['attendance_reviewed'])) || empty($entry['attendance']))) {
                 throw ValidationException::withMessages(["payload.levels.{$levelCode}.attendance" => 'กรุณาตรวจรับรายชื่อผู้เรียนก่อนยืนยัน']);
             }
-            if ($mode === 'counts' && (int) ($entry['present'] ?? 0) > (int) ($entry['total'] ?? 0)) {
-                throw ValidationException::withMessages(["payload.levels.{$levelCode}.present" => 'จำนวนมาเรียนต้องไม่เกินจำนวนผู้เรียนทั้งหมด']);
+            if ($mode === 'counts') {
+                Validator::make(['payload' => ['levels' => [$levelCode => ['total' => $entry['total'] ?? 0, 'present' => $entry['present'] ?? 0]]]], [
+                    "payload.levels.{$levelCode}.total" => ['required', 'integer', 'between:0,10000'],
+                    "payload.levels.{$levelCode}.present" => ['required', 'integer', 'between:0,10000', "lte:payload.levels.{$levelCode}.total"],
+                ])->validate();
             }
             if ($mode === 'roster') {
+                Validator::make(['payload' => ['levels' => [$levelCode => $entry]]], [
+                    "payload.levels.{$levelCode}.attendance" => ['required', 'array', 'min:1', 'max:2000'],
+                    "payload.levels.{$levelCode}.attendance.*.student_id" => ['required', 'string', 'max:50'],
+                    "payload.levels.{$levelCode}.attendance.*.full_name" => ['required', 'string', 'max:255'],
+                    "payload.levels.{$levelCode}.attendance.*.present" => ['required', 'boolean'],
+                    "payload.levels.{$levelCode}.attendance.*.learning_method" => ['nullable', 'in:พบกลุ่ม,ออนไลน์'],
+                ])->validate();
                 $studentIds = [];
                 foreach ($entry['attendance'] as $row) {
                     if (in_array($row['student_id'], $studentIds, true)) {
