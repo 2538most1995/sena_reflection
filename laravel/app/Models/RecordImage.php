@@ -58,17 +58,13 @@ class RecordImage extends Model
                 return self::$needsStringKey[$connectionName] = false;
             }
 
-            // Match the base type returned by the database driver.  MySQL returns
-            // names like 'varchar', 'char', 'text'; SQLite returns 'varchar',
-            // 'text', or 'integer'; MariaDB may return 'varchar' as well.
-            $stringTypes = ['char', 'varchar', 'text', 'nvarchar', 'nchar', 'tinytext', 'mediumtext', 'longtext'];
-
-            return self::$needsStringKey[$connectionName] = in_array(strtolower((string) ($key['type_name'] ?? '')), $stringTypes, true);
+            // Any non-auto-increment primary key requires an explicitly generated ID.
+            return self::$needsStringKey[$connectionName] = true;
         } catch (\Throwable) {
             // Schema introspection failed (restricted information_schema, connection
-            // issues, etc.).  Default to generating a string key — inserting a
+            // issues, etc.). Default to generating a string key — inserting a
             // string into an auto-increment int column is less harmful than
-            // inserting NULL into a non-auto-increment string column.
+            // inserting NULL into a non-auto-increment column.
             return self::$needsStringKey[$connectionName] = true;
         }
     }

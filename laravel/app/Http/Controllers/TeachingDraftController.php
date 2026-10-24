@@ -94,18 +94,29 @@ class TeachingDraftController extends Controller
         TeachingDraft $teachingDraft,
         FinalizeTeachingSubmission $finalizer,
     ): JsonResponse {
-        $result = $finalizer->finalize(
-            $request->user(),
-            $teachingDraft,
-            (int) $request->validated('lock_version'),
-            $request->validated('idempotency_key'),
-            $request->validated('reviewed_level_codes'),
-            $request->boolean('confirmed'),
-        );
+        try {
+            $result = $finalizer->finalize(
+                $request->user(),
+                $teachingDraft,
+                (int) $request->validated('lock_version'),
+                $request->validated('idempotency_key'),
+                $request->validated('reviewed_level_codes'),
+                $request->boolean('confirmed'),
+            );
 
-        return response()->json([
-            'message' => 'ยืนยันบันทึกเรียบร้อยแล้ว',
-            'data' => $result,
-        ]);
+            return response()->json([
+                'message' => 'ยืนยันบันทึกเรียบร้อยแล้ว',
+                'data' => $result,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Draft finalization failed: '.$e->getMessage(), [
+                'draft_id' => $teachingDraft->id,
+                'user_id' => $request->user()->id,
+                'exception' => $e,
+            ]);
+            throw $e;
+        }
     }
 }

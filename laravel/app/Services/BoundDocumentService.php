@@ -10,6 +10,7 @@ use App\Models\TeachingRecord;
 use App\Models\User;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -89,6 +90,10 @@ class BoundDocumentService
 
     public function snapshotForRecord(TeachingRecord $record): ?array
     {
+        if (! Schema::hasTable('documents')) {
+            return null;
+        }
+
         $document = Document::query()->where('binding_key', 'record:'.$record->id)->first();
 
         return $document && ($document->binding_snapshot['source_fingerprint'] ?? '') === $this->recordFingerprint($record)
@@ -97,6 +102,10 @@ class BoundDocumentService
 
     public function attachDraftSnapshot(array $snapshot, string $draftId, string $levelCode): array
     {
+        if (! Schema::hasTable('documents')) {
+            return $snapshot;
+        }
+
         $document = Document::query()->where('binding_key', 'draft:'.$draftId.':'.$levelCode)->first();
         if ($document && ($document->binding_snapshot['source_fingerprint'] ?? '') === $this->snapshotFingerprint($snapshot)) {
             $snapshot['advanced_document'] = $this->snapshotForPrint($document);
@@ -108,6 +117,9 @@ class BoundDocumentService
     public function transferDraftToRecord(User $user, TeachingDraft $draft, string $levelCode, TeachingRecord $record): void
     {
         $this->drafts->owned($user, $draft);
+        if (! Schema::hasTable('documents')) {
+            return;
+        }
         $document = Document::query()->where('binding_key', 'draft:'.$draft->id.':'.$levelCode)->lockForUpdate()->first();
         if (! $document) {
             return;

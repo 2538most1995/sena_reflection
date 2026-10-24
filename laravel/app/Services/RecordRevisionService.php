@@ -5,13 +5,17 @@ namespace App\Services;
 use App\Models\RecordRevision;
 use App\Models\TeachingRecord;
 use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class RecordRevisionService
 {
     public function capture(TeachingRecord $record, User $user, ?array $rendererSettings = null, bool $resetSettings = false): RecordRevision
     {
+        $this->ensureTable();
+
         return DB::transaction(function () use ($record, $user, $rendererSettings, $resetSettings): RecordRevision {
             $record = TeachingRecord::query()->whereKey($record->id)->lockForUpdate()->firstOrFail();
             $record->load(['images', 'attendance', 'documentLayout', 'tambonRelation']);
@@ -52,5 +56,25 @@ class RecordRevisionService
                 'snapshot' => $snapshot, 'created_by' => $user->id, 'created_at' => now(),
             ]);
         }, 3);
+    }
+
+    private function ensureTable(): void
+    {
+        if (! Schema::hasTable('record_revisions')) {
+            try {
+                Schema::create('record_revisions', static function (Blueprint $table): void {
+                    $table->uuid('id')->primary();
+                    $table->string('record_id', 20)->index();
+                    $table->unsignedInteger('revision');
+                    $table->string('content_hash', 64)->index();
+                    $table->json('snapshot');
+                    $table->string('created_by', 20);
+                    $table->timestamp('created_at');
+                    $table->unique(['record_id', 'revision']);
+                });
+            } catch (\Throwable) {
+                // Table was created concurrently or insufficient permissions.
+            }
+        }
     }
 }
