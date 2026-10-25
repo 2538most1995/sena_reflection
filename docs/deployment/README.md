@@ -133,3 +133,34 @@ installed and an actual generated PDF has been visually checked. Record
 creation/update/delete and role-specific teacher actions were not performed on
 real data as smoke tests. TypeScript, five frontend mount-path tests and the full
 PHP regression suite (90 tests / 702 assertions) passed locally.
+
+## Semester backups and SDL School integration
+
+Deploy both migrations introduced on 2026-10-25: `create_semester_backups_table`
+and `create_student_api_connections_table`, with the complete production build.
+Keep the existing `APP_KEY`: it signs semester ZIPs and encrypts the SDL token.
+Do not run `key:generate` on an existing installation. Preserve a separate secure
+backup of the database, `.env`, uploads, and private/public storage before deployment.
+
+The module needs PHP ZipArchive and writable private local storage. ZIPs are
+limited to 512 MB total uncompressed data, with 64 MB of JSON and 20 MB per image.
+The upload UI reports the lower effective limit of the module and PHP's
+`upload_max_filesize` / `post_max_size`. Existing server-side backup entries can
+be restored without uploading their ZIP again. Files live below
+`storage/app/private/semester-backups`, behind authenticated district routes;
+never expose that folder through a public alias or copy it into Git.
+
+After deploying and migrating, a district administrator opens
+**จัดการระบบ → ตั้งค่า Student API**, supplies an active SDL School token with
+`student-data:read` and `sena-care:teachers`, and tests/saves the connection.
+The legacy SENA Care key does not authenticate to the SDL integration endpoint.
+No working production SDL token was available during development; verification
+of actual 2/2569 data remains a post-configuration check, not a completed live sync.
+
+Semester archive is an explicit user workflow, never a deployment task or a
+scheduled purge. Create and download a verified backup, review blockers, then
+type the displayed confirmation. Restore first checks identifiers and existing
+weekly submissions and will not overwrite current work. The module leaves
+private drafts, users, settings, and original shared image files in place. It
+reduces rows in the active teaching-record graph; it does not reclaim all disk
+space or replace a complete disaster-recovery backup. See [the user guide](../../docs.md).

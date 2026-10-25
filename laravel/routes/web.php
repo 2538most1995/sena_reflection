@@ -18,6 +18,7 @@ require __DIR__.'/exports.php';
 require __DIR__.'/workspace.php';
 require __DIR__.'/draft-documents.php';
 require __DIR__.'/documents.php';
+require __DIR__.'/semester-backups.php';
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'create'])->name('login');
@@ -79,3 +80,5 @@ Route::match(['get', 'post'], '/api/export_bundle.php', [LegacyApiController::cl
 Route::get('/api/code_health.php', [LegacyApiController::class, 'health']);
 Route::get('/api/server_check.php', [LegacyApiController::class, 'health']);
 Route::get('/print.php', [LegacyApiController::class, 'printHtml'])->name('legacy.print');
+
+require __DIR__.'/student_api.php';

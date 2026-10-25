@@ -47,6 +47,7 @@ export type TeachingLevelDraft = {
   suggestion: string
   attendance_reviewed: boolean
   attendance_mode: 'roster' | 'counts'
+  attendance_term?: string | null
   attendance: WorkspaceAttendanceRow[]
   image_ids: string[]
 }
@@ -131,6 +132,7 @@ export function emptyTeachingLevel(): TeachingLevelDraft {
     suggestion: '',
     attendance_reviewed: false,
     attendance_mode: 'roster',
+    attendance_term: null,
     attendance: [],
     image_ids: [],
   }

@@ -58,6 +58,7 @@ class StoreTeachingDraftRequest extends FormRequest
             $prefix.'levels.*.supervisor_comment' => ['nullable', 'string', 'max:10000'],
             $prefix.'levels.*.attendance_reviewed' => ['nullable', 'boolean'],
             $prefix.'levels.*.attendance_mode' => ['nullable', Rule::in(['roster', 'counts'])],
+            $prefix.'levels.*.attendance_term' => ['nullable', 'string', 'regex:/^[123]\/25\d{2}$/'],
             $prefix.'levels.*.attendance' => ['nullable', 'array', 'max:2000'],
             $prefix.'levels.*.attendance.*.student_id' => ['required', 'string', 'max:50', 'distinct'],
             $prefix.'levels.*.attendance.*.full_name' => ['required', 'string', 'max:255'],

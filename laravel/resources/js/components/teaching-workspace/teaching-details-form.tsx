@@ -20,6 +20,7 @@ type Props = {
   images: TeachingDraftImage[]
   imageBusy: boolean
   sourceLabel: string
+  term: string
   onChange: (value: TeachingLevelDraft) => void
   onSelectGroup: (group: GroupOption) => Promise<void>
   onUploadImages: (files: File[]) => Promise<void>
@@ -36,6 +37,7 @@ export function TeachingDetailsForm({
   images,
   imageBusy,
   sourceLabel,
+  term,
   onChange,
   onSelectGroup,
   onUploadImages,
@@ -56,7 +58,7 @@ export function TeachingDetailsForm({
     <section className="grid gap-4" aria-labelledby={`teaching-basics-${levelCode}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-secondary text-primary"><BookOpen size={21} /></span><div><h2 id={`teaching-basics-${levelCode}`} className="text-lg font-semibold tracking-[-.02em]">{level.name}</h2><p className="text-xs text-muted-foreground">เลือกกลุ่มและวิชาจากข้อมูลที่มีอยู่ หรือกรอกเองเมื่อจำเป็น</p></div></div>
-        <Badge variant="outline"><Database size={14} />{sourceLabel}</Badge>
+        <Badge variant="outline"><Database size={14} />{sourceLabel}{value.attendance.length > 0 && value.attendance_term ? ` · ${value.attendance_term}` : ''}</Badge>
       </div>
 
       <div className="grid gap-4 rounded-xl border bg-muted/15 p-4 md:grid-cols-2">
@@ -81,6 +83,7 @@ export function TeachingDetailsForm({
 
     <section className="grid gap-4 border-t pt-6" aria-labelledby={`teaching-attendance-${levelCode}`}>
       <div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-secondary text-primary"><UsersThree size={21} /></span><div><h3 id={`teaching-attendance-${levelCode}`} className="font-semibold">ตรวจรายชื่อและวิธีเรียน</h3><p className="text-xs text-muted-foreground">เลือกผู้มาเรียนและวิธีเรียนตามข้อมูลจริง ระบบเก็บร่างอัตโนมัติ</p></div></div>
+      {value.attendance_mode === 'roster' && value.attendance.length > 0 && value.attendance_term !== term && <div role="status" className="grid gap-3 rounded-xl border border-amber-300/70 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"><p><b>เปลี่ยนภาคเรียนแล้ว กรุณาตรวจรายชื่อใหม่</b><br />รายชื่อนี้มาจากภาคเรียน {value.attendance_term || 'ที่ยังไม่ระบุ'} แต่บันทึกกำลังใช้ภาคเรียน {term} สถานะเช็กชื่อเดิมยังคงอยู่ กรุณาอัปเดตรายชื่อและตรวจผู้มาเรียนตามจริง</p><Button type="button" variant="outline" size="sm" className="justify-self-start" disabled={loadState.loading || !value.class_group_code} onClick={() => void onSelectGroup(selectedGroup)}>{loadState.loading ? 'กำลังโหลดรายชื่อ...' : 'อัปเดตรายชื่อภาคเรียนนี้'}</Button></div>}
       <div className="flex flex-wrap gap-2" role="group" aria-label="รูปแบบข้อมูลผู้เรียน"><Button type="button" size="sm" variant={value.attendance_mode === 'roster' ? 'secondary' : 'outline'} aria-pressed={value.attendance_mode === 'roster'} onClick={() => onChange({ ...value, attendance_mode: 'roster', total: value.attendance.length, present: value.attendance.filter((row) => row.present).length, attendance_reviewed: false })}>เช็กรายชื่อรายคน</Button><Button type="button" size="sm" variant={value.attendance_mode === 'counts' ? 'secondary' : 'outline'} aria-pressed={value.attendance_mode === 'counts'} onClick={() => onChange({ ...value, attendance_mode: 'counts', attendance_reviewed: false })}>ระบุยอดรวมแทนรายชื่อ</Button></div>
       {value.attendance_mode === 'counts' ? <div className="grid gap-4 rounded-xl border bg-muted/15 p-4">
         <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"><WarningCircle size={17} className="mt-0.5 shrink-0" />ระบุยอดรวมผู้เรียนและจำนวนมาเรียนตามข้อมูลจริง</div>

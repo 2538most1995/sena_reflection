@@ -15,6 +15,8 @@
 - เมื่อแก้การบันทึกรูป/รายชื่อ ต้องตรวจ schema จริงของ ID รวม numeric ที่ขาด AUTO_INCREMENT; ห้ามเดาชนิดจากข้อความ exception และห้ามสร้าง/แก้ตารางใน transaction finalize/revision
 - การเปลี่ยน PDF ต้องตรวจทั้งพิมพ์จาก canvas และ backend snapshot ซึ่งใช้ข้อมูลเอกสารฉบับเดียวกัน พร้อมตรวจไฟล์ build ที่ commit
 - PDF รายสัปดาห์/ตามตัวกรองใช้ browser print ผ่าน `BrowserExportController` และ `browser-export.ts` เป็นทางหลัก ต้องคง frozen revisions, signed user-bound URLs, scope ตำบล และตรวจ geometry/ฟอนต์/รูปก่อนเปิดพิมพ์ ห้ามรวม CSS ของแต่ละฉบับปนกันหรือเปลี่ยนสถานะงาน server เมื่อเปิดพิมพ์ฉบับค้าง
+- สำรอง/เก็บ/นำกลับรายภาคเรียนใช้ `SemesterBackupService` และสิทธิ์ district ตรวจ ZIP, ลายเซ็น, checksums, ข้อมูลชนกัน และข้อมูล/ไฟล์ที่เปลี่ยนก่อน archive; ไม่รวมร่างส่วนตัว credentials หรือบัญชี และไม่ลบรูปที่อาจถูกใช้ร่วมกัน การ deploy ไม่เรียก archive อัตโนมัติ
+- Student API ใช้ `StudentApiService` / `AcademicTermService` และตั้ง SDL token ที่ `/admin/student-api` เก็บเข้ารหัสใน `student_api_connections`; แยก cache/fallback ตามภาคเรียน ใช้ username ที่ได้รับมอบหมายจริงในการ scope SDL และรักษา `attendance_term`/สถานะมาเรียนเมื่อเปลี่ยนภาคเรียน
 
 ## 1. Project Context Agent
 
@@ -148,7 +150,7 @@
 หน้าที่:
 
 - วิเคราะห์ `api/student_api.php`, `api/teacher_directory.php`, `config/student_api.php`
-- ตรวจการเชื่อมต่อ `sena_care_school`
+- ตรวจการเชื่อมต่อ SDL School และ `sena_care_school` เดิม
 - ดูการ normalize ข้อมูลครู/นักเรียนและ fallback
 
 คำถามหลัก:

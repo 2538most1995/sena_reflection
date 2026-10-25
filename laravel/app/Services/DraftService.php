@@ -450,6 +450,9 @@ class DraftService
                 'attendance', 'image_ids', 'document',
             ])->all();
             $normalizedLevels[$code]['attendance'] = $this->normalizeAttendanceRows($entry['attendance'] ?? []);
+            $normalizedLevels[$code]['attendance_term'] = app(AcademicTermService::class)->normalize(
+                array_key_exists('attendance_term', $entry) ? $entry['attendance_term'] : ($scope['semester'] ?? '').'/'.($scope['year'] ?? '')
+            );
             $normalizedLevels[$code]['attendance_reviewed'] = (bool) ($entry['attendance_reviewed'] ?? false);
             $normalizedLevels[$code]['document'] = [
                 'settings' => collect($entry['document']['settings'] ?? [])->only(RecordDocumentOptions::SETTING_KEYS)->all(),
@@ -540,6 +543,7 @@ class DraftService
                 ...$record->only(['subject', 'subject_code', 'class_group_code', 'class_name', 'total', 'present', 'result', 'problem', 'suggestion', 'supervisor_comment']),
                 'attendance_reviewed' => true,
                 'attendance_mode' => $record->attendance->isNotEmpty() ? 'roster' : 'counts',
+                'attendance_term' => app(AcademicTermService::class)->normalize($record->semester.'/'.$record->year),
                 'attendance' => $this->normalizeAttendanceRows($record->attendance->map(fn ($row) => $row->only(['student_id', 'full_name', 'group_code', 'class_name', 'present', 'learning_method']))->all()),
                 'image_ids' => [],
                 'document' => ['settings' => $record->documentLayout?->settings ?? [], 'content' => []],

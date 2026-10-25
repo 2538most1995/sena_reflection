@@ -117,7 +117,7 @@ class RecordController extends Controller
         $this->authorizeScope($request, $record);
         $record->load(['images', 'attendance']);
 
-        $optionsRequest = $request->duplicate([...$request->query(), 'tambon' => $record->tambon]);
+        $optionsRequest = $request->duplicate([...$request->query(), 'tambon' => $record->tambon, 'year' => $record->year, 'semester' => $record->semester]);
         $options = $create->options($optionsRequest, $students, $levels);
         $data = $options['data'];
 

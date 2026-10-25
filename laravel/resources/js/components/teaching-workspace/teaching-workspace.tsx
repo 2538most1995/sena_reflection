@@ -57,6 +57,7 @@ function normalizeDraftPayload(payload: Partial<TeachingDraftPayload> | null | u
       result: value.result || '', problem: value.problem || '', suggestion: value.suggestion || '',
       total: Number(value.total) || 0, present: Number(value.present) || 0,
       attendance: normalizeTeachingAttendance(value.attendance), image_ids: Array.isArray(value.image_ids) ? value.image_ids : [],
+      attendance_term: payload?.levels?.[code]?.attendance_term !== undefined ? value.attendance_term : value.attendance?.length ? `${payload?.scope?.semester || fallback.scope.semester}/${payload?.scope?.year || fallback.scope.year}` : null,
     }
   }
   const enabledCodes = Array.isArray(payload?.enabled_level_codes) && payload.enabled_level_codes.length
@@ -398,19 +399,25 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }, [previewLevel, markChanged])
 
   useEffect(() => {
-    if (!district || !payload.scope.tambon) return
+    if (!payload.scope.tambon || !/^25\d{2}$/.test(payload.scope.year) || !payload.scope.semester) return
     const controller = new AbortController()
-    void fetch(`/record-options/workspace?${new URLSearchParams({ tambon: payload.scope.tambon })}`, { headers: { Accept: 'application/json' }, signal: controller.signal })
-      .then(async (response) => ({ response, envelope: await response.json() as { data?: { groups?: GroupOption[]; subjects?: SubjectOption[]; source?: string; error?: string | null }; message?: string } }))
+    void fetch(`/record-options/workspace?${new URLSearchParams({ tambon: payload.scope.tambon, year: payload.scope.year, semester: payload.scope.semester })}`, { headers: { Accept: 'application/json' }, signal: controller.signal })
+      .then(async (response) => ({ response, envelope: await response.json() as { data?: { groups?: GroupOption[]; subjects?: SubjectOption[]; source?: string; error_code?: string | null }; status?: string; message?: string } }))
       .then(({ response, envelope }) => {
+        if (controller.signal.aborted) return
         if (!response.ok) throw new Error(envelope.message || 'โหลดตัวเลือกไม่สำเร็จ')
         if (envelope.data?.groups) setAvailableGroups(envelope.data.groups)
         if (envelope.data?.subjects) setAvailableSubjects(envelope.data.subjects)
-        if (envelope.data?.source) setLoadStates((current) => ({ '1': { ...current['1'], source: envelope.data!.source! }, '2': { ...current['2'], source: envelope.data!.source! }, '3': { ...current['3'], source: envelope.data!.source! } }))
-        if (envelope.data?.error) setPageError(envelope.data.error)
+        if (envelope.data?.source) setLoadStates((current) => Object.fromEntries(teachingLevels.map(({ code }) => [code, { ...current[code], source: payloadRef.current.levels[code].attendance.length ? current[code].source : envelope.data!.source! }])) as Record<LevelCode, WorkspaceLoadState>)
+        if (envelope.status === 'error') setPageError(envelope.message || 'โหลดตัวเลือกสำหรับภาคเรียนนี้ไม่สำเร็จ')
       }).catch((error) => { if (error instanceof Error && error.name !== 'AbortError') setPageError(error.message) })
     return () => controller.abort()
-  }, [district, payload.scope.tambon])
+  }, [payload.scope.tambon, payload.scope.year, payload.scope.semester])
+
+  useEffect(() => {
+    teachingLevels.forEach(({ code }) => { requestSerial.current[code] += 1 })
+    setLoadStates((states) => ({ '1': { ...states['1'], loading: false }, '2': { ...states['2'], loading: false }, '3': { ...states['3'], loading: false } }))
+  }, [payload.scope.tambon, payload.scope.year, payload.scope.semester])
 
   const updateLevel = (levelCode: LevelCode, value: TeachingDraftPayload['levels'][LevelCode]) => markChanged((current) => ({ ...current, levels: { ...current.levels, [levelCode]: value } }))
 
@@ -439,7 +446,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     updateLevel(levelCode, { ...current, class_group_code: group.group_code, class_name: group.class_name, attendance: sameGroup ? current.attendance : [], attendance_mode: 'roster', attendance_reviewed: false, total: sameGroup ? current.total : 0, present: sameGroup ? current.present : 0 })
     setLoadStates((values) => ({ ...values, [levelCode]: { ...values[levelCode], loading: true, error: null } }))
     try {
-      const query = new URLSearchParams({ group_code: group.group_code, level: levelCode, ...(district && payloadRef.current.scope.tambon ? { tambon: payloadRef.current.scope.tambon } : {}) })
+      const query = new URLSearchParams({ group_code: group.group_code, level: levelCode, year: payloadRef.current.scope.year, semester: payloadRef.current.scope.semester, ...(sameGroup ? { refresh: '1' } : {}), ...(district && payloadRef.current.scope.tambon ? { tambon: payloadRef.current.scope.tambon } : {}) })
       const response = await fetch(`/record-options/students?${query}`, { headers: { Accept: 'application/json' } })
       const envelope = await response.json() as { status?: string; message?: string; data?: { items?: WorkspaceAttendanceRow[]; source?: string } }
       if (!response.ok || envelope.status !== 'success') throw new Error(envelope.message || 'โหลดรายชื่อนักศึกษาไม่สำเร็จ')
@@ -450,7 +457,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
         return { ...student, present: existing?.present || false, learning_method: existing?.present ? existing.learning_method : null }
       })
       const latest = payloadRef.current.levels[levelCode]
-      updateLevel(levelCode, { ...latest, class_group_code: group.group_code, class_name: group.class_name, attendance, attendance_mode: 'roster', attendance_reviewed: false, total: attendance.length, present: attendance.filter((row) => row.present).length })
+      updateLevel(levelCode, { ...latest, class_group_code: group.group_code, class_name: group.class_name, attendance, attendance_term: `${payloadRef.current.scope.semester}/${payloadRef.current.scope.year}`, attendance_mode: 'roster', attendance_reviewed: false, total: attendance.length, present: attendance.filter((row) => row.present).length })
       setLoadStates((values) => ({ ...values, [levelCode]: { loading: false, error: null, source: envelope.data?.source || values[levelCode].source } }))
     } catch (error) {
       if (serial !== requestSerial.current[levelCode]) return
@@ -756,7 +763,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     <RecordSaveConfirmation open={confirmationOpen} onOpenChange={setConfirmationOpen} payload={payload} images={images} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} error={pageError} onConfirm={finalize} onReturnFocus={() => { if (confirmationOrigin.current?.isConnected) confirmationOrigin.current.focus({ preventScroll: true }) }} />
     {editorMode === 'review' ? <RecordReview payload={payload} previewLevel={previewLevel} previewUrl={previewUrl} previewing={previewing} previewStale={previewStale} previewFormat={previewFormats[previewLevel]} rendererUnavailable={rendererUnavailable} onBrowserPreview={() => previewPdf('browser')} onBrowserPreviewLoaded={browserPreviewLoaded} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} onBack={() => setEditorMode('edit')} onPreviewLevel={setPreviewLevel} onPreview={previewPdf} onEditDocument={editDocument} onSave={requestConfirmation} /> : <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-5 xl:grid-cols-[180px_minmax(0,1fr)] 2xl:grid-cols-[180px_minmax(0,1fr)_260px]">
       <aside className="rounded-xl border bg-card p-3 xl:sticky xl:top-24"><p className="mb-3 px-2 text-xs font-semibold text-muted-foreground">เลือกระดับชั้น</p><WeeklyLevelNavigation activeLevel={activeLevel} levels={payload.levels} enabledLevelCodes={payload.enabled_level_codes ?? ['1', '2', '3']} onChange={setActiveLevel} /><Button type="button" className="mt-3 w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={requestConfirmation}>บันทึก<CheckCircle size={18} /></Button></aside>
-      <Card className="min-w-0"><CardContent className="p-4 sm:p-6"><TeachingDetailsForm key={activeLevel} levelCode={activeLevel} value={payload.levels[activeLevel]} groups={availableGroups} subjects={availableSubjects} loadState={loadStates[activeLevel]} images={images.filter((image) => image.level_code === activeLevel).sort((a, b) => a.sort_order - b.sort_order)} imageBusy={imageBusy} sourceLabel={sourceLabel(loadStates[activeLevel].source)} onChange={(value) => editLevel(activeLevel, value)} onSelectGroup={(group) => loadStudents(activeLevel, group)} onUploadImages={(files) => uploadImages(activeLevel, files)} onDeleteImage={(image) => mutateImages('DELETE', activeLevel, image.id)} onReorderImages={(imageIds) => mutateImages('PATCH', activeLevel, undefined, imageIds)} /></CardContent></Card>
+      <Card className="min-w-0"><CardContent className="p-4 sm:p-6"><TeachingDetailsForm key={activeLevel} levelCode={activeLevel} value={payload.levels[activeLevel]} groups={availableGroups} subjects={availableSubjects} loadState={loadStates[activeLevel]} images={images.filter((image) => image.level_code === activeLevel).sort((a, b) => a.sort_order - b.sort_order)} imageBusy={imageBusy} term={`${payload.scope.semester}/${payload.scope.year}`} sourceLabel={sourceLabel(loadStates[activeLevel].source)} onChange={(value) => editLevel(activeLevel, value)} onSelectGroup={(group) => loadStudents(activeLevel, group)} onUploadImages={(files) => uploadImages(activeLevel, files)} onDeleteImage={(image) => mutateImages('DELETE', activeLevel, image.id)} onReorderImages={(imageIds) => mutateImages('PATCH', activeLevel, undefined, imageIds)} /></CardContent></Card>
       <aside className="grid gap-4 rounded-xl border bg-card p-4 xl:col-span-2 2xl:sticky 2xl:top-24 2xl:col-span-1"><WorkspaceSummary payload={payload} images={images} activeLevel={activeLevel} onSelectLevel={setActiveLevel} /><div className="border-t pt-4"><Button type="button" size="lg" className="w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={requestConfirmation}>บันทึก {totalSelectedLevels} ระดับ<CheckCircle size={19} /></Button><p className="mt-2 text-center text-[11px] leading-5 text-muted-foreground">{issues.length ? `ยังมี ${issues.length} จุดให้ตรวจ กดบันทึกเพื่อไปแก้ไข` : 'ข้อมูลพร้อมบันทึก'}</p><Button type="button" variant="outline" className="mt-3 w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={() => { setPreviewLevel(activeLevel); setEditorMode('review') }}>ดูตัวอย่าง PDF</Button></div></aside>
     </div>}
   </AppShell>

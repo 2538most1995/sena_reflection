@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Tambon;
 use App\Models\TeachingRecord;
+use App\Services\AcademicTermService;
 use App\Services\DraftService;
 use App\Services\EducationLevelService;
+use App\Services\StudentApiService;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,12 +20,14 @@ class RecordCreateController extends Controller
 {
     public function create(Request $request, StudentDirectoryController $students, EducationLevelService $levels, DraftService $drafts): Response
     {
-        $options = $this->options($request, $students, $levels);
-        $data = $options['data'];
         $draft = null;
         if ($request->filled('draft')) {
             $draft = $drafts->resource($drafts->owned($request->user(), (string) $request->query('draft'))->load('images'));
         }
+
+        $optionsRequest = $draft ? $request->duplicate([...$request->query(), ...$draft['scope']]) : $request;
+        $options = $this->options($optionsRequest, $students, $levels);
+        $data = $options['data'];
 
         return Inertia::render('records/create', [
             'groups' => $data['groups'],
@@ -31,7 +35,7 @@ class RecordCreateController extends Controller
             'tambonOptions' => $request->user()->isDistrict() ? Tambon::query()->orderBy('name')->get(['id', 'name']) : [],
             'studentSource' => $data['source'],
             'studentError' => $data['error_code'] ? $options['message'] : null,
-            'defaults' => ['year' => (string) ((int) date('Y') + 543), 'semester' => '1', 'date' => now()->format('Y-m-d')],
+            'defaults' => [...app(AcademicTermService::class)->defaults($data['latest_term'] ?? null), 'date' => now()->format('Y-m-d')],
             'workspace' => [
                 'mode' => $draft && $draft['source_record_id'] ? 'edit' : 'create',
                 'draft' => $draft,
@@ -44,6 +48,13 @@ class RecordCreateController extends Controller
     /** @return array{status: string, message: string, data: array<string, mixed>} */
     public function options(Request $request, StudentDirectoryController $students, EducationLevelService $levels): array
     {
+        $filters = $request->validate([
+            'year' => ['nullable', 'required_with:semester', 'regex:/^25\d{2}$/'],
+            'semester' => ['nullable', 'required_with:year', 'in:1,2,3'],
+            'term' => ['nullable', 'regex:/^[123]\/25\d{2}$/'],
+            'refresh' => ['nullable', 'boolean'],
+        ]);
+        $term = app(AcademicTermService::class)->fromFilters($filters);
         $user = $request->user();
         $targetTambon = $user->isDistrict() ? trim((string) $request->query('tambon', '')) : (string) $user->tambon;
         if ($targetTambon !== '' && ! Tambon::query()->whereKey($targetTambon)->exists()) {
@@ -51,13 +62,14 @@ class RecordCreateController extends Controller
         }
 
         $payload = $this->rememberSuccessful(
-            'record-options:groups:v3:'.hash('sha256', implode('|', [$user->id, $targetTambon])),
+            'record-options:groups:v4:'.hash('sha256', implode('|', [app(StudentApiService::class)->fingerprint(), $user->id, $targetTambon, $term ?? 'latest'])),
             fn () => $students->legacyPayload(
-                Request::create('/record-options/groups', 'GET', ['view' => 'groups', 'limit' => 1000, 'status' => 'active']),
+                Request::create('/record-options/groups', 'GET', ['view' => 'groups', 'limit' => 1000, 'status' => 'active', 'term' => $term, 'refresh' => $request->boolean('refresh')]),
                 $user,
                 $targetTambon ?: null,
                 true,
             ),
+            $request->boolean('refresh'),
         );
         $groups = collect($payload['items'] ?? [])->map(function (array $row) use ($levels): ?array {
             $level = $levels->fields($row['level_code'] ?? $row['level'] ?? $row['level_name'] ?? null);
@@ -105,6 +117,8 @@ class RecordCreateController extends Controller
                 'fetched_at' => (string) (($meta['fetched_at'] ?? null) ?: now()->toISOString()),
                 'stale' => (bool) ($meta['stale'] ?? false),
                 'error_code' => $payload['error_code'] ?? null,
+                'latest_term' => $meta['latest_term'] ?? null,
+                'selected_term' => $term,
             ],
         ];
     }
@@ -115,19 +129,24 @@ class RecordCreateController extends Controller
             'group_code' => ['required', 'string', 'max:50'],
             'level' => ['required', 'in:1,2,3'],
             'tambon' => ['nullable', 'string', 'max:20'],
+            'year' => ['nullable', 'required_with:semester', 'regex:/^25\d{2}$/'],
+            'semester' => ['nullable', 'required_with:year', 'in:1,2,3'],
+            'term' => ['nullable', 'regex:/^[123]\/25\d{2}$/'],
+            'refresh' => ['nullable', 'boolean'],
         ]);
         $user = $request->user();
         $targetTambon = $user->isDistrict() ? trim((string) ($filters['tambon'] ?? '')) : (string) $user->tambon;
         if ($targetTambon !== '' && ! Tambon::query()->whereKey($targetTambon)->exists()) {
             throw ValidationException::withMessages(['tambon' => 'ไม่พบตำบลที่เลือก']);
         }
-        $cacheKey = 'record-create:students:v3:'.hash('sha256', implode('|', [$user->id, $targetTambon, $filters['group_code'], $filters['level']]));
+        $term = app(AcademicTermService::class)->fromFilters($filters);
+        $cacheKey = 'record-create:students:v4:'.hash('sha256', implode('|', [app(StudentApiService::class)->fingerprint(), $user->id, $targetTambon, $filters['group_code'], $filters['level'], $term ?? 'latest']));
         $payload = $this->rememberSuccessful($cacheKey, fn () => $directory->legacyPayload(
-            Request::create('/record-options/students', 'GET', ['class_group' => $filters['group_code'], 'level' => $filters['level'], 'limit' => 1000, 'status' => 'active']),
+            Request::create('/record-options/students', 'GET', ['class_group' => $filters['group_code'], 'level' => $filters['level'], 'limit' => 1000, 'status' => 'active', 'term' => $term, 'refresh' => $request->boolean('refresh')]),
             $user,
             $targetTambon ?: null,
             true,
-        ));
+        ), $request->boolean('refresh'));
         $items = collect($payload['items'] ?? [])->map(function (array $row): array {
             $fullName = trim((string) ($row['full_name'] ?? ''));
             if ($fullName === '') {
@@ -159,10 +178,10 @@ class RecordCreateController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function rememberSuccessful(string $key, Closure $callback): array
+    private function rememberSuccessful(string $key, Closure $callback, bool $refresh = false): array
     {
         $cached = Cache::get($key);
-        if (is_array($cached) && empty($cached['error']) && empty($cached['meta']['stale'])) {
+        if (! $refresh && is_array($cached) && empty($cached['error']) && empty($cached['meta']['stale'])) {
             return $cached;
         }
         $payload = $callback();
