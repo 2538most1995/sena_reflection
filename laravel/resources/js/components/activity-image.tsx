@@ -3,6 +3,7 @@ import { ArrowCounterClockwise, DownloadSimple, ImageSquare, Minus, Plus, X } fr
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { appUrl } from '@/lib/app-url'
+import { actionAlert } from '@/lib/action-alert'
 import type { RecordRow } from '@/types'
 
 type ImageData = NonNullable<RecordRow['images']>[number]
@@ -71,7 +72,7 @@ export function ActivityImage({ recordId, image, index }: { recordId: string; im
             <span className="min-w-12 text-center text-xs tabular-nums" aria-live="polite">{Math.round(zoom * 100)}%</span>
             <Button type="button" variant="ghost" size="icon" aria-label="ขยายรูป" disabled={zoom >= 5} onClick={() => setZoom(Math.min(5, zoom + 0.25))}><Plus size={18} /></Button>
             <Button type="button" variant="ghost" size="icon" aria-label="แสดงรูปพอดีหน้าจอ" onClick={() => setZoom(1)}><ArrowCounterClockwise size={18} /></Button>
-            <Button asChild variant="ghost" size="icon"><a href={viewerSource} download={`activity-${index + 1}.${extension}`} aria-label="ดาวน์โหลดรูป"><DownloadSimple size={18} /></a></Button>
+            <Button asChild variant="ghost" size="icon"><a href={viewerSource} download={`activity-${index + 1}.${extension}`} aria-label="ดาวน์โหลดรูป" onClick={() => actionAlert.info('ส่งคำขอดาวน์โหลดรูปแล้ว', 'ตรวจไฟล์รูปภาพในรายการดาวน์โหลดของเบราว์เซอร์')}><DownloadSimple size={18} /></a></Button>
             <Dialog.Close asChild><Button type="button" variant="outline" size="icon" aria-label="ปิดรูป"><X size={18} /></Button></Dialog.Close>
           </div>
         </header>

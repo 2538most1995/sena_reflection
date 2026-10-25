@@ -1,0 +1,89 @@
+.action-alert-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgb(15 23 42 / .3);
+  backdrop-filter: blur(3px);
+  animation: action-alert-fade 160ms ease-out;
+}
+
+.action-alert {
+  --alert-tone: var(--primary);
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 1001;
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 32px 28px 20px;
+  transform: translate(-50%, -50%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 20px;
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  box-shadow: 0 24px 80px rgb(15 23 42 / .18);
+  text-align: center;
+  outline: none;
+  animation: action-alert-enter 200ms cubic-bezier(.16, 1, .3, 1);
+}
+
+.action-alert[data-status='error'] { --alert-tone: var(--destructive); }
+.action-alert[data-status='info'] { --alert-tone: 206 71% 43%; }
+.dark .action-alert[data-status='info'] { --alert-tone: 202 70% 66%; }
+
+.action-alert-close {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+.action-alert-close:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
+.action-alert-close:focus-visible, .action-alert-button:focus-visible { outline: 3px solid hsl(var(--ring) / .55); outline-offset: 3px; }
+
+.action-alert-symbol {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 80px;
+  margin: 4px auto 22px;
+  border: 1px solid hsl(var(--alert-tone) / .14);
+  border-radius: 50%;
+  background: hsl(var(--alert-tone) / .08);
+  color: hsl(var(--alert-tone));
+}
+.action-alert[data-status='loading'] .action-alert-symbol svg { animation: action-alert-spin 1.1s linear infinite; }
+.action-alert-eyebrow { margin: 0 0 7px; color: hsl(var(--alert-tone)); font-size: 12px; font-weight: 600; }
+.action-alert-title { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.5; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.action-alert-description { margin: 10px 0 0; color: hsl(var(--muted-foreground)); font-size: 14px; line-height: 1.8; white-space: pre-line; overflow-wrap: anywhere; }
+.action-alert-progress { height: 4px; margin: 22px 0 0; overflow: hidden; border-radius: 4px; background: hsl(var(--primary) / .1); }
+.action-alert-progress span { display: block; width: 35%; height: 100%; border-radius: inherit; background: hsl(var(--primary)); animation: action-alert-progress 1.4s ease-in-out infinite; }
+.action-alert-button { display: block; width: 100%; min-height: 44px; margin-top: 24px; padding: 10px 16px; border: 1px solid transparent; border-radius: 12px; background: hsl(var(--alert-tone)); color: hsl(var(--primary-foreground)); font-size: 14px; font-weight: 600; cursor: pointer; transition: filter 150ms ease; }
+.action-alert-button:hover { filter: brightness(.94); }
+.action-alert[data-status='loading'] .action-alert-button { border-color: hsl(var(--border)); background: hsl(var(--muted) / .4); color: hsl(var(--foreground)); }
+.action-alert-footnote { min-height: 18px; margin: 12px 0 0; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.6; }
+
+@keyframes action-alert-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes action-alert-enter { from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(.98); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes action-alert-spin { to { transform: rotate(360deg); } }
+@keyframes action-alert-progress { from { transform: translateX(-110%); } to { transform: translateX(390%); } }
+
+@media (max-width: 480px) { .action-alert { padding: 30px 22px 18px; border-radius: 20px; } .action-alert-title { font-size: 20px; } }
+@media (prefers-reduced-motion: reduce) { .action-alert, .action-alert-overlay, .action-alert-symbol svg, .action-alert-progress span { animation: none !important; } }
+@media print {
+  .action-alert, .action-alert-overlay, [data-radix-focus-guard] { display: none !important; }
+  html body[data-scroll-locked] {
+    overflow: visible !important;
+    position: static !important;
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+  }
+}

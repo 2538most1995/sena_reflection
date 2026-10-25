@@ -1,6 +1,22 @@
 import { CheckCircle, WarningCircle } from '@phosphor-icons/react'
 import { usePage } from '@inertiajs/react'
+import { useEffect, useRef } from 'react'
+import { actionAlert } from '@/lib/action-alert'
 import type { SharedProps } from '@/types'
+
+export function FlashAlertBridge() {
+  const { props } = usePage<SharedProps>()
+  const previous = useRef<SharedProps | null>(null)
+  const success = props.flash?.success || ''
+  const error = [...new Set([props.flash?.error, ...Object.values(props.errors || {})].filter(Boolean))].join('\n')
+  useEffect(() => {
+    if (previous.current === props) return
+    previous.current = props
+    if (error) actionAlert.error('ดำเนินการไม่สำเร็จ', error)
+    else if (success) actionAlert.success('ดำเนินการสำเร็จ', success)
+  }, [props, success, error])
+  return null
+}
 
 export function FlashMessages() {
   const { props } = usePage<SharedProps>()

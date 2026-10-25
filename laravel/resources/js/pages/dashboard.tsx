@@ -39,10 +39,10 @@ type Props = {
 }
 
 function Metric({ label, value, unit, icon: Icon, emphasized = false, detail }: { label: string; value: string; unit: string; icon: React.ElementType; emphasized?: boolean; detail?: string }) {
-  return <article className={cn('min-h-32 min-w-0 rounded-xl border p-4 shadow-[0_10px_30px_rgba(20,58,55,0.045)] sm:p-5', emphasized ? 'bg-primary text-primary-foreground xl:col-span-6' : 'bg-card xl:col-span-2')}>
-    <div className="flex items-start justify-between"><span className={cn('text-sm font-medium', emphasized ? 'text-primary-foreground/85' : 'text-muted-foreground')}>{label}</span><Icon size={22} weight="duotone" className={emphasized ? 'text-primary-foreground/80' : 'text-primary'} /></div>
-    <div className="mt-4 flex flex-wrap items-baseline gap-x-2"><strong className="text-3xl font-bold tracking-[-0.05em]">{value}</strong><small className={emphasized ? 'text-primary-foreground/80' : 'text-muted-foreground'}>{unit}</small></div>
-    {detail && <p className={cn('mt-2 text-xs', emphasized ? 'text-primary-foreground/80' : 'text-muted-foreground')}>{detail}</p>}
+  return <article className="min-h-36 min-w-0 rounded-2xl border bg-card p-5 sm:p-6">
+    <div className="flex items-start justify-between gap-3"><span className="text-sm font-medium text-muted-foreground">{label}</span><Icon size={20} weight="regular" className="shrink-0 text-primary/75" /></div>
+    <div className="mt-5 flex flex-wrap items-baseline gap-x-2"><strong className={cn('text-3xl font-semibold tracking-[-0.04em] tabular-nums', emphasized && 'text-primary')}>{value}</strong><small className="text-muted-foreground">{unit}</small></div>
+    {detail && <p className="mt-2 text-xs leading-5 text-muted-foreground">{detail}</p>}
   </article>
 }
 
@@ -66,7 +66,7 @@ function DraftWorkList({ drafts }: { drafts?: Props['drafts'] }) {
 
   const completedLevels = (payload: TeachingDraftPayload) => selectedTeachingLevels(payload).filter(({ code }) => teachingLevelReady(payload.levels[code])).length
 
-  return <section className="mb-6 rounded-xl border bg-card p-4 shadow-[0_10px_30px_rgba(20,58,55,.045)] sm:p-5" aria-labelledby="draft-work-heading">
+  return <section className="mb-6 rounded-2xl border bg-card p-5 sm:p-6" aria-labelledby="draft-work-heading">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 id="draft-work-heading" className="flex items-center gap-2 font-semibold"><ClockCounterClockwise size={20} className="text-primary" />งานที่ทำค้างไว้</h2><p className="mt-1 text-xs text-muted-foreground">ร่างบันทึกบนเซิร์ฟเวอร์ กลับมาทำต่อจากอุปกรณ์เครื่องเดิมหรือเครื่องอื่นได้</p></div><Badge variant="outline">{items.length} ฉบับร่าง</Badge></div>
     <div className="mt-4 grid gap-3 lg:grid-cols-3">{items.slice(0, 6).map((draft) => {
       const scope = draft.scope || draft.payload?.scope || { tambon: '', year: '', semester: '', week: '', date: '' }
@@ -86,7 +86,7 @@ function Filters({ filters, weeks, tambons, district }: { filters: Props['filter
   const [data, setData] = useState({ year: filters.year || '', semester: filters.semester || '', week: filters.week || '', tambon: filters.tambon || '', search: filters.search || '' })
   const active = Object.values(data).some(Boolean)
   const apply = (event: FormEvent) => { event.preventDefault(); router.get('/', data, { preserveState: true, replace: true }) }
-  return <form onSubmit={apply} className="grid gap-4 rounded-xl border bg-muted/35 p-4 md:grid-cols-2 xl:grid-cols-6">
+  return <form onSubmit={apply} className="grid gap-4 rounded-xl bg-muted/45 p-4 md:grid-cols-2 xl:grid-cols-6">
     <FormField label="ปีการศึกษา"><Input inputMode="numeric" value={data.year} onChange={(event) => setData({ ...data, year: event.target.value })} placeholder="เช่น 2569" /></FormField>
     <FormField label="ภาคเรียน"><NativeSelect value={data.semester} onChange={(event) => setData({ ...data, semester: event.target.value })}><option value="">ทุกภาคเรียน</option>{['1', '2', '3'].map((term) => <option key={term} value={term}>ภาคเรียน {term}</option>)}</NativeSelect></FormField>
     <FormField label="สัปดาห์"><NativeSelect value={data.week} onChange={(event) => setData({ ...data, week: event.target.value })}><option value="">ทุกสัปดาห์</option>{weeks.map((week) => <option key={week} value={week}>สัปดาห์ {week}</option>)}</NativeSelect></FormField>
@@ -116,10 +116,10 @@ export default function Dashboard(props: Props) {
   const rate = props.summary.total_students > 0 ? (props.summary.total_present / props.summary.total_students) * 100 : 0
   return <AppShell>
     <Head title="ภาพรวม" />
-    <PageHeader title="บันทึกหลังการสอน" description="ติดตามรายการ ตรวจสอบการเข้าเรียน และส่งออกเอกสาร" action={<Button asChild size="lg" className="shadow-[0_12px_30px_rgba(20,58,55,0.2)]"><Link href="/records/create"><Plus size={19} />สร้างบันทึกหลังสอน</Link></Button>} />
+    <PageHeader title="บันทึกหลังการสอน" description="ติดตามรายการ ตรวจสอบการเข้าเรียน และส่งออกเอกสาร" action={<Button asChild size="lg"><Link href="/records/create"><Plus size={19} />สร้างบันทึกหลังสอน</Link></Button>} />
     <FlashMessages />
     <DraftWorkList drafts={props.drafts} />
-    <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-12" aria-label="สรุปข้อมูล">
+    <section className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="สรุปข้อมูล">
       <Metric label="รายการที่แสดง" value={number(props.summary.record_count)} unit="บันทึก" icon={Books} />
       <Metric label="จำนวนสัปดาห์" value={number(props.summary.week_count)} unit="สัปดาห์" icon={CalendarBlank} />
       <Metric label="ผู้มาเรียน (ไม่ซ้ำ)" value={number(props.summary.unique_present_students)} unit="คน" icon={UsersThree} detail="นับรหัสผู้เรียนคนละ 1 ครั้ง" />

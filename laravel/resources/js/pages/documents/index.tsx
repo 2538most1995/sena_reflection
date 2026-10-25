@@ -1,12 +1,13 @@
 import { Head } from '@inertiajs/react'
 import { FilePlus2, FileText, Search, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { AppLink } from '@/components/app-link'
 import { appRouter } from '@/lib/app-router'
 import { appUrl } from '@/lib/app-url'
+import { actionAlert } from '@/lib/action-alert'
 import { documentRequest } from '@/lib/document-api'
 import type { WebDocument } from '@/lib/document-model'
 
@@ -17,18 +18,39 @@ export default function DocumentsIndex({ documents: initial }: { documents: Entr
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
+  const busyRef = useRef(false)
   const create = async () => {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true); setError('')
+    const alertId = actionAlert.loading('กำลังสร้างเอกสาร', 'กำลังเตรียมเอกสารฉบับใหม่ให้คุณ')
     try {
       const result = await documentRequest<{ document: WebDocument }>('/api/documents', { method: 'POST', body: JSON.stringify({ title: 'เอกสารไม่มีชื่อ' }) })
+      actionAlert.success('สร้างเอกสารแล้ว', 'เอกสารฉบับใหม่พร้อมให้แก้ไข', alertId)
       appRouter.visit(`/documents/${result.document.id}/edit`)
-    } catch (error) { setError(error instanceof Error ? error.message : 'สร้างเอกสารไม่สำเร็จ'); setBusy(false) }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'สร้างเอกสารไม่สำเร็จ'
+      busyRef.current = false
+      setError(message); setBusy(false)
+      actionAlert.error('สร้างเอกสารไม่สำเร็จ', message, alertId)
+    }
   }
   const remove = async (id: string) => {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true); setError('')
-    try { await documentRequest(`/api/documents/${id}`, { method: 'DELETE' }); setDocuments((current) => current.filter((entry) => entry.id !== id)); setPendingDelete(null) }
-    catch (error) { setError(error instanceof Error ? error.message : 'ลบเอกสารไม่สำเร็จ') }
-    finally { setBusy(false) }
+    const alertId = actionAlert.loading('กำลังลบเอกสาร', 'กำลังลบเอกสารที่คุณเลือก')
+    try {
+      await documentRequest(`/api/documents/${id}`, { method: 'DELETE' })
+      setDocuments((current) => current.filter((entry) => entry.id !== id)); setPendingDelete(null)
+      actionAlert.success('ลบเอกสารแล้ว', 'นำเอกสารออกจากรายการเรียบร้อย', alertId)
+    }
+    catch (error) {
+      const message = error instanceof Error ? error.message : 'ลบเอกสารไม่สำเร็จ'
+      setError(message)
+      actionAlert.error('ลบเอกสารไม่สำเร็จ', message, alertId)
+    }
+    finally { busyRef.current = false; setBusy(false) }
   }
   return <AppShell><Head title="เอกสาร" /><PageHeader title="เอกสารของคุณ" description="สร้าง จัดหน้า และพิมพ์เอกสาร พร้อมบันทึกอัตโนมัติและประวัติรุ่น" action={<Button onClick={create} disabled={busy}><FilePlus2 size={18} />{busy ? 'กำลังดำเนินการ…' : 'เอกสารใหม่'}</Button>} />
     {error && <p role="alert" className="mb-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}</p>}

@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { actionAlert } from '@/lib/action-alert'
 import { draftRequestError, safeDraftResponseMessage, waitForBrowserDocument } from '@/lib/browser-document-review'
 import { normalizeTeachingAttendance } from './review-state'
 import type { SharedProps } from '@/types'
@@ -149,6 +150,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const idempotencyKey = useRef(globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`)
   const conflicted = useRef(false)
   const finalizingRef = useRef(false)
+  const manualSaveRef = useRef(false)
   const confirmationOrigin = useRef<HTMLElement | null>(null)
   const focusAfterReview = useRef<{ section: string; field?: string } | null>(null)
 
@@ -293,6 +295,20 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       throw error
     }
   }, [persistSnapshot])
+
+  const saveDraftManually = async () => {
+    if (manualSaveRef.current) return
+    manualSaveRef.current = true
+    const alertId = actionAlert.loading('กำลังเก็บฉบับร่าง', 'กรุณารอสักครู่ ระบบกำลังบันทึกข้อมูลของคุณ')
+    try {
+      await saveNow()
+      actionAlert.success('เก็บฉบับร่างแล้ว', 'คุณสามารถกลับมาแก้ไขและทำต่อได้', alertId)
+    } catch (error) {
+      actionAlert.error('เก็บฉบับร่างไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองบันทึกอีกครั้ง', alertId)
+    } finally {
+      manualSaveRef.current = false
+    }
+  }
 
   useEffect(() => {
     if (mode !== 'edit' || draftRef.current || !sourceRecord) return
@@ -446,6 +462,8 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     if (!files.length) return
     setImageBusy(true)
     setPageError(null)
+    const alertId = actionAlert.loading('กำลังอัปโหลดภาพ', `กำลังเพิ่มภาพ ${files.length} รูปในฉบับร่าง`)
+    let uploadedCount = 0
     try {
       await saveNow()
       for (const file of files) {
@@ -479,9 +497,13 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
           setChangeVersion(changeVersionRef.current)
           setSaveState(wasClean ? 'saved' : 'idle')
         })
+        uploadedCount += 1
       }
+      actionAlert.success('อัปโหลดภาพแล้ว', `เพิ่มภาพ ${uploadedCount} รูปในฉบับร่างเรียบร้อย`, alertId)
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'อัปโหลดรูปไม่สำเร็จ')
+      const message = error instanceof Error ? error.message : 'อัปโหลดรูปไม่สำเร็จ'
+      setPageError(message)
+      actionAlert.error('อัปโหลดภาพไม่ครบ', uploadedCount ? `เพิ่มภาพแล้ว ${uploadedCount} จาก ${files.length} รูป · ${message}` : message, alertId)
     } finally {
       setImageBusy(false)
     }
@@ -640,6 +662,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     setFinalizing(true)
     finalizingRef.current = true
     setPageError(null)
+    const alertId = actionAlert.loading('กำลังบันทึกหลังสอน', 'ระบบกำลังบันทึกข้อมูลระดับชั้นที่คุณยืนยัน กรุณารอสักครู่')
     try {
       const currentDraft = await saveNow()
       const response = await fetch(`/teaching-drafts/${currentDraft.id}/finalize`, {
@@ -650,9 +673,12 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       const envelope = await parseError(response)
       if (response.status === 409) handleConflict(envelope)
       if (!response.ok) throw new Error(envelope.message || 'ยืนยันบันทึกไม่สำเร็จ')
-      window.location.assign(appUrl(envelope.data?.redirect_url || '/'))
+      actionAlert.success('บันทึกหลังสอนแล้ว', 'บันทึกข้อมูลระดับชั้นที่คุณยืนยันเรียบร้อย', alertId)
+      router.visit(envelope.data?.redirect_url || '/')
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'ยืนยันบันทึกไม่สำเร็จ')
+      const message = error instanceof Error ? error.message : 'ยืนยันบันทึกไม่สำเร็จ'
+      setPageError(message)
+      actionAlert.error('บันทึกหลังสอนไม่สำเร็จ', message, alertId)
       finalizingRef.current = false
       setFinalizing(false)
     }
@@ -682,7 +708,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     {pageError && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between" role="alert"><div className="flex items-start gap-2"><WarningCircle size={20} className="mt-0.5 shrink-0" /><span>{pageError}{sourceConflict && <small className="mt-1 block">ร่างที่กำลังทำยังถูกเก็บไว้ คุณสามารถเริ่มร่างใหม่จากบันทึกต้นฉบับล่าสุดได้</small>}</span></div>{conflictDraft && (sourceConflict ? <Button type="button" variant="outline" size="sm" onClick={() => void refreshFromSource()}>เริ่มร่างจากฉบับล่าสุด</Button> : <Button type="button" variant="outline" size="sm" onClick={() => { if (window.confirm('โหลดร่างล่าสุดจากเซิร์ฟเวอร์แทนข้อมูลในหน้านี้หรือไม่')) loadLatestConflict() }}>โหลดร่างล่าสุดจากเซิร์ฟเวอร์</Button>)}</div>}
 
     <Card className="mb-5">
-      <CardHeader className="gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle>ข้อมูลร่วมของสัปดาห์</CardTitle><p className="mt-1 text-sm text-muted-foreground">ใช้กับบันทึกระดับชั้นที่เลือก</p></div><div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">{saveState === 'saving' ? <CloudArrowUp size={18} className="animate-pulse text-primary" /> : saveState === 'saved' ? <CloudCheck size={18} className="text-primary" weight="fill" /> : <FloppyDisk size={17} />}<span>{saveState === 'saving' ? 'กำลังบันทึก...' : saveState === 'error' ? 'บันทึกไม่สำเร็จ กรุณาลองใหม่' : saveState === 'conflict' ? 'พบการแก้ไขจากอีกหน้าต่าง' : !draft && !payload.scope.week ? 'เลือกสัปดาห์เพื่อเริ่มเก็บร่าง' : saveState === 'idle' && changeVersion > savedVersionRef.current ? 'มีการแก้ไข รอบันทึก' : savedAtLabel(lastSavedAt)}</span>{saveState !== 'saving' && saveState !== 'conflict' && <Button type="button" variant="ghost" size="sm" disabled={finalizing || imageBusy} onClick={() => void saveNow().catch(() => undefined)}>เก็บร่างตอนนี้</Button>}</div></CardHeader>
+      <CardHeader className="gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle>ข้อมูลร่วมของสัปดาห์</CardTitle><p className="mt-1 text-sm text-muted-foreground">ใช้กับบันทึกระดับชั้นที่เลือก</p></div><div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">{saveState === 'saving' ? <CloudArrowUp size={18} className="animate-pulse text-primary" /> : saveState === 'saved' ? <CloudCheck size={18} className="text-primary" weight="fill" /> : <FloppyDisk size={17} />}<span>{saveState === 'saving' ? 'กำลังบันทึก...' : saveState === 'error' ? 'บันทึกไม่สำเร็จ กรุณาลองใหม่' : saveState === 'conflict' ? 'พบการแก้ไขจากอีกหน้าต่าง' : !draft && !payload.scope.week ? 'เลือกสัปดาห์เพื่อเริ่มเก็บร่าง' : saveState === 'idle' && changeVersion > savedVersionRef.current ? 'มีการแก้ไข รอบันทึก' : savedAtLabel(lastSavedAt)}</span>{saveState !== 'saving' && saveState !== 'conflict' && <Button type="button" variant="ghost" size="sm" disabled={finalizing || imageBusy} onClick={() => void saveDraftManually()}>เก็บร่างตอนนี้</Button>}</div></CardHeader>
       <CardContent><fieldset id="workspace-scope" disabled={finalizing} className={`grid min-w-0 scroll-mt-28 grid-cols-2 gap-4 ${district ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
         {district && <FormField label="ตำบล *"><NativeSelect data-workspace-field="scope.tambon" disabled={finalizing} value={payload.scope.tambon} onChange={(event) => changeTambon(event.target.value)}><option value="">เลือกตำบล</option>{tambonOptions.map((tambon) => <option key={tambon.id} value={tambon.id}>{tambon.name}</option>)}</NativeSelect></FormField>}
         <FormField label="ปีการศึกษา *"><Input data-workspace-field="scope.year" inputMode="numeric" value={payload.scope.year} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, year: event.target.value } }))} /></FormField>

@@ -30,12 +30,15 @@ workflow หลัก: สร้างหรือแก้ร่างราย
 
 ## เส้นทางโค้ดสำคัญ
 
+หน้าเว็บใช้ธีม Minimalist พื้นขาว/เทาและสีน้ำเงินจาก `resources/css/app.css` ร่วมกับ shared UI components; หน้าเข้าสู่ระบบใช้ `pages/auth/login.tsx` และ `resources/css/login.css` แยกจากการจัดหน้าเอกสาร ห้ามนำการปรับธีมเว็บไปเปลี่ยนฟอนต์หรือ geometry ของ PDF
+
 | ส่วน | ไฟล์/ตำแหน่ง |
 | --- | --- |
 | Routes | `laravel/routes/web.php`, `laravel/routes/documents.php` |
 | หน้าเอกสาร | `laravel/resources/js/pages/documents/`, `components/editor/` |
 | Canvas / pagination / extensions | `document-canvas.tsx`, `document-extensions.ts`, `lib/document-layout.ts` |
 | Autosave / API / model | `hooks/use-document-autosave.ts`, `lib/document-api.ts`, `lib/document-model.ts` |
+| แจ้งเตือนการบันทึก/ส่งออก | `lib/action-alert.ts`, `components/action-alert.tsx`, `components/flash-messages.tsx` (bridge ข้อความจาก server) |
 | Persistence / binding / validation | `DocumentService`, `BoundDocumentService`, `DocumentSchema` |
 | แม่แบบบันทึก | `RecordEditorTemplate`, `RecordDocumentOptions`, `DocumentRichText` |
 | เปิดจาก record/draft | `RecordDocumentController`, `DraftDocumentController` ใน `app/Http/Controllers/` |

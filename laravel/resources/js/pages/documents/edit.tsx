@@ -13,6 +13,7 @@ import { useDocumentAutosave } from '@/hooks/use-document-autosave'
 import { documentRequest } from '@/lib/document-api'
 import { appRouter } from '@/lib/app-router'
 import { appUrl } from '@/lib/app-url'
+import { actionAlert } from '@/lib/action-alert'
 import { createDocumentObject, pageDimensions, MM_TO_PX, type DocumentAsset, type DocumentEditorContext, type DocumentObject, type DocumentVersion, type WebDocument } from '@/lib/document-model'
 import { openDocumentPrint } from '@/lib/document-print'
 import { createDocumentThumbnails, type DocumentPageView } from '@/lib/document-thumbnails'
@@ -40,6 +41,11 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
   const [thumbnails, setThumbnails] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(0)
   const [busy, setBusy] = useState(false)
+  const actionInProgress = useRef(false)
+  const latestSaveState = useRef({ status: autosave.status, error: autosave.error })
+  latestSaveState.current = { status: autosave.status, error: autosave.error }
+  const notifiedSaveError = useRef('')
+  const saveFeedbackPending = useRef(false)
   const [notice, setNotice] = useState('')
   const [modal, setModal] = useState<'find' | 'versions' | 'review' | null>(null)
   const [versions, setVersions] = useState<DocumentVersion[]>([])
@@ -82,6 +88,43 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
   const replaceDocument = (document: WebDocument) => {
     autosave.replace(document); history.current = [snapshot(document)]; historyPosition.current = 0; setHistoryIndex(0); setSelectedId(null)
   }
+  const beginAction = useCallback((title: string, description?: string) => {
+    if (actionInProgress.current) return null
+    actionInProgress.current = true; setBusy(true); setNotice('')
+    return actionAlert.loading(title, description)
+  }, [])
+  const finishAction = useCallback(() => { actionInProgress.current = false; setBusy(false) }, [])
+  const reportSaveFailure = useCallback((id?: string) => {
+    const current = latestSaveState.current
+    const failure = autosave.saveFailure.current
+    const message = failure?.message || current.error
+    const conflict = failure?.conflict || current.status === 'conflict'
+    saveFeedbackPending.current = false
+    if (message) notifiedSaveError.current = `${conflict ? 'conflict' : 'error'}:${message}`
+    actionAlert.error('บันทึกเอกสารไม่สำเร็จ', message || (conflict ? 'เอกสารมีรุ่นใหม่จากอีกหน้าต่าง กรุณาเก็บสำเนาหรือโหลดรุ่นล่าสุด' : 'ข้อมูลที่แก้ไขยังอยู่ในหน้านี้ กรุณาตรวจข้อความแจ้งเตือนแล้วลองบันทึกอีกครั้ง'), id)
+  }, [autosave.saveFailure])
+  const saveWithFeedback = useCallback(async () => {
+    saveFeedbackPending.current = true
+    const saved = await autosave.save()
+    if (saved) saveFeedbackPending.current = false
+    return saved
+  }, [autosave.save])
+  const saveDocument = useCallback(async () => {
+    const id = beginAction('กำลังบันทึกเอกสาร', 'กรุณารอสักครู่ ระบบกำลังเก็บการแก้ไขล่าสุด')
+    if (!id) return
+    try {
+      if (latestSaveState.current.status === 'conflict' || !await saveWithFeedback()) { reportSaveFailure(id); return }
+      actionAlert.success('บันทึกเอกสารแล้ว', 'เก็บการแก้ไขล่าสุดเรียบร้อย', id)
+    } finally { finishAction() }
+  }, [saveWithFeedback, beginAction, finishAction, reportSaveFailure])
+  useEffect(() => {
+    if (!autosave.error) { notifiedSaveError.current = ''; return }
+    const errorKey = `${autosave.status}:${autosave.error}`
+    if (notifiedSaveError.current === errorKey) return
+    notifiedSaveError.current = errorKey
+    if (saveFeedbackPending.current) { saveFeedbackPending.current = false; return }
+    actionAlert.error(autosave.status === 'conflict' ? 'เอกสารมีรุ่นใหม่' : 'บันทึกอัตโนมัติไม่สำเร็จ', autosave.error)
+  }, [autosave.error, autosave.status])
   useEffect(() => {
     if (!editor) return
     const update = () => selectionTick((value) => value + 1)
@@ -106,7 +149,7 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (event.isComposing || !(event.metaKey || event.ctrlKey)) return
-      if (event.key.toLowerCase() === 's') { event.preventDefault(); if (autosave.status !== 'conflict') void autosave.save(); return }
+      if (event.key.toLowerCase() === 's') { event.preventDefault(); void saveDocument(); return }
       if (event.key.toLowerCase() === 'f') { event.preventDefault(); setModal('find'); return }
       if ((event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable="true"]')) return
       if (event.key.toLowerCase() === 'z') { event.preventDefault(); restoreHistory(historyPosition.current + (event.shiftKey ? 1 : -1)) }
@@ -114,7 +157,7 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
     }
     window.addEventListener('keydown', shortcut)
     return () => window.removeEventListener('keydown', shortcut)
-  }, [autosave.save, autosave.status, restoreHistory])
+  }, [saveDocument, restoreHistory])
   const changeObject = (object: DocumentObject) => {
     if (object.type === 'image' && object.wrap === 'inline' && object.src && editor) {
       editor.chain().focus().insertContent({ type: 'image', attrs: { src: object.src, assetId: object.assetId, width: object.width * MM_TO_PX, height: object.height * MM_TO_PX } }).run()
@@ -127,11 +170,12 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
     const object = { ...createDocumentObject(type, currentPage + 1), ...(shape ? { shape } : {}), zIndex: Math.max(...doc.objects.map((item) => item.zIndex), 0) + 1 }
     commit({ objects: [...doc.objects, object] }); setSelectedId(object.id); setView((current) => ({ ...current, properties: true }))
   }
-  const uploadImage = (inline: boolean) => { replaceImageId.current = null; uploadInline.current = inline; uploadInput.current?.click() }
+  const uploadImage = (inline: boolean) => { if (actionInProgress.current) return; replaceImageId.current = null; uploadInline.current = inline; uploadInput.current?.click() }
   const receiveImage = async (file: File | undefined) => {
     if (!file) return
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) { setNotice('เลือกรูป JPG, PNG หรือ WebP ไม่เกิน 5 MB'); return }
-    setBusy(true); setNotice('')
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) { const message = 'เลือกรูป JPG, PNG หรือ WebP ไม่เกิน 5 MB'; setNotice(message); actionAlert.error('เพิ่มรูปภาพไม่สำเร็จ', message); if (uploadInput.current) uploadInput.current.value = ''; return }
+    const id = beginAction('กำลังอัปโหลดรูปภาพ', file.name)
+    if (!id) { if (uploadInput.current) uploadInput.current.value = ''; return }
     try {
       const body = new FormData(); body.append('file', file)
       const result = await documentRequest<{ asset: DocumentAsset }>(`/api/documents/${doc.id}/assets`, { method: 'POST', body })
@@ -146,8 +190,9 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
         const object = { ...createDocumentObject('image', currentPage + 1), assetId: asset.id, src: asset.url, height: Math.min(100, 60 * asset.height / asset.width) }
         commit({ objects: [...autosave.latest.current.objects, object] }); setSelectedId(object.id)
       }
-    } catch (error) { setNotice(error instanceof Error ? error.message : 'อัปโหลดรูปไม่สำเร็จ') }
-    finally { setBusy(false); if (uploadInput.current) uploadInput.current.value = '' }
+      actionAlert.success('เพิ่มรูปภาพแล้ว', 'รูปภาพพร้อมจัดวางในเอกสาร', id)
+    } catch (error) { const message = error instanceof Error ? error.message : 'อัปโหลดรูปไม่สำเร็จ'; setNotice(message); actionAlert.error('เพิ่มรูปภาพไม่สำเร็จ', message, id) }
+    finally { finishAction(); if (uploadInput.current) uploadInput.current.value = '' }
   }
   const fit = (mode: 'page' | 'width') => {
     const container = stage.current
@@ -159,40 +204,52 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
   }
   const navigatePage = (index: number) => { setCurrentPage(index); stage.current?.scrollTo({ top: (pages[index]?.top || 0) * zoom, behavior: 'instant' }) }
   const print = async () => {
+    if (actionInProgress.current) return
     const canvas = canvasHost.current?.querySelector<HTMLElement>('[data-document-canvas]')
-    if (!canvas) return
-    setNotice('')
-    const preview = context ? window.open('', '_blank', 'popup,width=1100,height=850') : undefined
-    if (context && !preview) { setNotice('เบราว์เซอร์ปิดกั้นหน้าพิมพ์ กรุณาอนุญาตป๊อปอัปสำหรับเว็บไซต์นี้'); return }
+    if (!canvas) { actionAlert.error('เอกสารยังไม่พร้อมพิมพ์', 'กรุณารอให้หน้ากระดาษโหลดเสร็จแล้วลองอีกครั้ง'); return }
+    const preview = window.open('', '_blank', 'popup,width=1100,height=850')
+    if (!preview) { const message = 'เบราว์เซอร์ปิดกั้นหน้าพิมพ์ กรุณาอนุญาตป๊อปอัปสำหรับเว็บไซต์นี้'; setNotice(message); actionAlert.error('เปิดหน้าพิมพ์ไม่ได้', message); return }
+    const id = beginAction(context ? 'กำลังบันทึกและเตรียมหน้าพิมพ์' : 'กำลังเตรียมหน้าพิมพ์', 'กำลังตรวจหน้ากระดาษ ฟอนต์ และรูปภาพ')
+    if (!id) { preview.close(); return }
     try {
-      if (context && (autosave.status === 'conflict' || !await autosave.save())) { preview?.close(); return }
+      if (context && (latestSaveState.current.status === 'conflict' || !await saveWithFeedback())) { preview.close(); reportSaveFailure(id); return }
       const popup = await openDocumentPrint(autosave.latest.current, canvas, preview)
-      if (!popup) setNotice('เบราว์เซอร์ปิดกั้นหน้าพิมพ์ กรุณาอนุญาตป๊อปอัปสำหรับเว็บไซต์นี้')
+      if (!popup) throw new Error('เบราว์เซอร์ปิดกั้นหน้าพิมพ์ กรุณาอนุญาตป๊อปอัปสำหรับเว็บไซต์นี้')
+      actionAlert.success(context ? 'บันทึกแล้ว พร้อมพิมพ์' : 'เอกสารพร้อมพิมพ์', 'เลือก “พิมพ์ / บันทึก PDF” ในหน้าต่างตัวอย่าง แล้วเลือก Save as PDF หากต้องการไฟล์ PDF', id)
     }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'เปิดหน้าพิมพ์ไม่สำเร็จ') }
+    catch (error) { const message = error instanceof Error ? error.message : 'เปิดหน้าพิมพ์ไม่สำเร็จ'; setNotice(message); actionAlert.error('เตรียมหน้าพิมพ์ไม่สำเร็จ', message, id) }
+    finally { finishAction() }
   }
   const docx = async () => {
-    setBusy(true); setNotice('')
+    const id = beginAction('กำลังสร้างไฟล์ DOCX', 'กำลังเตรียมข้อความและรูปภาพสำหรับเอกสาร Word')
+    if (!id) return
     try {
       const { exportDocx } = await import('@/lib/document-export')
       const result = await exportDocx(autosave.latest.current)
       const url = URL.createObjectURL(result.blob); const link = window.document.createElement('a'); link.href = url; link.download = `${doc.title.replace(/[\\/:*?"<>|]/g, '_') || 'document'}.docx`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 10000)
-      if (result.warnings.length) setNotice(result.warnings.join(' · '))
-    } catch (error) { setNotice(error instanceof Error ? error.message : 'ส่งออก DOCX ไม่สำเร็จ') }
-    finally { setBusy(false) }
+      if (result.warnings.length) { const message = result.warnings.join(' · '); setNotice(message); actionAlert.info('เตรียม DOCX แล้ว มีข้อควรตรวจ', `ส่งไฟล์ให้เบราว์เซอร์ดาวน์โหลดแล้ว · ${message}`, id) }
+      else actionAlert.success('เตรียมไฟล์ DOCX แล้ว', 'ส่งไฟล์ให้เบราว์เซอร์ดาวน์โหลดแล้ว ตรวจไฟล์ได้จากรายการดาวน์โหลด', id)
+    } catch (error) { const message = error instanceof Error ? error.message : 'ส่งออก DOCX ไม่สำเร็จ'; setNotice(message); actionAlert.error('สร้างไฟล์ DOCX ไม่สำเร็จ', message, id) }
+    finally { finishAction() }
   }
   const loadVersions = async () => {
-    setModal('versions'); setBusy(true)
-    try { const result = await documentRequest<{ versions: DocumentVersion[] }>(`/api/documents/${doc.id}/versions`); setVersions(result.versions) }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'โหลดประวัติไม่สำเร็จ') }
-    finally { setBusy(false) }
+    const id = beginAction('กำลังโหลดประวัติเอกสาร')
+    if (!id) return
+    setModal('versions')
+    try { const result = await documentRequest<{ versions: DocumentVersion[] }>(`/api/documents/${doc.id}/versions`); setVersions(result.versions); actionAlert.dismiss(id) }
+    catch (error) { const message = error instanceof Error ? error.message : 'โหลดประวัติไม่สำเร็จ'; setNotice(message); actionAlert.error('โหลดประวัติไม่สำเร็จ', message, id) }
+    finally { finishAction() }
   }
   const restoreVersion = async (version: DocumentVersion) => {
-    if (!(await autosave.save())) return
-    setBusy(true)
-    try { const result = await documentRequest<{ document: WebDocument }>(`/api/documents/${doc.id}/versions/${version.id}/restore`, { method: 'POST', body: JSON.stringify({ revision: autosave.latest.current.revision }) }); replaceDocument(result.document); setModal(null) }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'คืนรุ่นไม่สำเร็จ') }
-    finally { setBusy(false) }
+    const id = beginAction('กำลังคืนรุ่นเอกสาร', `กำลังนำเนื้อหารุ่นที่ ${version.revision} กลับมา`)
+    if (!id) return
+    try {
+      if (latestSaveState.current.status === 'conflict' || !await saveWithFeedback()) { reportSaveFailure(id); return }
+      const result = await documentRequest<{ document: WebDocument }>(`/api/documents/${doc.id}/versions/${version.id}/restore`, { method: 'POST', body: JSON.stringify({ revision: autosave.latest.current.revision }) }); replaceDocument(result.document); setModal(null)
+      actionAlert.success('คืนรุ่นเอกสารแล้ว', 'เก็บประวัติการคืนรุ่นเรียบร้อย', id)
+    }
+    catch (error) { const message = error instanceof Error ? error.message : 'คืนรุ่นไม่สำเร็จ'; setNotice(message); actionAlert.error('คืนรุ่นเอกสารไม่สำเร็จ', message, id) }
+    finally { finishAction() }
   }
   const findMatches = (query: string) => {
     if (!editor || !query) { setMatches([]); return [] }
@@ -209,23 +266,32 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
     editor.view.dispatch(transaction); findMatches(find)
   }
   const keepCopy = async () => {
-    setBusy(true)
-    try { const result = await documentRequest<{ document: WebDocument }>(`/api/documents/${doc.id}/duplicate`, { method: 'POST', body: JSON.stringify({ ...snapshot(autosave.latest.current), title: `${doc.title.slice(0, 190)} (สำเนา)` }) }); autosave.replace({ ...autosave.latest.current, title: result.document.title }); appRouter.visit(`/documents/${result.document.id}/edit`) }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'เก็บสำเนาไม่สำเร็จ') }
-    finally { setBusy(false) }
+    const id = beginAction('กำลังเก็บสำเนาเอกสาร', 'กำลังเก็บฉบับที่คุณแก้ไขเป็นเอกสารใหม่')
+    if (!id) return
+    try { const result = await documentRequest<{ document: WebDocument }>(`/api/documents/${doc.id}/duplicate`, { method: 'POST', body: JSON.stringify({ ...snapshot(autosave.latest.current), title: `${doc.title.slice(0, 190)} (สำเนา)` }) }); autosave.replace({ ...autosave.latest.current, title: result.document.title }); actionAlert.success('เก็บสำเนาเอกสารแล้ว', result.document.title, id); appRouter.visit(`/documents/${result.document.id}/edit`) }
+    catch (error) { const message = error instanceof Error ? error.message : 'เก็บสำเนาไม่สำเร็จ'; setNotice(message); actionAlert.error('เก็บสำเนาไม่สำเร็จ', message, id) }
+    finally { finishAction() }
   }
   const loadLatest = async () => {
-    setBusy(true)
-    try { const result = await documentRequest<{ document: WebDocument }>(`/api/documents/${doc.id}`); replaceDocument(result.document) }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'โหลดรุ่นล่าสุดไม่สำเร็จ') }
-    finally { setBusy(false) }
+    const id = beginAction('กำลังโหลดเอกสารรุ่นล่าสุด')
+    if (!id) return
+    try { const result = await documentRequest<{ document: WebDocument }>(`/api/documents/${doc.id}`); replaceDocument(result.document); actionAlert.success('โหลดรุ่นล่าสุดแล้ว', 'แสดงเอกสารฉบับล่าสุดจากระบบ', id) }
+    catch (error) { const message = error instanceof Error ? error.message : 'โหลดรุ่นล่าสุดไม่สำเร็จ'; setNotice(message); actionAlert.error('โหลดรุ่นล่าสุดไม่สำเร็จ', message, id) }
+    finally { finishAction() }
   }
   const leaveEditor = async () => {
-    if (autosave.status === 'conflict' || !await autosave.save()) return
-    appRouter.visit(context?.returnUrl || '/documents')
+    if (actionInProgress.current) return
+    if (latestSaveState.current.status === 'conflict') { reportSaveFailure(); return }
+    const id = beginAction('กำลังบันทึกก่อนออกจากเอกสาร')
+    if (!id) return
+    try {
+      if (!await saveWithFeedback()) { reportSaveFailure(id); return }
+      actionAlert.dismiss(id)
+      appRouter.visit(context?.returnUrl || '/documents')
+    } finally { finishAction() }
   }
   return <AppShell wide><Head title={doc.title} /><div className="de-workspace">
-    <header className="de-header"><AppLink href={appUrl(context?.returnUrl || '/documents')} onClick={event => { event.preventDefault(); void leaveEditor() }} className="de-back" aria-label={context ? 'กลับหน้าบันทึก' : 'กลับรายการเอกสาร'}><ArrowLeft size={20} /></AppLink><span className="de-document-icon"><FileText size={24} /></span><div className="de-title-wrap"><input aria-label="ชื่อเอกสาร" className="de-title" value={doc.title} maxLength={200} onChange={(event) => commit({ title: event.target.value })} /><span className="de-save-status" role="status">{autosave.status === 'saved' ? <Check size={13} /> : autosave.status === 'saving' ? <LoaderCircle size={13} className="animate-spin" /> : null}{({ saved: 'บันทึกอัตโนมัติแล้ว', pending: 'มีการแก้ไข · รอบันทึก', saving: 'กำลังบันทึก…', error: 'บันทึกไม่สำเร็จ', conflict: 'เอกสารมีรุ่นใหม่จากอีกหน้าต่าง' })[autosave.status]}</span></div><div className="de-header-actions"><Button type="button" size="icon" variant="ghost" aria-label="ย้อนกลับ" disabled={historyIndex <= 0} onClick={() => restoreHistory(historyPosition.current - 1)}><Undo2 size={19} /></Button><Button type="button" size="icon" variant="ghost" aria-label="ทำซ้ำ" disabled={historyIndex >= history.current.length - 1} onClick={() => restoreHistory(historyPosition.current + 1)}><Redo2 size={19} /></Button><Button type="button" size="icon" variant="ghost" aria-label="ประวัติเอกสาร" onClick={loadVersions}><History size={20} /></Button><Button type="button" variant="outline" disabled={busy || autosave.status === 'saving' || autosave.status === 'conflict'} onClick={() => autosave.save()}><Save size={17} /><span className="hidden sm:inline">บันทึก</span></Button><Button type="button" disabled={busy} onClick={print}><Printer size={17} /><span>{context ? 'บันทึกและพิมพ์' : 'พิมพ์ / PDF'}</span></Button><Button type="button" variant="outline" disabled={busy} onClick={docx}><Download size={17} /><span className="hidden sm:inline">DOCX</span></Button></div></header>
+    <header className="de-header"><AppLink href={appUrl(context?.returnUrl || '/documents')} onClick={event => { event.preventDefault(); void leaveEditor() }} className="de-back" aria-label={context ? 'กลับหน้าบันทึก' : 'กลับรายการเอกสาร'}><ArrowLeft size={20} /></AppLink><span className="de-document-icon"><FileText size={24} /></span><div className="de-title-wrap"><input aria-label="ชื่อเอกสาร" className="de-title" value={doc.title} maxLength={200} onChange={(event) => commit({ title: event.target.value })} /><span className="de-save-status" role="status">{autosave.status === 'saved' ? <Check size={13} /> : autosave.status === 'saving' ? <LoaderCircle size={13} className="animate-spin" /> : null}{({ saved: 'บันทึกอัตโนมัติแล้ว', pending: 'มีการแก้ไข · รอบันทึก', saving: 'กำลังบันทึก…', error: 'บันทึกไม่สำเร็จ', conflict: 'เอกสารมีรุ่นใหม่จากอีกหน้าต่าง' })[autosave.status]}</span></div><div className="de-header-actions"><Button type="button" size="icon" variant="ghost" aria-label="ย้อนกลับ" disabled={historyIndex <= 0} onClick={() => restoreHistory(historyPosition.current - 1)}><Undo2 size={19} /></Button><Button type="button" size="icon" variant="ghost" aria-label="ทำซ้ำ" disabled={historyIndex >= history.current.length - 1} onClick={() => restoreHistory(historyPosition.current + 1)}><Redo2 size={19} /></Button><Button type="button" size="icon" variant="ghost" aria-label="ประวัติเอกสาร" disabled={busy} onClick={loadVersions}><History size={20} /></Button><Button type="button" variant="outline" disabled={busy || autosave.status === 'saving' || autosave.status === 'conflict'} aria-label="บันทึก" onClick={() => { void saveDocument() }}><Save size={17} /><span className="hidden sm:inline">บันทึก</span></Button><Button type="button" disabled={busy} onClick={print}><Printer size={17} /><span>{context ? 'บันทึกและพิมพ์' : 'พิมพ์ / PDF'}</span></Button><Button type="button" variant="outline" disabled={busy} aria-label="DOCX" onClick={docx}><Download size={17} /><span className="hidden sm:inline">DOCX</span></Button></div></header>
     {context && <p className="de-source-note"><b>จัดเอกสารก่อนพิมพ์</b> · เริ่มจากรูปแบบเอกสารเดิม แก้ข้อความ รูปภาพ และจัดวางได้จากแถบเครื่องมือ{context.kind === 'draft' ? ' · บันทึกลงฉบับร่าง' : ''}</p>}
     {!context && doc.sourceRecordId && <p className="de-source-note">เอกสารสำเนาจาก <AppLink href={appUrl(`/records/${doc.sourceRecordId}`)}>บันทึกหลังสอน</AppLink> · บันทึกการแก้ไขและประวัติรุ่นไว้ในเอกสารฉบับนี้</p>}
     <EditorRibbon editor={editor} document={doc} onChange={commit} insertObject={insertObject} uploadImage={uploadImage} zoom={zoom} setZoom={setZoom} fit={fit} view={view} setView={setView} onFind={() => setModal('find')} onPrint={print} onDocx={docx} onVersions={loadVersions} busy={busy} wordCount={wordCount} onReview={() => setModal('review')} />
@@ -234,7 +300,7 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
     <div className="de-panels" data-thumbnails={view.thumbnails} data-properties={view.properties}>
       {view.thumbnails && <aside className="de-thumbnails" aria-label="หน้าเอกสาร"><div className="de-sidebar-heading"><h2>หน้าเอกสาร</h2><button title="ยุบแถบหน้า" aria-label="ยุบแถบหน้า" onClick={() => setView({ ...view, thumbnails: false })}><PanelLeftClose size={15} /></button></div>{pages.map((page, index) => <button key={index} className={`de-thumbnail ${currentPage === index ? 'is-active' : ''}`} aria-label={`ไปหน้า ${index + 1}`} aria-current={currentPage === index ? 'page' : undefined} onClick={() => navigatePage(index)}>{thumbnails[index] ? <img src={thumbnails[index]} alt={`ภาพตัวอย่างหน้า ${index + 1}`} /> : <span className="de-thumbnail-loading" style={{ aspectRatio: `${page.width}/${page.height}` }}><LoaderCircle size={18} className="animate-spin" /></span>}<span>{index + 1}</span></button>)}<Button type="button" variant="outline" size="sm" onClick={() => { editor?.chain().focus('end').insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run() }} disabled={!editor}><Plus size={15} />เพิ่มหน้า</Button></aside>}
       <div ref={stage} className="de-canvas-host document-stage" onScroll={(event) => { const top = event.currentTarget.scrollTop / zoom; const index = pages.findIndex((page, index) => top < (pages[index + 1]?.top ?? Infinity)); if (index >= 0) setCurrentPage(index) }}><div ref={canvasHost}><DocumentCanvas document={doc} onChange={commit} onEditor={setEditor} selectedObjectId={selectedId} onSelectObject={setSelectedId} zoom={zoom} showRuler={view.ruler} showGrid={view.grid} showMarks={view.marks} onPages={onPages} /></div></div>
-      {view.properties && <ObjectProperties object={selected} document={doc} editor={editor} onChange={changeObject} onReplaceImage={() => { replaceImageId.current = selectedId; uploadInline.current = false; uploadInput.current?.click() }} onClose={() => setView((current) => ({ ...current, properties: false }))} onDuplicate={() => { if (selected) { const copy = { ...selected, id: crypto.randomUUID(), x: selected.x + 5, y: selected.y + 5, anchor: selected.anchor.kind === 'paragraph' ? { ...selected.anchor, offsetY: (selected.anchor.offsetY || 0) + 5 } : selected.anchor, zIndex: Math.max(...doc.objects.map((item) => item.zIndex)) + 1 }; commit({ objects: [...doc.objects, copy] }); setSelectedId(copy.id) } }} onDelete={() => { commit({ objects: doc.objects.filter((object) => object.id !== selectedId) }); setSelectedId(null) }} />}
+      {view.properties && <ObjectProperties object={selected} document={doc} editor={editor} onChange={changeObject} onReplaceImage={() => { if (actionInProgress.current) return; replaceImageId.current = selectedId; uploadInline.current = false; uploadInput.current?.click() }} onClose={() => setView((current) => ({ ...current, properties: false }))} onDuplicate={() => { if (selected) { const copy = { ...selected, id: crypto.randomUUID(), x: selected.x + 5, y: selected.y + 5, anchor: selected.anchor.kind === 'paragraph' ? { ...selected.anchor, offsetY: (selected.anchor.offsetY || 0) + 5 } : selected.anchor, zIndex: Math.max(...doc.objects.map((item) => item.zIndex)) + 1 }; commit({ objects: [...doc.objects, copy] }); setSelectedId(copy.id) } }} onDelete={() => { commit({ objects: doc.objects.filter((object) => object.id !== selectedId) }); setSelectedId(null) }} />}
     </div>
     <footer className="de-statusbar"><button onClick={() => setView({ ...view, thumbnails: !view.thumbnails })} title="แสดง / ซ่อนหน้าเอกสาร"><FileText size={15} /></button><span>หน้า {Math.min(currentPage + 1, Math.max(1, pages.length))} จาก {Math.max(1, pages.length)}</span><span>{wordCount.toLocaleString('th-TH')} คำ</span><span className="hidden sm:inline">ภาษาไทย · {doc.pageSettings.size}</span><div className="ml-auto flex items-center gap-2"><button onClick={() => setView({ ...view, properties: !view.properties })} title="คุณสมบัติ" aria-label="แสดง / ซ่อนคุณสมบัติ"><PanelRight size={17} /></button><button aria-label="ซูมออก" onClick={() => setZoom(Math.max(0.5, zoom - 0.1))}><MinusIcon /></button><input aria-label="ซูมเอกสาร" type="range" min={0.5} max={2} step={0.05} value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /><button onClick={() => setZoom(Math.min(2, zoom + 0.1))} aria-label="ซูมเข้า"><Plus size={14} /></button><span>{Math.round(zoom * 100)}%</span></div></footer>
     <input ref={uploadInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" aria-label="ไฟล์รูปภาพเอกสาร" onChange={(event) => receiveImage(event.target.files?.[0])} />
