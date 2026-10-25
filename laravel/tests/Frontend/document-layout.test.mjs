@@ -8,9 +8,20 @@ const hook = registerHooks({
     return nextResolve(specifier, context)
   },
 })
-const { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectAnchorAfterMove, objectCanvasTop, snapMillimeters } = await import('../../resources/js/lib/document-layout.ts')
+const { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectAnchorAfterMove, objectCanvasTop, objectFlowOffset, snapMillimeters } = await import('../../resources/js/lib/document-layout.ts')
 const { defaultPageSettings, documentToScreen, MM_TO_PX, pageDimensions, screenToDocument } = await import('../../resources/js/lib/document-model.ts')
 hook.deregister()
+
+test('teaching photo flow uses its saved title offset while paragraph measurements settle', () => {
+  const object = { anchor: { kind: 'paragraph', id: 'photo-title', offsetY: 62 / MM_TO_PX } }
+  for (const [canvasTop, paragraphTop] of [[1270, 1208], [1270, 1310], [1400, 1208]]) {
+    assert.equal(objectFlowOffset(object, canvasTop, paragraphTop, true), 62)
+  }
+  assert.equal(objectFlowOffset(object, 1400, 1208), 192)
+  assert.equal(objectFlowOffset(object, 1270, 1310), 0)
+  assert.equal(objectFlowOffset({ anchor: { kind: 'page', page: 2 } }, 1400, 1208, true), 192)
+  assert.equal(objectFlowOffset({ anchor: { kind: 'paragraph', id: 'photo-title', offsetY: -4 } }, 1270, 1208, true), 0)
+})
 
 test('A4 dimensions are physical millimeters, independent of the editor zoom', () => {
   const pages = canvasPages(defaultPageSettings, 3)

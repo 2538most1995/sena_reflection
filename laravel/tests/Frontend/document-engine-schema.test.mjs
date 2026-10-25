@@ -5,7 +5,7 @@ import { EditorState } from '@tiptap/pm/state'
 import { history, undo, redo, closeHistory } from '@tiptap/pm/history'
 import StarterKit from '@tiptap/starter-kit'
 import { TextStyleKit } from '@tiptap/extension-text-style'
-import { ObjectTextFlow, objectFlowKey, ParagraphFormatting, RecordTemplate, signatureMoveTransaction } from '../../resources/js/components/editor/document-extensions.ts'
+import { ObjectTextFlow, objectFlowKey, objectFlowAfterText, ParagraphFormatting, RecordTemplate, signatureMoveTransaction } from '../../resources/js/components/editor/document-extensions.ts'
 
 const schema = getSchema([StarterKit, TextStyleKit, ParagraphFormatting, RecordTemplate])
 
@@ -129,4 +129,40 @@ test('wrapping reserves real paragraph space without adding layout objects to do
   assert.match(objectFlowKey.getState(topBottom).find()[0].type.attrs.style, /padding-top:190px/)
   assert.match(objectFlowKey.getState(topBottom).find()[0].type.attrs.style, /padding-left:0px/)
   assert.deepEqual(topBottom.doc.toJSON(), document.toJSON())
+})
+
+test('managed teaching photos reserve space after their heading without changing anchors or saved content', () => {
+  const heading = { type: 'paragraph', attrs: { id: 'photo-heading-stable', role: 'recordTitle' }, content: [{ type: 'text', text: 'ภาพประกอบการจัดการเรียนการสอน' }] }
+  const document = schema.nodeFromJSON({ type: 'doc', content: [heading] })
+  const plugins = ObjectTextFlow.config.addProseMirrorPlugins.call({})
+  const state = EditorState.create({ schema, doc: document, plugins })
+  const object = { id: 'record-image-source', type: 'image', anchor: { kind: 'paragraph', id: 'photo-heading-stable', offsetY: 16 } }
+  assert.equal(objectFlowAfterText(object, document.firstChild, true), true)
+  const renamed = schema.nodeFromJSON({ ...heading, content: [{ type: 'text', text: 'ภาพกิจกรรมของผู้เรียน' }] })
+  assert.equal(objectFlowAfterText(object, renamed, true), true)
+  for (const count of [1, 2, 4]) {
+    const reservations = Array.from({ length: count }, (_, index) => ({
+      id: `record-image-${index}`, position: 0, nodeSize: document.firstChild.nodeSize, side: index % 2 ? 'right' : 'left',
+      width: 308, height: 231, offset: 62 + Math.floor(index / 2) * 249, wrap: 'top-bottom', afterText: true,
+    }))
+    const next = state.apply(state.tr.setMeta(objectFlowKey, reservations))
+    const decoration = objectFlowKey.getState(next).find()[0]
+    assert.match(decoration.type.attrs.style, /padding-top:0px/)
+    assert.match(decoration.type.attrs.style, /padding-left:0px;padding-right:0px/)
+    assert.match(decoration.type.attrs.style, new RegExp(`padding-bottom:${count === 4 ? 542 : 293}px`))
+    assert.deepEqual(next.doc.toJSON(), document.toJSON())
+    assert.deepEqual(object.anchor, { kind: 'paragraph', id: 'photo-heading-stable', offsetY: 16 })
+  }
+})
+
+test('ordinary objects and missing or moved title anchors retain their existing wrapping behavior', () => {
+  const title = schema.nodeFromJSON({ type: 'paragraph', attrs: { id: 'photo-title', role: 'recordTitle' } })
+  const object = { id: 'record-image-source', type: 'image', anchor: { kind: 'paragraph', id: 'photo-title' } }
+  assert.equal(objectFlowAfterText(object, title, false), false)
+  assert.equal(objectFlowAfterText({ ...object, id: 'user-image' }, title, true), false)
+  assert.equal(objectFlowAfterText({ ...object, type: 'textbox' }, title, true), false)
+  assert.equal(objectFlowAfterText({ ...object, anchor: { kind: 'page', page: 2 } }, title, true), false)
+  assert.equal(objectFlowAfterText({ ...object, anchor: { kind: 'paragraph', id: 'deleted-heading' } }, title, true), false)
+  assert.equal(objectFlowAfterText(object, null, true), false)
+  assert.equal(objectFlowAfterText(object, schema.nodeFromJSON({ type: 'paragraph', attrs: { id: 'photo-title' } }), true), false)
 })

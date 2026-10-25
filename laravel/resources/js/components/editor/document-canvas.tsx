@@ -12,8 +12,8 @@ import { TableKitPlus } from 'tiptap-table-plus'
 import interact from 'interactjs'
 import { Copy, Grip, RotateCw, Trash2 } from 'lucide-react'
 import { MM_TO_PX, PAGE_GAP, pageDimensions, type DocumentObject, type WebDocument } from '@/lib/document-model'
-import { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectAnchorAfterMove, objectCanvasTop, snapMillimeters, type CanvasPage } from '@/lib/document-layout'
-import { hasDocumentContent, ObjectTextFlow, objectFlowKey, ParagraphFormatting, RecordTemplate, type FlowReservation } from './document-extensions'
+import { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectAnchorAfterMove, objectCanvasTop, objectFlowOffset, snapMillimeters, type CanvasPage } from '@/lib/document-layout'
+import { hasDocumentContent, ObjectTextFlow, objectFlowKey, objectFlowAfterText, ParagraphFormatting, RecordTemplate, type FlowReservation } from './document-extensions'
 
 export type { CanvasPage } from '@/lib/document-layout'
 
@@ -260,7 +260,8 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
       const relativeX = object.x * MM_TO_PX - marginPx.left
       const side = relativeX + object.width * MM_TO_PX / 2 <= contentWidth / 2 ? 'left' : 'right'
       const width = side === 'left' ? relativeX + object.width * MM_TO_PX + 8 : contentWidth - relativeX + 8
-      flow.push({ id: object.id, position: paragraph.position, nodeSize: paragraph.nodeSize, side, width: Math.min(contentWidth, Math.max(1, width)), height: object.height * MM_TO_PX + 6, offset: Math.max(0, object.canvasTop - paragraph.top), wrap: width > contentWidth * 0.75 ? 'top-bottom' : object.wrap })
+      const afterText = objectFlowAfterText(object, editor.state.doc.nodeAt(paragraph.position), isRecordTemplate)
+      flow.push({ id: object.id, position: paragraph.position, nodeSize: paragraph.nodeSize, side, width: Math.min(contentWidth, Math.max(1, width)), height: object.height * MM_TO_PX + 6, offset: objectFlowOffset(object, object.canvasTop, paragraph.top, afterText), wrap: afterText || width > contentWidth * 0.75 ? 'top-bottom' : object.wrap, afterText })
     }
     for (const reservation of flow) {
       const siblings = flow.filter(item => item.position === reservation.position && item.wrap === 'square')

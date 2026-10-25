@@ -42,6 +42,10 @@ export function objectAnchorAfterMove(object: Pick<DocumentObject, 'anchor'>, pr
     : { kind: 'page', page: geometry.page }
 }
 
+export function objectFlowOffset(object: Pick<DocumentObject, 'anchor'>, canvasTop: number, paragraphTop: number, afterText = false): number {
+  return Math.max(0, afterText && object.anchor.kind === 'paragraph' ? (object.anchor.offsetY || 0) * MM_TO_PX : canvasTop - paragraphTop)
+}
+
 export function canvasPositionToPage(top: number, settings: PageSettings): { page: number; y: number } {
   const { height } = canvasPageDimensions(settings)
   const page = Math.max(1, Math.floor(Math.max(0, top) / (height + PAGE_GAP)) + 1)

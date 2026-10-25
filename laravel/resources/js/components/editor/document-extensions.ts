@@ -325,7 +325,12 @@ export const RecordTemplate = Extension.create({
   addExtensions: () => [PageBreak, RecordInfoRow, RecordInfoCell, RecordSectionTitle, RecordBody, RecordSignature, RecordGroup],
 })
 
-export type FlowReservation = { id: string; position: number; nodeSize: number; side: 'left' | 'right'; width: number; height: number; offset: number; wrap: DocumentObject['wrap'] }
+export type FlowReservation = { id: string; position: number; nodeSize: number; side: 'left' | 'right'; width: number; height: number; offset: number; wrap: DocumentObject['wrap']; afterText?: boolean }
+
+export function objectFlowAfterText(object: Pick<DocumentObject, 'id' | 'type' | 'anchor'>, paragraph: ProseMirrorNode | null, isRecordTemplate: boolean): boolean {
+  return isRecordTemplate && object.type === 'image' && object.id.startsWith('record-image-')
+    && object.anchor.kind === 'paragraph' && paragraph?.attrs.id === object.anchor.id && paragraph.attrs.role === 'recordTitle'
+}
 export const objectFlowKey = new PluginKey<DecorationSet>('documentObjectFlow')
 
 export const ObjectTextFlow = Extension.create({
@@ -341,16 +346,17 @@ export const ObjectTextFlow = Extension.create({
           const grouped = new Map<number, FlowReservation[]>()
           for (const reservation of reservations) grouped.set(reservation.position, [...(grouped.get(reservation.position) || []), reservation])
           return DecorationSet.create(state.doc, [...grouped.entries()].map(([position, items]) => {
-            let left = 0, right = 0, top = 0
+            let left = 0, right = 0, top = 0, bottom = 0
             for (const item of items) {
-              if (item.wrap === 'top-bottom') top = Math.max(top, item.height + item.offset)
+              if (item.afterText) bottom = Math.max(bottom, item.height + item.offset)
+              else if (item.wrap === 'top-bottom') top = Math.max(top, item.height + item.offset)
               else if (item.side === 'left') left = Math.max(left, item.width)
               else right = Math.max(right, item.width)
             }
             return Decoration.node(position, position + items[0].nodeSize, {
               class: 'document-wrapped-paragraph',
               'data-wrap-objects': items.map(item => item.id).join(' '),
-              style: `box-sizing:border-box;padding-left:${left}px;padding-right:${right}px;padding-top:${top}px`,
+              style: `box-sizing:border-box;padding-left:${left}px;padding-right:${right}px;padding-top:${top}px;padding-bottom:${bottom}px`,
             })
           }))
         },
