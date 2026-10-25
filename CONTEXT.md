@@ -32,6 +32,8 @@ workflow หลัก: สร้างหรือแก้ร่างราย
 
 หน้าเว็บใช้ธีม Minimalist พื้นขาว/เทาและสีน้ำเงินจาก `resources/css/app.css` ร่วมกับ shared UI components; หน้าเข้าสู่ระบบใช้ `pages/auth/login.tsx` และ `resources/css/login.css` แยกจากการจัดหน้าเอกสาร ห้ามนำการปรับธีมเว็บไปเปลี่ยนฟอนต์หรือ geometry ของ PDF
 
+ตัวแก้ไขใช้ `.de-action-bar` ใน `pages/documents/edit.tsx` ค้างใต้ AppShell ที่ 65px; `.de-workspace` ใช้ `overflow:clip` เพื่อไม่ขวาง sticky ขณะที่ canvas/sidebars ยังคง scroll เดิม ค่าสี UI ใน `document-editor.css` ต้องเป็นช่องสี HSL เพื่อใช้กับ shared Button ผ่าน `hsl(var(...))` โดยไม่แก้สีหรือขนาดของเนื้อหาเอกสาร
+
 | ส่วน | ไฟล์/ตำแหน่ง |
 | --- | --- |
 | Routes | `laravel/routes/web.php`, `laravel/routes/documents.php` |
