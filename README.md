@@ -12,7 +12,7 @@
 
 ## เริ่มใช้งาน
 
-ต้องมี PHP 8.4.1 ขึ้นไป, Composer, Node.js และ MySQL สำหรับ PDF ต้องมี Chrome/Chromium และ Python3 พร้อม `pypdf`
+ต้องมี PHP 8.4.1 ขึ้นไป, Composer, Node.js และ MySQL ปุ่ม PDF ใช้เบราว์เซอร์ของผู้ใช้ เลือก Save as PDF ได้โดยไม่ต้องใช้ Chrome บน hosting ส่วน API สร้าง PDF/ZIP ฝั่ง server เป็นทางเลือกที่ต้องมี Chrome/Chromium พร้อม sandbox และ Python3 กับ `pypdf`
 
 ```bash
 cd laravel
@@ -35,7 +35,7 @@ php artisan serve --host=127.0.0.1 --port=8000
 
 เมื่ออัปเดตจากรุ่นเก่า ต้องรัน migrations ของ `documents`, assets, versions และ binding พร้อม build ของปลายทางเพื่อสร้าง snapshot entry สำหรับ PDF สำรองฐานและ private/public storage ก่อนอัปเดต และ restart export worker หลัง deploy ดูการตั้งค่า Chrome/Python, E2E fixture และการแก้ PDF 503 ใน [คู่มือเอกสาร](docs.md)
 
-เปิด http://localhost:8000 และเปิดอีก terminal สำหรับงานส่งออก:
+เปิด http://localhost:8000 ปุ่ม **PDF รายสัปดาห์ / PDF ตามตัวกรอง** เปิดหน้าพิมพ์รวมและตรวจตำแหน่งจากฉบับเดิมก่อนเปิดพิมพ์ ส่วนการใช้งานส่งออกผ่าน server API ให้เปิดอีก terminal:
 
 ```bash
 cd laravel

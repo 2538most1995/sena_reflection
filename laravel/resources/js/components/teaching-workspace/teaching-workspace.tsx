@@ -132,7 +132,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const [previewUrls, setPreviewUrls] = useState<Record<LevelCode, string | null>>({ '1': null, '2': null, '3': null })
   const [previewRevisions, setPreviewRevisions] = useState<Record<LevelCode, string | null>>({ '1': null, '2': null, '3': null })
   const [previewVersions, setPreviewVersions] = useState<Record<LevelCode, number | null>>({ '1': null, '2': null, '3': null })
-  const [previewFormats, setPreviewFormats] = useState<Record<LevelCode, 'pdf' | 'browser'>>({ '1': 'pdf', '2': 'pdf', '3': 'pdf' })
+  const [previewFormats, setPreviewFormats] = useState<Record<LevelCode, 'pdf' | 'browser'>>({ '1': 'browser', '2': 'browser', '3': 'browser' })
   const [rendererUnavailable, setRendererUnavailable] = useState(false)
   const browserPreviewRequests = useRef<Record<string, string>>({})
   const [changeVersion, setChangeVersion] = useState(0)
@@ -570,7 +570,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     }
   }
 
-  const previewPdf = async (format: 'pdf' | 'browser' = 'pdf') => {
+  const previewPdf = async (format: 'pdf' | 'browser' = 'browser') => {
     setPreviewing(true)
     setPageError(null)
     try {
@@ -578,7 +578,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       const requestedFingerprint = savedFingerprintRef.current
       const response = await fetch(`/teaching-drafts/${currentDraft.id}/preview`, {
         method: 'POST',
-        headers: { Accept: 'application/json, application/pdf', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+        headers: { Accept: 'text/html, application/json, application/pdf', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
         body: JSON.stringify({ lock_version: currentDraft.lock_version, level_code: previewLevel, document: currentDraft.payload.document || {}, format }),
       })
       if (!response.ok) {

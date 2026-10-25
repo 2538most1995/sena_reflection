@@ -51,6 +51,28 @@ test('non-JSON proxy errors explain recovery without exposing HTML diagnostics',
   assert.match(draftRequestError(429), /รอสักครู่/)
 })
 
+test('canonical browser review waits until its canvas snapshot has finished pagination', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const doc = documentFixture()
+  doc.body = { dataset: {} }
+  doc.querySelector = selector => selector === 'meta[name="sena-document-snapshot"]' ? {} : null
+  let approved = false
+  const pending = waitForBrowserDocument(doc).then(() => { approved = true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(approved, false)
+  doc.body.dataset.documentPrintReady = 'true'
+  t.mock.timers.tick(50)
+  await pending
+  assert.equal(approved, true)
+})
+
+test('canonical pagination failure never approves a preview', async () => {
+  const doc = documentFixture()
+  doc.body = { dataset: { documentPrintError: 'true' } }
+  doc.querySelector = selector => selector === 'meta[name="sena-document-snapshot"]' ? {} : null
+  await assert.rejects(waitForBrowserDocument(doc), /จัดหน้าเอกสารไม่สำเร็จ/)
+})
+
 test('JSON server errors use safe Thai recovery text and keep genuine validation details', () => {
   for (const status of [500, 502, 504]) {
     const message = safeDraftResponseMessage(status, { message: 'Server Error: SQLSTATE secret-value', errors: { internal: ['Stack trace secret-value'] } })

@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-C4o9_Ik3.js";import{t}from"./teaching-workspace-Dssq0pjA.js";var n=e();function r(e){return(0,n.jsx)(t,{...e,mode:e.workspace?.mode===`edit`?`edit`:`create`,sourceRecord:null})}export{r as default};

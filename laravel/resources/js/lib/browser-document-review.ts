@@ -1,13 +1,21 @@
 /** Count a browser preview only after its actual pages, fonts and images are ready. */
 export async function waitForBrowserDocument(document: Document | null): Promise<void> {
-  if (!document || !document.querySelector('.page') || document.querySelector('.missing-image-note')) {
+  if (!document || (!document.querySelector('.page') && !document.querySelector('meta[name="sena-document-snapshot"]')) || document.querySelector('.missing-image-note')) {
     throw new Error('เอกสารหรือรูปภาพไม่ครบ กรุณาสร้างตัวอย่างใหม่')
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined
+  let cancelled = false
   try {
     await Promise.race([
       (async () => {
+        if (document.querySelector('meta[name="sena-document-snapshot"]')) {
+          while (document.body.dataset.documentPrintReady !== 'true') {
+            if (cancelled) return
+            if (document.body.dataset.documentPrintError === 'true') throw new Error('จัดหน้าเอกสารไม่สำเร็จ กรุณาสร้างตัวอย่างใหม่')
+            await new Promise(resolve => setTimeout(resolve, 50))
+          }
+        }
         if (document.fonts) await document.fonts.ready
         if (document.fonts && Array.from(document.fonts).some(font => font.status === 'error')) {
           throw new Error('โหลดฟอนต์ไม่สำเร็จ กรุณาสร้างตัวอย่างใหม่')
@@ -22,6 +30,7 @@ export async function waitForBrowserDocument(document: Document | null): Promise
       }),
     ])
   } finally {
+    cancelled = true
     clearTimeout(timer)
   }
 }

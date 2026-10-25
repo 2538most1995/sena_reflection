@@ -10,7 +10,7 @@
 - เลือกคำเพื่อจัดรูปแบบ แก้ตาราง เพิ่มรูป กล่องข้อความ รูปร่าง เส้น และวัตถุที่อ้างหน้าหรือย่อหน้า พร้อมปรับขนาด หมุน และล้อมข้อความ
 - autosave ตรวจ revision; เอกสารผูก record ซิงก์ช่องข้อมูลกลับ record ส่วนเอกสารผูกร่างบันทึกเฉพาะร่าง การยืนยันร่างจริงจึงย้ายเอกสารไปผูก record
 - เอกสารทั่วไปและสำเนาเก็บแยกใน `/documents`; private assets อ่านผ่าน endpoint ที่ตรวจสิทธิ์ ประวัติรุ่นและ frozen record snapshots เก็บ canonical document สำหรับพิมพ์ย้อนหลัง
-- Browser print และ server PDF ของ advanced snapshot ใช้ canvas renderer เดียวกัน Server ต้องมี production snapshot build และ Chrome/Chromium; PDF รวมต้องมี Python3 กับ `pypdf`
+- Browser print และ server PDF ของ advanced snapshot ใช้ canvas renderer เดียวกัน PDF รายสัปดาห์/ตามตัวกรองใช้ browser print เป็นทางหลัก ไม่ต้องใช้ Chrome บน hosting ส่วน API server PDF/ZIP เป็นทางเลือก ต้องมี production snapshot build, Chrome พร้อม sandbox และ Python3 กับ `pypdf`
 - DOCX เปิดแก้ใน Word ได้ แต่ pagination วัตถุลอยและเส้นบรรทัดของแม่แบบอาจต่างจาก PDF รายละเอียดและวิธีรับมือข้อขัดแย้งอยู่ในคู่มือ
 
 ## Frontend stack
@@ -32,7 +32,7 @@
 - เปิดตัวจัดเอกสารจากหน้าดูตัวอย่างเอกสารได้ก่อนสร้างรายการจริง แก้ข้อความ กระดาษ รูป และ toggle หน้ารูป/รายชื่อแยกแต่ละครั้ง
 - รูปมีจุดจับ 8 ทิศ ล็อก/ปลดสัดส่วน หมุน ครอบภาพ และ undo/redo; layout เก็บตาม ID รูป จึงไม่สลับผิดเมื่อเรียงรูปใหม่
 - ป้องกันร่างหลายแท็บเขียนทับกัน และแจ้งเมื่อรายการต้นทางถูกแก้จากที่อื่น
-- เก็บ revision เอกสาร และส่งออก PDF รายสัปดาห์/ZIP ตามตัวกรองผ่านงานเบื้องหลัง มีสถานะ ความคืบหน้า ลองใหม่ และลิงก์ส่วนตัวหมดอายุ 24 ชั่วโมง
+- เก็บ revision เอกสาร และพิมพ์ PDF รวมรายสัปดาห์/ตามตัวกรองจาก frozen revisions ผ่านเบราว์เซอร์ ตรวจ geometry และแยก styles ต่อฉบับก่อนเปิด Save as PDF งาน server เดิมยังดาวน์โหลดหรือเปิดพิมพ์ revision เดิมได้โดยไม่เปลี่ยนสถานะ
 
 รายวิชาปัจจุบันเลือกจากประวัติที่มีสิทธิ์อ่าน ไม่ได้สมมติ API รายวิชาขึ้นมาใหม่ ส่วนรายชื่อ/กลุ่มใช้ API นักศึกษาเดิมพร้อมข้อมูลสำรองเมื่อปลายทางใช้ไม่ได้
 
@@ -51,8 +51,8 @@
 - รายวิชาและรหัสวิชาเลือกซ้ำได้จากประวัติบันทึกตามสิทธิ์ของผู้ใช้ และยังกรอกวิชาใหม่ได้เมื่อจำเป็น
 - ป้องกันส่งซ้ำด้วย unique key `tambon + year + semester + week`
 - แนบรูปได้ไม่เกิน 4 รูปต่อระดับ และลบไฟล์ที่อัปโหลดแล้วหาก transaction ล้มเหลว
-- ดาวน์โหลดรายสัปดาห์เป็น PDF รวม
-- ดาวน์โหลดทั้งหมดตามสิทธิ์เป็น ZIP โดยมี PDF และ `index.csv`
+- พิมพ์รายสัปดาห์/ตามตัวกรองเป็น PDF รวมผ่านเบราว์เซอร์ โดยใช้แม่แบบและตำแหน่งเดิม
+- API ส่งออกฝั่ง server ยังรองรับ ZIP ที่มี PDF และ `index.csv` สำหรับเครื่องที่มี runtime พร้อม
 - CSRF, login/export rate limit, query scope ตาม role และ validation ฝั่ง server
 
 ## เริ่มระบบ
@@ -75,7 +75,7 @@ npm run check:production-build
 
 โปรเจกต์ commit `public/build/` สำหรับ base path `/sena_reflection` พร้อม source ต้องส่งไฟล์ build ทั้งชุด ไม่ใช้ root-local build อัปโหลดทับก่อน deploy
 
-เปิด terminal อีกหน้าสำหรับสร้างไฟล์ส่งออก (ต้องทำงานค้างไว้):
+เฉพาะผู้ที่ใช้ server export API ให้เปิด worker แยก (ปุ่ม browser PDF ไม่ต้องใช้):
 
 ```bash
 php artisan queue:work exports --queue=exports --tries=1 --timeout=1800 --sleep=1

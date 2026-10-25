@@ -84,11 +84,25 @@
 
 หน้าพิมพ์ใช้เนื้อหาและตำแหน่งจาก canvas เอกสาร ข้อความ PDF ยังเลือกและค้นหาได้ ไม่ได้แปลงทั้งหน้าเป็นรูปภาพ
 
-### ดาวน์โหลด PDF จากระบบและงานส่งออก
+### PDF รายสัปดาห์และ PDF ตามตัวกรอง — ไม่ต้องใช้ Chrome บน hosting
+
+1. เปิดหน้า **เอกสาร** เลือกปี ภาคเรียน สัปดาห์ ตำบล หรือค้นหารายวิชาที่ต้องการ
+2. กด **PDF รายสัปดาห์** หรือ **PDF ตามตัวกรอง** ระบบเปิดหน้าพิมพ์รวมในแท็บใหม่
+3. รอข้อความ **พร้อมพิมพ์** ระบบโหลดฉบับที่บันทึกไว้ทีละรายการ ตรวจฟอนต์ รูป และตำแหน่งข้อความก่อนเปิดปุ่มพิมพ์
+4. กด **พิมพ์ / บันทึก PDF** เลือก **Save as PDF** ใช้สเกล **100%** ปิดหัว/ท้ายกระดาษของเบราว์เซอร์ และเปิดพิมพ์กราฟิกพื้นหลังเพื่อคงสีและเส้นบรรทัด เลือกขนาดกระดาษตามเอกสาร
+5. ตรวจตัวอย่างแล้วบันทึก จะได้ PDF รวมตามลำดับรายการ ไม่ต้องรอคิวหรือแจ้งผู้ให้บริการ hosting
+
+ใช้ Chrome หรือ Edge รุ่นปัจจุบันเพื่อให้การพิมพ์หลายขนาดกระดาษและ Shadow DOM สอดคล้องกับชุดที่ทดสอบ วิธีนี้เก็บข้อความไทยให้เลือก/ค้นหาได้ และใช้ canvas เดิมสำหรับเอกสารขั้นสูง กับ `print.php` สำหรับฉบับ legacy ไม่แปลงหน้าเป็นรูปภาพ แต่ละรายการแยก stylesheet และ named page ของตน จึงไม่ใช้ระยะขอบหรือฟอนต์ของรายการอื่นปนกัน ก่อนเปิดพิมพ์ระบบเทียบกรอบข้อความและรูปกับต้นฉบับที่ render แล้ว หากโหลดรูป/ฟอนต์ไม่ครบหรือ geometry ไม่ตรง จะหยุดและแสดงข้อผิดพลาด หากเปลี่ยนไปแท็บอื่นระหว่างเตรียม ระบบจะพักและเตรียมฉบับเดิมใหม่เมื่อกลับมา เพื่อรักษาจังหวะจัดหน้าแบบเดิม หน้าจอนับเป็นส่วนเอกสาร; จำนวนหน้าจริงตรวจได้ในหน้าต่างพิมพ์ โดยเฉพาะ legacy ที่มีข้อความยาว
+
+หน้ารวมใช้ frozen revision ที่สร้างขณะเปิดหน้า URL ฉบับเอกสารลงลายเซ็น ผูกบัญชี หมดอายุภายในหนึ่งชั่วโมง และตรวจสิทธิ์ตำบลซ้ำเมื่อโหลดแต่ละรายการ การแก้ไขข้อมูลภายหลังไม่เปลี่ยนฉบับที่เปิดไว้ หากต้องการฉบับล่าสุดให้เปิดหน้าสร้าง PDF ใหม่
+
+งานคิวเดิมยังอยู่ กด **เปิดพิมพ์ฉบับนี้** เพื่อพิมพ์ frozen revision เดิมโดยไม่เปลี่ยนสถานะงาน หากมีไฟล์ที่ server สร้างสำเร็จแล้ว ยังดาวน์โหลดจากประวัติได้ ปุ่มสร้าง ZIP ใหม่เปลี่ยนเป็น **PDF ตามตัวกรอง** สำหรับรวมเป็น PDF ไฟล์เดียว; วิธีผ่านเบราว์เซอร์ไม่ได้สร้าง ZIP หรือดาวน์โหลด PDF อัตโนมัติ ผู้ใช้เลือกตำแหน่งบันทึกในหน้าต่างพิมพ์
+
+### PDF/ZIP ฝั่งเซิร์ฟเวอร์ (ทางเลือก)
 
 รายการหลังสอน งานรวม PDF และ ZIP ใช้ snapshot เอกสารที่บันทึกไว้ เมื่อมีเอกสารจัดหน้าที่ผูกกับรายการ จะใช้ JSON ของเอกสารฉบับนั้นพร้อมองค์ประกอบที่เพิ่มเองและภาพส่วนตัวผ่าน renderer ของ canvas เดียวกัน ประวัติรายการเก็บ snapshot เพื่อรักษาเอกสารของฉบับนั้น
 
-เซิร์ฟเวอร์ต้องมี production build ของหน้า snapshot และ Chrome/Chromium สำหรับจัดหน้าและพิมพ์ HTML เป็น PDF งานรวมหลายไฟล์ใช้ Python3 กับ `pypdf` งานส่งออกเบื้องหลังต้องมี export worker ทำงาน
+เฉพาะการสร้างไฟล์ฝั่ง server ต้องมี production build ของหน้า snapshot และ Chrome/Chromium พร้อม sandbox สำหรับจัดหน้าและพิมพ์ HTML เป็น PDF งานรวมหลายไฟล์ใช้ Python3 กับ `pypdf` และ export worker ส่วนปุ่ม PDF บนหน้าเอกสารใช้วิธีเบราว์เซอร์ข้างต้น จึงไม่ต้องติดตั้ง runtime เหล่านี้บน hosting
 
 ## ส่งออก DOCX
 
@@ -108,6 +122,7 @@ Word อาจแบ่งหน้า จัดฟอนต์ และล้�
 | สร้างเอกสารทั่วไป จัดการไฟล์ส่วนตัวและประวัติ | `app/Services/DocumentService.php` |
 | แก้ไขและจัดหน้าบนเว็บ | `resources/js/components/editor/` |
 | สร้างหน้าพิมพ์จาก canvas | `resources/js/lib/document-print.ts` |
+| พิมพ์ PDF รวมผ่านเบราว์เซอร์และ frozen revisions | `app/Http/Controllers/BrowserExportController.php`, `resources/js/pages/exports/browser-print.tsx`, `resources/js/lib/browser-export.ts` |
 | เตรียม snapshot และสร้าง PDF ฝั่งเซิร์ฟเวอร์ | `app/Services/BoundDocumentRenderer.php`, `app/Services/LegacyPrintService.php`, `resources/js/document-snapshot.tsx` |
 | แปลงข้อความ ตาราง รูปและวัตถุเป็น Word | `resources/js/lib/document-export.ts` |
 
@@ -156,7 +171,7 @@ npm run check:production-build
 
 migration ของ editor สร้าง `documents`, `document_assets`, `document_versions` และเพิ่ม `binding_key`/`binding_snapshot` ให้เอกสารที่เชื่อมกับบันทึกหรือร่าง ต้อง deploy backend, frontend build ของปลายทาง และ migrations ให้ครบชุด ส่วนนี้ใช้ Laravel migrations ไม่ใช้ auto-migration ของ `config.php` เดิม
 
-เปิด worker แยกจากเว็บ และจัดการให้เริ่มใหม่หลัง deploy:
+เฉพาะเครื่องที่เลือกใช้งาน server export API และทดสอบ runtime พร้อมแล้ว ให้เปิด worker แยกจากเว็บ และจัดการให้เริ่มใหม่หลัง deploy (browser PDF ไม่ต้องใช้):
 
 ```bash
 php artisan queue:work exports --queue=exports --tries=1 --timeout=1800 --sleep=1
@@ -186,17 +201,15 @@ PHP_CLI_BINARY=/absolute/path/to/php
 
 เติม dependencies จากแพ็กเกจ Debian 12 ที่ตรงกับเครื่อง โดยใช้ `apt-get download` และ `dpkg-deb -x` ลง `storage/app/private/document-runtime/root` ไม่ติดตั้งทับ system libraries จากนั้นตั้ง wrapper ส่วนตัว `document-runtime/chrome` และ `document-runtime/python` ผ่าน `SENA_CHROME_BIN` / `SENA_PYTHON_BIN` ให้ `LD_LIBRARY_PATH` และ `PYTHONPATH` มีผลเฉพาะ subprocess ของเครื่องมือนั้น ค่า executable เดิมเก็บใน `document-runtime/original-tools.json` ต้องสำรองโฟลเดอร์ runtime นี้พร้อม private storage เมื่อย้ายเครื่อง ทดสอบ Chrome `--version` และ `pypdf 3.4.1` ผ่าน รวม PDF จำลองแล้วอ่านกลับได้ 2 หน้า
 
-**ยังต้องให้ผู้ดูแล hosting เปิด sandbox ที่รองรับก่อนประมวลผลงานจริง**: Chrome headless ตอบ `No usable sandbox`; ค่า `kernel.unprivileged_userns_clone` เป็น `0` และไม่มี root-owned sandbox helper ที่ใช้งานได้ ตัว `chrome_sandbox` ใน cache เป็นของผู้ใช้และมี mode `755` จึงใช้แทนไม่ได้ ไม่มีการเพิ่ม `--no-sandbox` หรือเปลี่ยนสิทธิ์ของ helper เพื่อข้ามข้อจำกัดนี้
+Chrome headless ของ hosting นี้ยังตอบ `No usable sandbox` เพราะ user namespaces ปิดและไม่มี root-owned sandbox helper จึงยังไม่เปิด worker ฝั่ง server ไม่มีการเพิ่ม `--no-sandbox` หรือเปลี่ยนสิทธิ์ helper เพื่อข้ามข้อจำกัด
 
-ข้อความสำหรับแจ้งผู้ให้บริการ:
-
-> เว็บไซต์ krumost.com/sena_reflection ใช้ Chrome for Testing 148 สร้าง PDF ผ่าน PHP CLI 8.4.27 ขณะนี้ shared libraries และ Python/pypdf พร้อมแล้ว แต่ Chrome headless แจ้ง `No usable sandbox` โดยเครื่องตั้ง `kernel.unprivileged_userns_clone=0` และไม่มี root-owned sandbox helper กรุณาจัดเตรียม Chrome sandbox ที่รองรับบัญชีเว็บไซต์นี้ หรืออนุญาต user namespaces ตามนโยบายของเซิร์ฟเวอร์ แล้วทดสอบ headless โดยคง sandbox ไว้
-
-เตรียม Plesk task ID `254` (`sena:work-exports`) ทุกนาทีไว้ในสถานะปิด รักษางานเดิมไว้ในคิว หลังผู้ดูแลแก้ sandbox ให้ทดสอบ headless และ PDF จริงก่อนเปิด task และกด Run Now ไม่สร้าง task ซ้ำ ถ้าใช้ helper ของระบบ ต้องกำหนด `CHROME_DEVEL_SANDBOX` เฉพาะ Chrome wrapper ให้ตรงกับ helper ที่ผู้ดูแลติดตั้ง
+**ทางใช้งานปัจจุบัน (25 ตุลาคม 2569)**: เปลี่ยนปุ่ม PDF เป็นการพิมพ์ผ่านเบราว์เซอร์ของผู้ใช้ ไม่ต้องแจ้ง HostAtom หรือแก้ค่าระบบ hosting การอัปเดตนี้ใช้ backend/frontend build ตามปกติ ไม่ต้องเพิ่ม library หรือ migration ใหม่ Plesk task ID `254` (`sena:work-exports`) คงสถานะปิด และงานเดิมคงอยู่ในคิวโดยมีปุ่มเปิดพิมพ์ frozen revision แทน หากเลือกเปิด server export ในอนาคต ต้องตรวจ sandbox และทดสอบ PDF จริงก่อนเปิด task
 
 สำรองฐานข้อมูลพร้อม `laravel/storage/app/private/`, `laravel/storage/app/public/` และ `uploads/` เดิม เก็บ private storage นอก public URL; `storage:link` ใช้กับ public storage เท่านั้น ไม่ย้ายเอกสารส่วนตัวไปไว้ใต้ `public/` ไม่ commit `.env`, API key, dump ฐานข้อมูล, รูปผู้เรียน หรือเอกสารที่สร้างแล้วเข้า Git
 
 ## ตรวจสอบหลังอัปเดต
+
+ผลตรวจวิธี browser PDF วันที่ 25 ตุลาคม 2569: ทดสอบด้วยฐาน MySQL และไฟล์จำลองแยกจากข้อมูลจริง รวมเอกสารขั้นสูง/legacy แนวตั้ง 6 หน้า และชุดแนวตั้ง/แนวนอนต่างระยะขอบ 8 หน้า เทียบกรอบข้อความใน PDF กับการพิมพ์แยกฉบับแล้วตรงกันทุกหน้า; หน้าจาก canonical canvas เทียบภาพ render แล้วตรงระดับพิกเซล ตรวจ production build ใต้ `/sena_reflection`, ภาพส่วนตัว, ฟอนต์/รูปเสีย, URL ถูกปฏิเสธ, การโหลดใหม่ และจำลองพัก/กลับแท็บแล้ว ปุ่มพิมพ์ไม่เปิดเมื่อข้อมูลไม่ครบ ชุด PHP ผ่าน 209 ข้าม 10 เงื่อนไขเสริม, Frontend ผ่าน 77 รวมทั้ง typecheck และ production build checks
 
 ```bash
 cd laravel
