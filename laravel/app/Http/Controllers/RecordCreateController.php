@@ -12,6 +12,7 @@ use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -32,6 +33,9 @@ class RecordCreateController extends Controller
         return Inertia::render('records/create', [
             'groups' => $data['groups'],
             'subjects' => $data['subjects'],
+            'subjectSource' => $data['subject_source'],
+            'subjectError' => $data['subject_error'],
+            'subjectTerm' => $data['subject_term'],
             'tambonOptions' => $request->user()->isDistrict() ? Tambon::query()->orderBy('name')->get(['id', 'name']) : [],
             'studentSource' => $data['source'],
             'studentError' => $data['error_code'] ? $options['message'] : null,
@@ -87,8 +91,23 @@ class RecordCreateController extends Controller
             ->unique(fn (array $row) => implode('|', [$row['group_code'], $row['class_name'], $row['level_code']]))
             ->sortBy(fn (array $row) => $row['level_code'].'|'.$row['class_name'])->values();
 
+        $meta = is_array($payload['meta'] ?? null) ? $payload['meta'] : [];
+        $api = app(StudentApiService::class);
+        $subjectTerm = $term ?? app(AcademicTermService::class)->normalize($meta['latest_term'] ?? null);
+        if ($api->isSdl() && $subjectTerm === null) {
+            $subjectTerm = app(AcademicTermService::class)->normalize($api->status()['latest_term']);
+        }
         $subjects = TeachingRecord::query()->visibleTo($user)
             ->when($user->isDistrict() && $targetTambon !== '', fn ($query) => $query->where('tambon', $targetTambon))
+            ->when($api->isSdl(), function ($query) use ($subjectTerm): void {
+                if ($subjectTerm === null) {
+                    $query->whereIn('id', []);
+
+                    return;
+                }
+                [$semester, $year] = explode('/', $subjectTerm);
+                $query->where('semester', $semester)->where('year', $year);
+            })
             ->whereNotNull('subject')->where('subject', '!=', '')
             ->select(['subject', 'subject_code', 'level'])->distinct()->orderBy('subject')->limit(200)->get()
             ->map(function (TeachingRecord $record) use ($levels): ?array {
@@ -104,7 +123,19 @@ class RecordCreateController extends Controller
                     'source' => 'history',
                 ];
             })->filter()->unique(fn (array $row) => $row['level_code'].'|'.$row['subject_code'].'|'.$row['subject'])->values();
-        $meta = is_array($payload['meta'] ?? null) ? $payload['meta'] : [];
+        $subjectSource = $subjects->isNotEmpty() ? 'history' : 'unavailable';
+        $subjectError = null;
+        if ($api->isSdl()) {
+            try {
+                $catalogue = $api->subjects($subjectTerm ?? '', $request->boolean('refresh'));
+                $catalogueCodes = $catalogue->pluck('subject_code')->map(fn (string $code): string => mb_strtolower($code))->all();
+                $subjects = $catalogue->concat($subjects->reject(fn (array $row): bool => in_array(mb_strtolower($row['subject_code']), $catalogueCodes, true)))->values();
+                $subjectSource = 'sdl';
+            } catch (\Throwable $exception) {
+                Log::warning('SDL School subject catalogue unavailable', ['exception' => $exception::class, 'term' => $subjectTerm]);
+                $subjectError = 'โหลดรายวิชาจาก SDL School ไม่สำเร็จ'.($subjectTerm ? ' สำหรับภาคเรียน '.$subjectTerm : '').' สามารถเลือกจากประวัติภาคเรียนนี้หรือเพิ่มรายวิชาเองได้';
+            }
+        }
         $error = $payload['error'] ?? null;
 
         return [
@@ -113,6 +144,9 @@ class RecordCreateController extends Controller
             'data' => [
                 'groups' => $groups,
                 'subjects' => $subjects,
+                'subject_source' => $subjectSource,
+                'subject_error' => $subjectError,
+                'subject_term' => $subjectTerm,
                 'source' => (string) (($meta['source'] ?? null) ?: 'student_api'),
                 'fetched_at' => (string) (($meta['fetched_at'] ?? null) ?: now()->toISOString()),
                 'stale' => (bool) ($meta['stale'] ?? false),

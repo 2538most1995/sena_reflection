@@ -124,6 +124,7 @@ class RecordController extends Controller
         return Inertia::render('records/edit', [
             'record' => $this->recordPayload($record),
             'groups' => $data['groups'], 'subjects' => $data['subjects'],
+            'subjectSource' => $data['subject_source'], 'subjectError' => $data['subject_error'], 'subjectTerm' => $data['subject_term'],
             'tambonOptions' => $request->user()->isDistrict() ? Tambon::query()->orderBy('name')->get(['id', 'name']) : [],
             'studentSource' => $data['source'], 'studentError' => $data['error_code'] ? $options['message'] : null,
             'defaults' => ['year' => $record->year, 'semester' => $record->semester, 'date' => $record->date->format('Y-m-d')],

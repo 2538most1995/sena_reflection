@@ -74,6 +74,8 @@ Student API รองรับ SDL School `/api/v1/integrations/student-data/stu
 
 ตรวจเว็บจริงวันที่ 26 ตุลาคม 2569 แล้ว: เพิ่ม API ครูแบบอ่านอย่างเดียว ติดตั้ง migration ตารางเก็บการเชื่อมต่อ และบันทึกโทเค็น Reflection เฉพาะอำเภอเสนาแบบไม่หมดอายุสำเร็จ ทดสอบหลัง reload จากโทเค็นเข้ารหัสและหน้าข้อมูลนักศึกษาพบภาคเรียน 2/2569 จำนวน 631 คน SDL production ใช้ allowlist `reflection_integration.non_expiring_client_ids` เฉพาะ client 4 เพื่อรักษาพฤติกรรมของ client อื่น; client ทดลอง 3 ถูกเพิกถอนแล้ว ดู source patch, tests และ rollback ใน `docs/deployment/sdl-reflection-teachers/README.md` ห้ามขยาย allowlist หรือใช้ SQL template ซ้ำระหว่าง deployment ปกติ
 
+ตัวเลือกรายวิชาใช้ `StudentApiService::subjects()` เรียก SDL `/subjects` ครั้งเดียวพร้อม term ชัดเจนและตรวจ `meta.term` เพราะ endpoint นี้ไม่แบ่งหน้าและไม่ส่งระดับชั้น ไม่อนุมานระดับจากรหัสวิชา ส่งกลับเฉพาะชื่อ/รหัส/แหล่งข้อมูล แคชแยก credential fingerprint และภาคเรียน 300 วินาที รวมประวัติที่ผู้ใช้มีสิทธิ์ในเทอมเดียวกันโดยให้ชื่อ API ชนะเมื่อรหัสซ้ำ หากโหลดไม่สำเร็จแสดงคำเตือนและคงการกรอกเอง ไม่เปลี่ยนร่างหรือ attendance อัตโนมัติ
+
 ตารางเดิมสำคัญคือ `users`, `tambons`, `records`, `record_images`, `record_attendance`, `settings` ตาราง Laravel เพิ่มร่าง รายสัปดาห์ revision งานส่งออก และ `documents` / `document_assets` / `document_versions` เอกสารผูกต้นทางใช้ `binding_key` unique nullable และ `binding_snapshot`
 
 Laravel migrations เป็น schema หลักของโมดูลใหม่ ต้อง migrate เมื่อ deploy ควบคู่ build ตรวจฐานเป้าหมายจาก `.env` ไม่รัน migration บนข้อมูลจริงระหว่างทดสอบ การตั้งค่าฐาน/API key อยู่ใน environment หรือ config ที่ไม่ commit

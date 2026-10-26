@@ -21,6 +21,7 @@ export type SubjectOption = {
   subject: string
   subject_code: string
   level: string
+  source?: 'sdl' | 'history'
 }
 
 export type StudentOption = {
@@ -106,6 +107,9 @@ export type TeachingWorkspaceProps = {
   tambonOptions: Tambon[]
   studentSource: string
   studentError: string | null
+  subjectSource?: string
+  subjectError?: string | null
+  subjectTerm?: string | null
   defaults: { year: string; semester: string; date: string }
   workspace?: TeachingWorkspaceBootstrap | null
   sourceRecord?: RecordRow | null

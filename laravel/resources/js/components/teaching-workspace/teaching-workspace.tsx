@@ -97,7 +97,7 @@ function fingerprint(value: TeachingDraftPayload, images: TeachingDraftImage[]):
   return JSON.stringify({ scope: value.scope, enabled_level_codes: value.enabled_level_codes, levels: value.levels, document: value.document, images: images.map(({ id, level_code, sort_order }) => ({ id, level_code, sort_order })).sort((a, b) => a.level_code.localeCompare(b.level_code) || a.sort_order - b.sort_order || a.id.localeCompare(b.id)) })
 }
 
-export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, studentSource, studentError, defaults, workspace, sourceRecord }: TeachingWorkspaceProps) {
+export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, studentSource, studentError, subjectSource, subjectError, subjectTerm, defaults, workspace, sourceRecord }: TeachingWorkspaceProps) {
   const { auth } = usePage<SharedProps>().props
   const district = auth.user?.role === 'district'
   const fallbackPayload = useMemo(() => {
@@ -118,6 +118,11 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   })
   const [availableGroups, setAvailableGroups] = useState(groups)
   const [availableSubjects, setAvailableSubjects] = useState(subjects)
+  const optionsContext = `${payload.scope.tambon}|${payload.scope.year}|${payload.scope.semester}`
+  const loadedSubjectContext = useRef(optionsContext)
+  const [subjectOptionsContext, setSubjectOptionsContext] = useState(optionsContext)
+  const [subjectsLoading, setSubjectsLoading] = useState(false)
+  const [subjectCatalog, setSubjectCatalog] = useState({ source: subjectSource || (subjects.some(subject => subject.source === 'sdl') ? 'sdl' : 'history'), error: subjectError || null, term: subjectTerm || null })
   const [saveState, setSaveState] = useState<DraftSaveState>(initialDraft ? 'saved' : 'idle')
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(initialDraft?.last_saved_at || null)
   const [pageError, setPageError] = useState<string | null>(studentError)
@@ -399,20 +404,42 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }, [previewLevel, markChanged])
 
   useEffect(() => {
-    if (!payload.scope.tambon || !/^25\d{2}$/.test(payload.scope.year) || !payload.scope.semester) return
+    if ((!district && !payload.scope.tambon) || !/^25\d{2}$/.test(payload.scope.year) || !payload.scope.semester) {
+      setSubjectsLoading(false)
+      if (optionsContext !== loadedSubjectContext.current) {
+        setAvailableSubjects([])
+        loadedSubjectContext.current = optionsContext
+        setSubjectOptionsContext(optionsContext)
+        setSubjectCatalog({ source: 'unavailable', error: 'เลือกตำบล ปีการศึกษา และภาคเรียนเพื่อโหลดรายวิชา', term: null })
+      }
+      return
+    }
     const controller = new AbortController()
+    setSubjectsLoading(true)
+    setAvailableSubjects([])
+    setSubjectCatalog(current => ({ ...current, error: null }))
     void fetch(`/record-options/workspace?${new URLSearchParams({ tambon: payload.scope.tambon, year: payload.scope.year, semester: payload.scope.semester })}`, { headers: { Accept: 'application/json' }, signal: controller.signal })
-      .then(async (response) => ({ response, envelope: await response.json() as { data?: { groups?: GroupOption[]; subjects?: SubjectOption[]; source?: string; error_code?: string | null }; status?: string; message?: string } }))
+      .then(async (response) => ({ response, envelope: await response.json() as { data?: { groups?: GroupOption[]; subjects?: SubjectOption[]; source?: string; error_code?: string | null; subject_source?: string; subject_error?: string | null; subject_term?: string | null }; status?: string; message?: string } }))
       .then(({ response, envelope }) => {
         if (controller.signal.aborted) return
-        if (!response.ok) throw new Error(envelope.message || 'โหลดตัวเลือกไม่สำเร็จ')
+        if (!response.ok || !envelope.data) throw new Error(envelope.message || 'โหลดตัวเลือกไม่สำเร็จ')
         if (envelope.data?.groups) setAvailableGroups(envelope.data.groups)
-        if (envelope.data?.subjects) setAvailableSubjects(envelope.data.subjects)
+        setAvailableSubjects(envelope.data.subjects || [])
+        loadedSubjectContext.current = optionsContext
+        setSubjectOptionsContext(optionsContext)
+        setSubjectCatalog({ source: envelope.data.subject_source || 'history', error: envelope.data.subject_error || null, term: envelope.data.subject_term || null })
         if (envelope.data?.source) setLoadStates((current) => Object.fromEntries(teachingLevels.map(({ code }) => [code, { ...current[code], source: payloadRef.current.levels[code].attendance.length ? current[code].source : envelope.data!.source! }])) as Record<LevelCode, WorkspaceLoadState>)
         if (envelope.status === 'error') setPageError(envelope.message || 'โหลดตัวเลือกสำหรับภาคเรียนนี้ไม่สำเร็จ')
-      }).catch((error) => { if (error instanceof Error && error.name !== 'AbortError') setPageError(error.message) })
+      }).catch((error) => {
+        if (controller.signal.aborted) return
+        setAvailableSubjects([])
+        loadedSubjectContext.current = optionsContext
+        setSubjectOptionsContext(optionsContext)
+        setSubjectCatalog({ source: 'unavailable', error: 'โหลดรายวิชาไม่สำเร็จ สามารถกรอกชื่อและรหัสวิชาเองได้', term: null })
+        if (error instanceof Error && error.name !== 'AbortError') setPageError(error.message)
+      }).finally(() => { if (!controller.signal.aborted) setSubjectsLoading(false) })
     return () => controller.abort()
-  }, [payload.scope.tambon, payload.scope.year, payload.scope.semester])
+  }, [district, payload.scope.tambon, payload.scope.year, payload.scope.semester])
 
   useEffect(() => {
     teachingLevels.forEach(({ code }) => { requestSerial.current[code] += 1 })
@@ -763,7 +790,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     <RecordSaveConfirmation open={confirmationOpen} onOpenChange={setConfirmationOpen} payload={payload} images={images} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} error={pageError} onConfirm={finalize} onReturnFocus={() => { if (confirmationOrigin.current?.isConnected) confirmationOrigin.current.focus({ preventScroll: true }) }} />
     {editorMode === 'review' ? <RecordReview payload={payload} previewLevel={previewLevel} previewUrl={previewUrl} previewing={previewing} previewStale={previewStale} previewFormat={previewFormats[previewLevel]} rendererUnavailable={rendererUnavailable} onBrowserPreview={() => previewPdf('browser')} onBrowserPreviewLoaded={browserPreviewLoaded} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} onBack={() => setEditorMode('edit')} onPreviewLevel={setPreviewLevel} onPreview={previewPdf} onEditDocument={editDocument} onSave={requestConfirmation} /> : <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-5 xl:grid-cols-[180px_minmax(0,1fr)] 2xl:grid-cols-[180px_minmax(0,1fr)_260px]">
       <aside className="rounded-xl border bg-card p-3 xl:sticky xl:top-24"><p className="mb-3 px-2 text-xs font-semibold text-muted-foreground">เลือกระดับชั้น</p><WeeklyLevelNavigation activeLevel={activeLevel} levels={payload.levels} enabledLevelCodes={payload.enabled_level_codes ?? ['1', '2', '3']} onChange={setActiveLevel} /><Button type="button" className="mt-3 w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={requestConfirmation}>บันทึก<CheckCircle size={18} /></Button></aside>
-      <Card className="min-w-0"><CardContent className="p-4 sm:p-6"><TeachingDetailsForm key={activeLevel} levelCode={activeLevel} value={payload.levels[activeLevel]} groups={availableGroups} subjects={availableSubjects} loadState={loadStates[activeLevel]} images={images.filter((image) => image.level_code === activeLevel).sort((a, b) => a.sort_order - b.sort_order)} imageBusy={imageBusy} term={`${payload.scope.semester}/${payload.scope.year}`} sourceLabel={sourceLabel(loadStates[activeLevel].source)} onChange={(value) => editLevel(activeLevel, value)} onSelectGroup={(group) => loadStudents(activeLevel, group)} onUploadImages={(files) => uploadImages(activeLevel, files)} onDeleteImage={(image) => mutateImages('DELETE', activeLevel, image.id)} onReorderImages={(imageIds) => mutateImages('PATCH', activeLevel, undefined, imageIds)} /></CardContent></Card>
+      <Card className="min-w-0"><CardContent className="p-4 sm:p-6"><TeachingDetailsForm key={activeLevel} levelCode={activeLevel} value={payload.levels[activeLevel]} groups={availableGroups} subjects={availableSubjects} subjectsLoading={subjectsLoading || subjectOptionsContext !== optionsContext} subjectSource={subjectCatalog.source} subjectError={subjectCatalog.error} subjectTerm={subjectCatalog.term} subjectContext={optionsContext} loadState={loadStates[activeLevel]} images={images.filter((image) => image.level_code === activeLevel).sort((a, b) => a.sort_order - b.sort_order)} imageBusy={imageBusy} term={`${payload.scope.semester}/${payload.scope.year}`} sourceLabel={sourceLabel(loadStates[activeLevel].source)} onChange={(value) => editLevel(activeLevel, value)} onSelectGroup={(group) => loadStudents(activeLevel, group)} onUploadImages={(files) => uploadImages(activeLevel, files)} onDeleteImage={(image) => mutateImages('DELETE', activeLevel, image.id)} onReorderImages={(imageIds) => mutateImages('PATCH', activeLevel, undefined, imageIds)} /></CardContent></Card>
       <aside className="grid gap-4 rounded-xl border bg-card p-4 xl:col-span-2 2xl:sticky 2xl:top-24 2xl:col-span-1"><WorkspaceSummary payload={payload} images={images} activeLevel={activeLevel} onSelectLevel={setActiveLevel} /><div className="border-t pt-4"><Button type="button" size="lg" className="w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={requestConfirmation}>บันทึก {totalSelectedLevels} ระดับ<CheckCircle size={19} /></Button><p className="mt-2 text-center text-[11px] leading-5 text-muted-foreground">{issues.length ? `ยังมี ${issues.length} จุดให้ตรวจ กดบันทึกเพื่อไปแก้ไข` : 'ข้อมูลพร้อมบันทึก'}</p><Button type="button" variant="outline" className="mt-3 w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={() => { setPreviewLevel(activeLevel); setEditorMode('review') }}>ดูตัวอย่าง PDF</Button></div></aside>
     </div>}
   </AppShell>

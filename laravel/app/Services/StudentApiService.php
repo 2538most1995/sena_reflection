@@ -106,6 +106,54 @@ class StudentApiService
             || ($configuration['driver'] === 'auto' && str_contains((string) $configuration['url'], '/integrations/student-data'));
     }
 
+    /** @return Collection<int, array{subject: string, subject_code: string, level: string, source: string}> */
+    public function subjects(string $term, bool $refresh = false): Collection
+    {
+        if (! $this->isSdl() || ! preg_match('#^[12]/25\d{2}$#', $term)) {
+            throw new RuntimeException('SDL subject API requires a supported academic term');
+        }
+        $configuration = $this->configuration();
+        $credential = trim((string) $configuration['token']);
+        if ($credential === '') {
+            throw new RuntimeException('SDL subject API is not configured');
+        }
+        $cacheKey = 'student-source:subjects:v1:'.hash('sha256', $this->fingerprint().'|'.$term);
+        if (! $refresh && is_array($cached = Cache::get($cacheKey))) {
+            return collect($cached);
+        }
+
+        // The catalogue returns the complete term in one response, not pages.
+        $response = Http::acceptJson()->withoutRedirecting()->connectTimeout(3)->timeout(12)
+            ->retry(2, 250, fn ($exception) => $exception instanceof ConnectionException, throw: false)
+            ->withToken($credential)->withHeader('X-Student-Data-Token', $credential)
+            ->get(preg_replace('#/students$#', '/subjects', self::SDL_URL), ['term' => $term]);
+        $payload = $response->json();
+        if (! $response->successful() || ! is_array($payload)
+            || (array_key_exists('success', $payload) && ! $payload['success'])
+            || ! is_array($payload['data'] ?? null) || ! array_is_list($payload['data'])
+            || ($payload['meta']['term'] ?? null) !== $term) {
+            throw new RuntimeException('SDL subject API returned an invalid response');
+        }
+
+        $subjects = collect($payload['data'])->filter(fn ($row): bool => is_array($row))
+            ->map(function (array $row): ?array {
+                $code = is_string($row['code'] ?? null) ? trim($row['code']) : '';
+                $name = is_string($row['name'] ?? null) ? trim($row['name']) : '';
+                if ($code === '' || $name === '' || mb_strlen($code) > 50 || mb_strlen($name) > 150) {
+                    return null;
+                }
+
+                return ['subject' => $name, 'subject_code' => $code, 'level' => '', 'source' => 'sdl'];
+            })->filter()->unique(fn (array $row): string => mb_strtolower($row['subject_code']))
+            ->sortBy('subject_code')->values();
+        if ($payload['data'] !== [] && $subjects->isEmpty()) {
+            throw new RuntimeException('SDL subject API does not contain usable subjects');
+        }
+        Cache::put($cacheKey, $subjects->all(), 300);
+
+        return $subjects;
+    }
+
     /** @param array<string, mixed> $filters @return array{Collection, array<string, mixed>} */
     public function fetch(array $filters, bool $allPages = true, bool $refresh = false): array
     {

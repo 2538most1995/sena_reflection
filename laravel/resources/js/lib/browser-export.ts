@@ -185,6 +185,10 @@ export async function prepareBrowserExport(records: BrowserExportRecord[], targe
       assertSnapshotGeometry(source, shadow)
       pages += count
       progress(index + 1, pages)
+    } catch (error) {
+      if (signal.aborted) throw error
+      const detail = error instanceof Error ? error.message : 'โหลดเอกสารไม่สำเร็จ'
+      throw new Error(`บันทึกที่ ${index + 1}/${records.length} (${record.subject} · ${record.level} · ${record.date}): ${detail}`, { cause: error })
     } finally { frame.remove() }
   }
   abortIfNeeded(signal)
