@@ -48,6 +48,7 @@ export default function BrowserPrint({ records, title }: { records: BrowserExpor
           actionAlert.success('เอกสารพร้อมพิมพ์แล้ว', `เตรียมครบ ${records.length} บันทึก กด “พิมพ์ / บันทึก PDF” แล้วเลือก Save as PDF เพื่อบันทึกไฟล์`, alertId)
         }).catch(issue => {
           if (controller.signal.aborted) return
+          finished = true
           document.body.dataset.browserExportError = 'true'
           const message = issue instanceof Error ? issue.message : 'เตรียมเอกสารไม่สำเร็จ'
           setError(message)

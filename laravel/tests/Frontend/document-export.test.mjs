@@ -13,6 +13,7 @@ registerHooks({
 })
 const { buildDocumentDocx, documentPrintPageGeometry, resolveDocumentAssetUrl } = await import('../../resources/js/lib/document-export.ts')
 const { defaultPageSettings } = await import('../../resources/js/lib/document-model.ts')
+const { removeTablePlusPrintControls } = await import('../../resources/js/lib/document-print.ts')
 
 const paragraph = (text, attrs = {}) => ({ type: 'paragraph', attrs, content: [{ type: 'text', text }] })
 function fixture(overrides = {}) {
@@ -222,6 +223,27 @@ test('print page viewports use physical dimensions and remove screen gaps withou
   assert.deepEqual(documentPrintPageGeometry(model, 0), [{ page: 1, widthMm: 297, heightMm: 210, sourceTopPx: 0 }])
   model.pageSettings.size = 'Letter'
   assert.equal(documentPrintPageGeometry(model, 1)[0].widthMm, 279.4)
+})
+
+test('printing removes only TablePlus slider controls and retains table data and resized column geometry', () => {
+  const removed = []
+  const handles = [0, 1, 2].map(index => ({ remove: () => removed.push(index) }))
+  const widths = '8% 20% 72%'
+  const table = { textContent: 'บัญชีรายชื่อผู้เรียน BROWSER-1', columnWidths: widths, previousElementSibling: {
+    tagName: 'DIV', querySelectorAll: selector => {
+      assert.equal(selector, ':scope > .handle[data-index]', 'nested content or unrelated handle classes must not be removed')
+      return handles
+    },
+  } }
+  const ordinaryTable = { previousElementSibling: null }
+  const root = { querySelectorAll: selector => {
+    assert.equal(selector, 'table.table-plus', 'ordinary document tables must not be altered')
+    return [table, ordinaryTable]
+  } }
+  removeTablePlusPrintControls(root)
+  assert.deepEqual(removed, [0, 1, 2])
+  assert.equal(table.textContent, 'บัญชีรายชื่อผู้เรียน BROWSER-1')
+  assert.equal(table.columnWidths, widths)
 })
 
 test('DOCX explains line-height formatting that Word cannot represent on individual text runs', async () => {

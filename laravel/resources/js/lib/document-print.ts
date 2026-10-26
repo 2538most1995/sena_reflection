@@ -6,8 +6,18 @@ export function documentPrintPageGeometry(model: WebDocument, pageCount: number)
   return Array.from({ length: Math.max(1, pageCount) }, (_, index) => ({ page: index + 1, widthMm: size.width, heightMm: size.height, sourceTopPx: index * (size.height * MM_TO_PX + PAGE_GAP) }))
 }
 
+/** TablePlus puts column controls in the slider immediately before its table. */
+export function removeTablePlusPrintControls(clone: HTMLElement) {
+  for (const table of clone.querySelectorAll<HTMLTableElement>('table.table-plus')) {
+    const slider = table.previousElementSibling
+    if (slider?.tagName !== 'DIV') continue
+    slider.querySelectorAll(':scope > .handle[data-index]').forEach(handle => handle.remove())
+  }
+}
+
 /** Only editor chrome is removed; the actual text nodes, styles and object coordinates are retained. */
 function cleanPrintClone(clone: HTMLElement) {
+  removeTablePlusPrintControls(clone)
   clone.querySelectorAll('[data-print-hidden],script,iframe,object,embed,button,input,textarea,select,.moveable-control-box,.document-object-handle,.document-resize-handle,.document-rotation-handle,.document-grid,.document-ruler,.document-alignment-guide,.column-resize-handle').forEach(element => element.remove())
   for (const element of [clone, ...clone.querySelectorAll<HTMLElement>('*')]) {
     element.removeAttribute('contenteditable')

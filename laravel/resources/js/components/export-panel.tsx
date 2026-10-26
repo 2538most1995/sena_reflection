@@ -5,8 +5,8 @@ import { DownloadSimple, FilePdf, FileZip } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { actionAlert } from '@/lib/action-alert'
+import { browserExportQuery, type BrowserExportFilters as Filters } from '@/lib/browser-export-filters'
 
-type Filters = { year?: string; semester?: string; week?: number | string; tambon?: string; search?: string }
 type ExportTask = { id: string; status: 'queued' | 'processing' | 'ready' | 'failed'; total: number; completed: number; error: string | null; download_url: string | null; filters: Filters & { scope: string }; created_at: string }
 
 export function ExportPanel({ filters }: { filters: Filters }) {
@@ -31,8 +31,7 @@ export function ExportPanel({ filters }: { filters: Filters }) {
     return () => { controller.abort(); poller.dispose(); document.removeEventListener('visibilitychange', visibilityChanged) }
   }, [])
   const printUrl = (scope: 'week' | 'all') => {
-    const query = new URLSearchParams({ scope })
-    for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') query.set(key, String(value))
+    const query = browserExportQuery(scope, filters)
     return appUrl(`/exports/browser-print?${query}`)
   }
   const canExportWeek = filters.year && filters.semester && filters.week
