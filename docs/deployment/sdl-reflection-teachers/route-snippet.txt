@@ -1,0 +1,13 @@
+Inside the existing authenticated, district-scoped integrations/student-data route group ONLY:
+
+Route::get('/teachers', \App\Http\Controllers\Api\Integrations\ReflectionTeacherController::class);
+
+The surrounding group must retain student-data-client, role:admin,super_admin,
+and throttle:student-data-api middleware. Do not add /teacher-authenticate.
+Do not add a second /teachers route if it already exists.
+
+Expected deployed source path:
+httpdocs/SDL_school/laravel-app/app/Http/Controllers/Api/Integrations/ReflectionTeacherController.php
+
+Effective endpoint:
+https://krumost.com/SDL_school/api/v1/integrations/student-data/teachers

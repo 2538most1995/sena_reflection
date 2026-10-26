@@ -72,6 +72,8 @@ Hosting จริงคือ `https://krumost.com/sena_reflection` ใช้ `n
 
 Student API รองรับ SDL School `/api/v1/integrations/student-data/students` ผ่าน `StudentApiService` พร้อม term `2/2569` และ teachers assigned-groups mapping สำหรับ scope บัญชีตำบล ใช้ `AcademicTermService` ช่วยเลือกเทอมและแยก cache/fallback ตามเทอม ผู้ดูแลตั้งค่าและทดสอบโทเค็นผ่าน `/admin/student-api` เก็บ encrypted token ใน `student_api_connections` แยกจาก settings/เอกสาร ไม่ส่ง secret กลับ client คีย์ legacy ของ sena_care_school ใช้กับ SDL ไม่ได้ ต้องตั้งโทเค็นที่ active ก่อนเชื่อมข้อมูลจริง
 
+ตรวจเว็บจริงวันที่ 26 ตุลาคม 2569 แล้ว: เพิ่ม API ครูแบบอ่านอย่างเดียว ติดตั้ง migration ตารางเก็บการเชื่อมต่อ และบันทึกโทเค็น Reflection เฉพาะอำเภอเสนาแบบไม่หมดอายุสำเร็จ ทดสอบหลัง reload จากโทเค็นเข้ารหัสและหน้าข้อมูลนักศึกษาพบภาคเรียน 2/2569 จำนวน 631 คน SDL production ใช้ allowlist `reflection_integration.non_expiring_client_ids` เฉพาะ client 4 เพื่อรักษาพฤติกรรมของ client อื่น; client ทดลอง 3 ถูกเพิกถอนแล้ว ดู source patch, tests และ rollback ใน `docs/deployment/sdl-reflection-teachers/README.md` ห้ามขยาย allowlist หรือใช้ SQL template ซ้ำระหว่าง deployment ปกติ
+
 ตารางเดิมสำคัญคือ `users`, `tambons`, `records`, `record_images`, `record_attendance`, `settings` ตาราง Laravel เพิ่มร่าง รายสัปดาห์ revision งานส่งออก และ `documents` / `document_assets` / `document_versions` เอกสารผูกต้นทางใช้ `binding_key` unique nullable และ `binding_snapshot`
 
 Laravel migrations เป็น schema หลักของโมดูลใหม่ ต้อง migrate เมื่อ deploy ควบคู่ build ตรวจฐานเป้าหมายจาก `.env` ไม่รัน migration บนข้อมูลจริงระหว่างทดสอบ การตั้งค่าฐาน/API key อยู่ใน environment หรือ config ที่ไม่ commit

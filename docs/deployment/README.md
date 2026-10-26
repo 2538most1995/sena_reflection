@@ -154,8 +154,25 @@ After deploying and migrating, a district administrator opens
 **จัดการระบบ → ตั้งค่า Student API**, supplies an active SDL School token with
 `student-data:read` and `sena-care:teachers`, and tests/saves the connection.
 The legacy SENA Care key does not authenticate to the SDL integration endpoint.
-No working production SDL token was available during development; verification
-of actual 2/2569 data remains a post-configuration check, not a completed live sync.
+On 2026-10-25, the narrowly scoped teachers endpoint and a separate Reflection
+API client were installed on SDL School. Reflection's live connection test
+reported term 2/2569 and 631 students. Existing integration clients were retained.
+See the [SDL installation note](sdl-reflection-teachers/README.md) for the exact
+endpoint patch, least-privilege setup, token expiry and revocation by client ID.
+On 2026-10-26, the missing Reflection connection-settings migration completed
+with PHP 8.4 through Plesk Run Now, without adding a recurring task. A new
+non-expiring Reflection client 4 was created for Sena district with only the
+two read abilities. Production's older middleware requires the narrowly scoped
+non-expiring-client allowlist patch in that note; enable only client 4, retaining
+the prior rejection of other non-expiring clients. The middleware and allowlist
+config were deployed and matched the reviewed artifact hashes. Live verification,
+saving, and verification after reloading with the encrypted stored token all
+completed successfully: term 2/2569, 631 students. The new config loaded without
+clearing config cache. Client 4 remains active with NULL expiry; trial client 3
+was revoked after that verification, with only one guarded row changed. Clients
+1 and 2 were untouched. The artifact suites pass 20 tests / 58 assertions using
+isolated in-memory SQLite; see the installation note for the checks and rollback.
+Plaintext credentials and token hashes are not stored in this repository.
 
 Semester archive is an explicit user workflow, never a deployment task or a
 scheduled purge. Create and download a verified backup, review blockers, then

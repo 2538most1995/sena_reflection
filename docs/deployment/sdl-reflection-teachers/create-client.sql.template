@@ -1,0 +1,38 @@
+-- Reviewable template only. The client documented below already exists;
+-- do not run this to recreate or replace it during normal deployment.
+-- Prepared-statement parameters, in order:
+-- 1. SHA-256(cryptographically random plaintext token), computed by trusted caller.
+-- 2. Actual username of the active district admin, verified from the live schema.
+-- Do not store or paste plaintext or its real hash in this file/SQL history.
+-- Generate plaintext as sdl_student_ + 64 random alphanumeric characters.
+-- Existing clients, including IDs 1 and 2, must remain unchanged.
+-- Expect exactly one affected row; zero means prerequisites/collision failed.
+-- Requested policy: no automatic expiry (expires_at = NULL).
+-- Revocation, issuer/district activity, and both read abilities remain required.
+
+INSERT INTO student_api_clients
+    (name, user_id, district_id, token_hash, abilities, expires_at, created_at, updated_at)
+SELECT
+    'sena-reflection-20261026', u.id, d.id, ?,
+    JSON_ARRAY('student-data:read', 'sena-care:teachers'),
+    NULL, UTC_TIMESTAMP(), UTC_TIMESTAMP()
+FROM users AS u
+INNER JOIN districts AS d ON d.id = u.district_id
+WHERE u.id = 3
+  AND u.username = ?
+  AND u.role = 'admin'
+  AND u.disabled_at IS NULL
+  AND d.id = 1
+  AND d.code = 'sena'
+  AND d.is_active = 1
+  AND NOT EXISTS (
+      SELECT 1 FROM student_api_clients AS existing
+      WHERE existing.district_id = d.id
+        AND existing.name = 'sena-reflection-20261026'
+        AND existing.revoked_at IS NULL
+  );
+
+-- Read only: inspect new client metadata without returning hash/plaintext.
+SELECT id, name, user_id, district_id, abilities, expires_at, revoked_at
+FROM student_api_clients
+WHERE district_id = 1 AND name = 'sena-reflection-20261026';

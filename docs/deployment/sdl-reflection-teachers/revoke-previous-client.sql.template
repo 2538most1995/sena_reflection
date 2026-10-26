@@ -1,0 +1,25 @@
+-- Reviewable operation for the previous Reflection credential only.
+-- Historical deployment record: client 3 was already revoked on 2026-10-26.
+-- Do not run again as part of normal deployment.
+-- Run only AFTER client 4 is saved in Reflection and verified from stored settings.
+-- No token/hash is read, replaced or rotated. Existing clients 1/2/4 stay unchanged.
+-- Expect exactly one changed row, or zero if already revoked; inspect metadata.
+
+UPDATE student_api_clients
+SET revoked_at = UTC_TIMESTAMP(), updated_at = UTC_TIMESTAMP()
+WHERE id = 3
+  AND name = 'sena-reflection-20261025'
+  AND user_id = 3
+  AND district_id = 1
+  AND revoked_at IS NULL
+  AND expires_at = '2027-01-23 16:03:33'
+  AND JSON_LENGTH(abilities) = 2
+  AND JSON_CONTAINS(abilities, JSON_QUOTE('student-data:read'))
+  AND JSON_CONTAINS(abilities, JSON_QUOTE('sena-care:teachers'));
+
+-- Read back only non-secret metadata; client 3 revoked, client 4 active/no expiry.
+SELECT id, name, user_id, district_id, abilities, expires_at, revoked_at
+FROM student_api_clients
+WHERE district_id = 1
+  AND ((id = 3 AND name = 'sena-reflection-20261025')
+    OR (id = 4 AND name = 'sena-reflection-20261026'));
