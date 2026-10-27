@@ -30,6 +30,26 @@ test('one final confirmation needs valid data without per-level attendance appro
   assert.equal(payload.levels['1'].attendance_reviewed, false)
 })
 
+test('invalid academic years and combined terms cannot be confirmed or mutate attendance', () => {
+  const payload = fixture()
+  const originalLevel = JSON.stringify(payload.levels['1'])
+  for (const year of ['256', '1/2569', '1/1/2569', '25699', '2569 ภาคเรียน1', '2669']) {
+    payload.scope.year = year
+    assert.equal(reviewIssues(payload, []).find(issue => issue.field === 'scope.year')?.field, 'scope.year')
+    assert.equal(JSON.stringify(payload.levels['1']), originalLevel)
+  }
+  payload.scope.year = '2569'
+  for (const semester of ['1/2569', '0', '4']) {
+    payload.scope.semester = semester
+    assert.ok(reviewIssues(payload, []).some(issue => issue.field === 'scope.semester'))
+  }
+  for (const semester of ['1', '2', '3']) {
+    payload.scope.semester = semester
+    assert.deepEqual(reviewIssues(payload, []), [])
+    assert.equal(JSON.stringify(payload.levels['1']), originalLevel)
+  }
+})
+
 test('count mode keeps integer, range and present <= total validation', () => {
   const level = fixture().levels['1']
   for (const [total, present] of [[1, 2], [-1, 0], [2, -1], [10001, 0], [2.5, 1], [3, 1.5]]) assert.equal(teachingAttendanceReady({ ...level, total, present }), false)

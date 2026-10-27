@@ -7,6 +7,7 @@ use App\Models\RecordImage;
 use App\Models\Tambon;
 use App\Models\TeachingRecord;
 use App\Models\WeeklySubmission;
+use App\Services\AcademicTermService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,7 +28,7 @@ class WeeklySubmissionController extends Controller
             'week' => ['required', 'integer', 'between:1,20'],
             'date' => ['required', 'date'],
             'semester' => ['required', 'in:1,2,3'],
-            'year' => ['required', 'string', 'max:10'],
+            'year' => AcademicTermService::yearRules(),
             'records' => ['required', 'array', 'size:3'],
             'records.*.level' => ['required', 'distinct', Rule::in(self::LEVELS)],
             'records.*.subject' => ['required', 'string', 'max:150'],
@@ -48,7 +49,7 @@ class WeeklySubmissionController extends Controller
             'records.*.attendance.*.learning_method' => ['nullable', Rule::in(['พบกลุ่ม', 'ออนไลน์'])],
             'records.*.images' => ['nullable', 'array', 'max:4'],
             'records.*.images.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:5120', 'dimensions:min_width=200,min_height=200,max_width=8000,max_height=8000'],
-        ]);
+        ], ['year.regex' => 'เลือกปีการศึกษา พ.ศ. 4 หลัก เช่น 2569 โดยไม่ใส่ภาคเรียนในช่องปี']);
 
         foreach ($validated['records'] as $index => $entry) {
             if ((int) $entry['present'] > (int) $entry['total']) {

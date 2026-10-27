@@ -9,6 +9,7 @@ use App\Models\Tambon;
 use App\Models\TeachingRecord;
 use App\Models\User;
 use App\Models\WeeklySubmission;
+use App\Services\AcademicTermService;
 use App\Services\AttendanceReportService;
 use App\Services\LegacyDocxService;
 use App\Services\LegacyPrintService;
@@ -216,7 +217,7 @@ class LegacyApiController extends Controller
         $validator = Validator::make($data, [
             'week' => ['required', 'integer', 'between:1,20'], 'date' => ['required', 'date_format:Y-m-d'],
             'level' => ['required', 'string', 'max:50'], 'semester' => ['required', 'in:1,2,3'],
-            'year' => ['required', 'digits:4', 'integer', 'between:2500,2800'], 'subject' => ['required', 'string', 'max:150'],
+            'year' => AcademicTermService::yearRules(), 'subject' => ['required', 'string', 'max:150'],
             'subject_code' => ['nullable', 'string', 'max:50'], 'class_group_code' => ['nullable', 'string', 'max:50'],
             'class_name' => ['nullable', 'string', 'max:255'], 'total' => ['nullable', 'integer', 'between:0,10000'],
             'present' => ['nullable', 'integer', 'between:0,10000'], 'result' => ['nullable', 'string', 'max:10000'],

@@ -4,6 +4,12 @@ namespace App\Services;
 
 class AcademicTermService
 {
+    /** @return list<string> */
+    public static function yearRules(bool $required = true): array
+    {
+        return [$required ? 'required' : 'nullable', 'regex:/^25[0-9]{2}$/D'];
+    }
+
     public function normalize(mixed $value): ?string
     {
         if (! is_scalar($value)) {

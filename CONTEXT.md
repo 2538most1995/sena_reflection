@@ -68,7 +68,11 @@ Hosting จริงคือ `https://krumost.com/sena_reflection` ใช้ `n
 
 ## ข้อมูลและ schema
 
-ระบบสำรองภาคเรียนอยู่ที่ `/admin/semester-backups` สำหรับ district เท่านั้น `SemesterBackupService` จัดชุด ZIP แบบ whitelist พร้อม manifest, checksums และลายเซ็นผูก `APP_KEY` เก็บใน private local storage ตรวจสำเนาดาวน์โหลดและ fingerprint ข้อมูล/ไฟล์ก่อนนำภาคเรียนออกจากฐานใช้งาน การนำเข้ามีขั้นตรวจแล้วจึงยืนยัน restore แบบไม่เขียนทับ IDs หรือ scope ที่ชนกัน เก็บ records/attendance/images/layouts/revisions กับ canonical documents/assets/versions ที่อ้างอิง ไม่เก็บ credentials/settings/private drafts และไม่ลบไฟล์ต้นฉบับที่อาจถูกใช้ร่วมกัน Active drafts และงานส่งออกที่อ้างอิงเป็น blockers; ไม่มี DDL หรือการลบจริงระหว่างพัฒนา
+ระบบสำรองภาคเรียนอยู่ที่ `/admin/semester-backups` สำหรับ district เท่านั้น `SemesterBackupService` จัด ZIP แบบ whitelist พร้อม manifest, checksums และลายเซ็นผูก `APP_KEY` ใน private storage ตรวจ fingerprint ข้อมูล/ไฟล์และสำเนาภายนอกก่อน archive เก็บ records/attendance/images/layouts/revisions และ canonical documents/assets/versions ไม่เก็บ credentials/settings/private drafts; active drafts และงานส่งออกที่อ้างอิงเป็น blockers รุ่น 2 รองรับรายงานไฟล์ที่สูญหายโดยต้องยืนยันทั้งก่อนสำรองและก่อน archive และยังอ่าน ZIP รุ่น 1 ได้
+
+การคืนพื้นที่เป็นขั้นตอนแยก: `SemesterBackupStorageService` ลบเฉพาะไฟล์ที่ checksum ตรงและไม่มีข้อมูลที่เหลืออ้างอิง ตรวจภายใต้ transaction/row locks และล็อกเดียวกับ restore; รูปใช้ร่วมกันหรือเปลี่ยนไปต้องเก็บไว้ จากนั้น offload ลบเฉพาะ ZIP บนเซิร์ฟเวอร์และเก็บสถานะ offline ให้เลือกนำเข้าจากสำเนาภายนอก `SemesterBackupUploadService` แบ่งอัปโหลด ZIP ไม่เกิน 2 GB ลงไฟล์ private เดียว ตรวจทุกส่วนและ ZIP ทั้งชุดก่อนย้ายเข้ารายการ ไม่เขียนทับข้อมูลเมื่อ restore ไม่มีการ archive/release/offload ระหว่าง deploy
+
+`SemesterTermRepairService` ตรวจปลายทางและ fingerprint ก่อนสร้าง ZIP ต้นทาง แล้วแก้ปี/ภาคเรียนภายใต้ transaction พร้อมเก็บ revision และรูปแบบเอกสารเดิม ไม่แก้ข้อมูลที่ชนหรือร่างส่วนตัว ทุกช่องทางบันทึกใหม่และ finalize ตรวจปี พ.ศ. รูปแบบ 25xx; UI ใช้ตัวเลือกปีเพื่อลดการพิมพ์ผิด
 
 Student API รองรับ SDL School `/api/v1/integrations/student-data/students` ผ่าน `StudentApiService` พร้อม term `2/2569` และ teachers assigned-groups mapping สำหรับ scope บัญชีตำบล ใช้ `AcademicTermService` ช่วยเลือกเทอมและแยก cache/fallback ตามเทอม ผู้ดูแลตั้งค่าและทดสอบโทเค็นผ่าน `/admin/student-api` เก็บ encrypted token ใน `student_api_connections` แยกจาก settings/เอกสาร ไม่ส่ง secret กลับ client คีย์ legacy ของ sena_care_school ใช้กับ SDL ไม่ได้ ต้องตั้งโทเค็นที่ active ก่อนเชื่อมข้อมูลจริง
 

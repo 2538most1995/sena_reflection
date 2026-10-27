@@ -16,9 +16,12 @@ use ZipArchive;
 
 class SemesterBackupService
 {
-    public const MAX_BYTES = 512 * 1024 * 1024;
+    public const MAX_BYTES = 2 * 1024 * 1024 * 1024;
 
     private const MAX_DATA_BYTES = 64 * 1024 * 1024;
+
+    // Reserve room for the signed file inventory and ZIP entry headers as well as data.json.
+    private const MAX_ASSET_BYTES = self::MAX_BYTES - self::MAX_DATA_BYTES - 8 * 1024 * 1024;
 
     private const TABLES = ['weekly_submissions', 'records', 'record_images', 'record_attendance', 'record_document_layouts', 'documents', 'document_assets', 'document_versions', 'record_revisions'];
 
@@ -51,10 +54,23 @@ class SemesterBackupService
 
         return ['semesters' => $semesters, 'backups' => $backups->getCollection()->map(fn ($backup): array => $this->resource($backup))->all(),
             'backupPagination' => ['page' => $backups->currentPage(), 'last_page' => $backups->lastPage(), 'total' => $backups->total(), 'per_page' => $backups->perPage()],
-            'limits' => ['max_upload_mb' => round($uploadLimit / 1024 / 1024, 2)]];
+            'limits' => ['max_upload_mb' => round($uploadLimit / 1024 / 1024, 2), 'max_archive_mb' => self::MAX_BYTES / 1024 / 1024]];
     }
 
-    public function create(User $user, string $year, string $semester): array
+    public function preflight(string $year, string $semester): array
+    {
+        $tables = $this->capture($year, $semester);
+        $inventory = $this->fileInventory($tables, false);
+
+        return [
+            'counts' => $this->counts($tables), 'available_files' => count($inventory['files']),
+            'missing_files' => $inventory['missing_files'], 'total_bytes' => $inventory['total_bytes'],
+            'fits_limit' => $inventory['total_bytes'] <= self::MAX_ASSET_BYTES && count($inventory['files']) <= 20000,
+            'fingerprint' => $this->inventoryFingerprint($tables, $inventory),
+        ];
+    }
+
+    public function create(User $user, string $year, string $semester, bool $allowMissing = false, ?string $expectedFingerprint = null): array
     {
         if (! class_exists(ZipArchive::class)) {
             $this->fail('เซิร์ฟเวอร์ยังไม่ได้เปิด PHP ZIP กรุณาเปิดส่วนขยายนี้ก่อนสำรองข้อมูล');
@@ -64,20 +80,29 @@ class SemesterBackupService
         $disk = Storage::disk('local');
         $disk->makeDirectory('semester-backups');
         try {
-            $manifest = DB::transaction(function () use ($year, $semester, $relative): array {
+            $manifest = DB::transaction(function () use ($year, $semester, $relative, $allowMissing, $expectedFingerprint): array {
                 $tables = $this->capture($year, $semester, true);
                 if ($tables['records'] === []) {
                     $this->fail('ไม่พบบันทึกในภาคเรียนที่เลือก');
                 }
-                $files = $this->files($tables);
+                $inventory = $this->fileInventory($tables);
+                if ($expectedFingerprint !== null && ! hash_equals($expectedFingerprint, $this->inventoryFingerprint($tables, $inventory))) {
+                    $this->fail('ข้อมูลหรือรูปเปลี่ยนหลังตรวจรายการ กรุณาตรวจภาคเรียนอีกครั้งก่อนสำรอง');
+                }
+                $files = $inventory['files'];
+                if ($inventory['missing_files'] !== [] && ! $allowMissing) {
+                    $this->fail('พบรูปต้นฉบับที่สูญหาย กรุณาตรวจรายการและยืนยันสำรองเฉพาะไฟล์ที่ยังมีอยู่ โดยเก็บรายงานไฟล์ที่ขาดไว้ใน ZIP');
+                }
                 $data = $this->json($tables);
                 if (strlen($data) > self::MAX_DATA_BYTES) {
                     $this->fail('ข้อมูลภาคเรียนมีขนาดเกิน 64 MB กรุณาแบ่งชุดข้อมูลก่อนสำรอง');
                 }
-                $manifest = ['format' => 'sena-semester-backup', 'version' => 1, 'created_at' => now()->toIso8601String(),
+                $manifest = ['format' => 'sena-semester-backup', 'version' => 2, 'created_at' => now()->toIso8601String(),
                     'scope' => ['year' => $year, 'semester' => $semester], 'counts' => $this->counts($tables),
                     'data_sha256' => hash('sha256', $data), 'fingerprint' => $this->fingerprint($tables),
-                    'files' => $files, 'identities' => $this->identities($tables)];
+                    'files' => $files, 'missing_files' => $inventory['missing_files'],
+                    'legacy_scope' => ! preg_match('/^25[0-9]{2}$/D', $year) || ! in_array($semester, ['1', '2'], true),
+                    'identities' => $this->identities($tables)];
                 $manifest['signature'] = $this->signature($manifest);
                 $zip = new ZipArchive;
                 if ($zip->open(Storage::disk('local')->path($relative), ZipArchive::CREATE | ZipArchive::EXCL) !== true) {
@@ -90,6 +115,8 @@ class SemesterBackupService
                         if (! $zip->addFile($this->physicalPath($file['disk'], $file['path']), $file['entry'])) {
                             $this->fail('อ่านรูปภาพเพื่อสำรองไม่สำเร็จ');
                         }
+                        // JPEG/PNG/WebP are already compressed; storing avoids expensive recompression on small hosting.
+                        $zip->setCompressionName($file['entry'], ZipArchive::CM_STORE);
                     }
                 } finally {
                     if (! $zip->close()) {
@@ -127,14 +154,85 @@ class SemesterBackupService
         }
     }
 
+    /** Chunk uploads are already inside private storage, so move instead of duplicating a large ZIP. */
+    public function importStaged(User $user, string $path): array
+    {
+        $root = realpath(Storage::disk('local')->path('semester-backup-uploads'));
+        $real = realpath($path);
+        if ($root === false || $real === false || ! str_starts_with($real, $root.DIRECTORY_SEPARATOR) || is_link($path)) {
+            $this->fail('ที่อยู่ไฟล์อัปโหลดไม่ถูกต้อง');
+        }
+        $manifest = $this->read($path)['manifest'];
+        $id = (string) Str::uuid();
+        $relative = 'semester-backups/'.$id.'.zip';
+        Storage::disk('local')->makeDirectory('semester-backups');
+        $target = Storage::disk('local')->path($relative);
+        if (! rename($path, $target)) {
+            $this->fail('ย้ายไฟล์สำรองที่อัปโหลดไม่สำเร็จ');
+        }
+        try {
+            $this->catalog($id, $user, $relative, $manifest, 'imported');
+
+            return $this->resource($this->find($id));
+        } catch (Throwable $exception) {
+            rename($target, $path);
+            throw $exception;
+        }
+    }
+
     public function inspect(string $id): array
     {
         $backup = $this->find($id);
         $bundle = $this->verified($backup);
-        $blockers = $this->archiveBlockers($backup, $bundle['tables'], $bundle['manifest']['files']);
+        $blockers = $this->archiveBlockers($backup, $bundle['tables'], $bundle['manifest']['files'], null, $bundle['manifest']['missing_files'] ?? []);
         $conflicts = $this->restoreConflicts($bundle['tables'], $bundle['manifest']);
 
-        return ['backup' => $this->resource($backup), 'can_archive' => $blockers === [], 'can_restore' => $conflicts === [], 'blockers' => $blockers, 'conflicts' => $conflicts];
+        $storage = $backup->status === 'archived'
+            ? app(SemesterBackupStorageService::class)->inspect($this->storageFiles($bundle), fn (string $disk, string $path): string => $this->physicalPath($disk, $path))
+            : null;
+
+        return ['backup' => $this->resource($backup), 'can_archive' => $blockers === [], 'can_restore' => $conflicts === [], 'blockers' => $blockers, 'conflicts' => $conflicts,
+            'missing_files' => $bundle['manifest']['missing_files'] ?? [], 'storage' => $storage];
+    }
+
+    /** Releasing originals is a separate, explicit step after a verified downloaded archive. */
+    public function releaseFiles(string $id): array
+    {
+        return $this->withStorageLock(fn (): array => DB::transaction(function () use ($id): array {
+            $backup = $this->find($id, true);
+            if ($backup->status !== 'archived' || $backup->downloaded_at === null) {
+                $this->fail('ต้องดาวน์โหลด ZIP และเก็บภาคเรียนออกจากระบบก่อนคืนพื้นที่รูปต้นฉบับ');
+            }
+            $bundle = $this->verified($backup);
+            if (DB::table('records')->whereIn('id', array_column($bundle['tables']['records'], 'id'))->exists()) {
+                $this->fail('มีบันทึกในชุดนี้กลับมาใช้งานแล้ว จึงยังคืนพื้นที่ไม่ได้');
+            }
+
+            return app(SemesterBackupStorageService::class)->release($this->storageFiles($bundle), fn (string $disk, string $path): string => $this->physicalPath($disk, $path));
+        }, 3));
+    }
+
+    /** Keep the catalog as an offline reminder; importing the downloaded ZIP restores access. */
+    public function offload(string $id): array
+    {
+        return $this->withStorageLock(function () use ($id): array {
+            DB::transaction(function () use ($id): void {
+                $backup = $this->find($id, true);
+                if ($backup->downloaded_at === null) {
+                    $this->fail('ต้องดาวน์โหลดและเก็บ ZIP ไว้นอกเซิร์ฟเวอร์ก่อนลบสำเนาบนเซิร์ฟเวอร์');
+                }
+                if ($backup->status === 'offline') {
+                    return;
+                }
+                $this->verified($backup);
+                if (! Storage::disk('local')->delete($backup->storage_path)) {
+                    $this->fail('ลบ ZIP บนเซิร์ฟเวอร์ไม่สำเร็จ ข้อมูลต้นฉบับยังอยู่');
+                }
+                DB::table('semester_backups')->where('id', $id)->update(['status' => 'offline', 'updated_at' => now()]);
+            });
+
+            return $this->resource($this->find($id));
+        });
     }
 
     public function archive(string $id): array
@@ -145,7 +243,7 @@ class SemesterBackupService
             $tables = $bundle['tables'];
             $current = $this->capture($backup->year, $backup->semester, true);
             $this->activeDrafts($backup->year, $backup->semester, array_column($tables['records'], 'id'))->lockForUpdate()->get(['id']);
-            $blockers = $this->archiveBlockers($backup, $tables, $bundle['manifest']['files'], $current);
+            $blockers = $this->archiveBlockers($backup, $tables, $bundle['manifest']['files'], $current, $bundle['manifest']['missing_files'] ?? []);
             if ($blockers !== []) {
                 $this->fail(implode(' ', $blockers));
             }
@@ -170,6 +268,11 @@ class SemesterBackupService
 
     public function restore(string $id): array
     {
+        return $this->withStorageLock(fn (): array => $this->restoreLocked($id));
+    }
+
+    private function withStorageLock(\Closure $operation): array
+    {
         $disk = Storage::disk('local');
         $disk->makeDirectory('semester-backups');
         $lock = @fopen($disk->path('semester-backups/.restore.lock'), 'c+b');
@@ -181,7 +284,7 @@ class SemesterBackupService
             $this->fail('มีการนำข้อมูลกลับที่กำลังทำงานอยู่ กรุณารอให้เสร็จก่อนลองใหม่');
         }
         try {
-            return $this->restoreLocked($id);
+            return $operation();
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
@@ -332,7 +435,7 @@ class SemesterBackupService
         return array_replace(array_fill_keys(self::TABLES, []), $tables);
     }
 
-    private function files(array $tables): array
+    private function assetPaths(array $tables): array
     {
         $paths = [];
         $addImage = function (string $stored) use (&$paths): void {
@@ -360,12 +463,24 @@ class SemesterBackupService
             $paths['local:'.$asset['storage_path']] = ['disk' => 'local', 'path' => $asset['storage_path']];
         }
         ksort($paths);
+
+        return array_values($paths);
+    }
+
+    private function fileInventory(array $tables, bool $enforceLimits = true): array
+    {
         $files = [];
+        $missing = [];
         $bytes = 0;
-        foreach ($paths as $file) {
+        foreach ($this->assetPaths($tables) as $file) {
             $path = $this->physicalPath($file['disk'], $file['path']);
+            if (! file_exists($path)) {
+                $missing[] = [...$file, 'reason' => 'missing'];
+
+                continue;
+            }
             if (! is_file($path) || ! is_readable($path)) {
-                $this->fail('ไม่พบรูปภาพบางไฟล์ จึงยังสร้างสำเนาที่ครบถ้วนไม่ได้');
+                $this->fail('อ่านไฟล์ต้นฉบับไม่ได้ กรุณาตรวจสิทธิ์ไฟล์ก่อนสำรอง');
             }
             $size = filesize($path);
             $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($path);
@@ -373,20 +488,20 @@ class SemesterBackupService
                 $this->fail('รูปภาพไม่รองรับหรือมีขนาดเกิน 20 MB');
             }
             $bytes += $size;
-            if ($bytes > self::MAX_BYTES - self::MAX_DATA_BYTES || count($files) >= 20000) {
-                $this->fail('ชุดสำรองมีขนาดเกินขีดจำกัด 512 MB');
+            if ($enforceLimits && ($bytes > self::MAX_ASSET_BYTES || count($files) >= 20000)) {
+                $this->fail('ชุดสำรองมีขนาดเกินขีดจำกัด 2 GB หรือมีไฟล์เกิน 20,000 ไฟล์');
             }
             $files[] = [...$file, 'entry' => 'files/'.count($files), 'size' => $size, 'sha256' => hash_file('sha256', $path), 'mime' => $mime];
         }
 
-        return $files;
+        return ['files' => $files, 'missing_files' => $missing, 'total_bytes' => $bytes];
     }
 
     /** No ZIP extraction: member names are never used as filesystem destinations. */
     private function read(string $path): array
     {
         if (! class_exists(ZipArchive::class) || ! is_file($path) || filesize($path) > self::MAX_BYTES) {
-            $this->fail('ไม่รองรับไฟล์สำรองนี้ หรือไฟล์ใหญ่เกิน 512 MB');
+            $this->fail('ไม่รองรับไฟล์สำรองนี้ หรือไฟล์ใหญ่เกิน 2 GB');
         }
         $zip = new ZipArchive;
         if ($zip->open($path, ZipArchive::RDONLY) !== true) {
@@ -409,7 +524,7 @@ class SemesterBackupService
                 $seen[$name] = true;
                 $total += $stat['size'];
                 if ($total > self::MAX_BYTES) {
-                    $this->fail('ขนาดข้อมูลเมื่อคลาย ZIP เกิน 512 MB');
+                    $this->fail('ขนาดข้อมูลเมื่อคลาย ZIP เกิน 2 GB');
                 }
             }
             $manifestBytes = $zip->getFromName('manifest.json');
@@ -423,7 +538,7 @@ class SemesterBackupService
             }
             $signature = $manifest['signature'] ?? '';
             unset($manifest['signature']);
-            if (($manifest['format'] ?? '') !== 'sena-semester-backup' || ($manifest['version'] ?? 0) !== 1
+            if (($manifest['format'] ?? '') !== 'sena-semester-backup' || ! in_array($manifest['version'] ?? 0, [1, 2], true)
                 || ! is_string($signature) || ! hash_equals($this->signature($manifest), $signature)) {
                 $this->fail('ไฟล์สำรองไม่ใช่ของระบบนี้ ลายเซ็นไม่ถูกต้อง หรือ APP_KEY ต่างจากระบบที่สร้างไฟล์');
             }
@@ -455,6 +570,24 @@ class SemesterBackupService
                     $this->fail('รูปภาพสำรองเสียหาย: checksum ไม่ตรง');
                 }
             }
+            foreach ($manifest['missing_files'] ?? [] as $file) {
+                if (($manifest['version'] ?? 1) < 2 || ($file['reason'] ?? '') !== 'missing') {
+                    $this->fail('รายงานไฟล์ต้นฉบับที่ขาดไม่ถูกต้อง');
+                }
+                $this->physicalPath($file['disk'], $file['path']);
+                $target = $file['disk'].':'.$file['path'];
+                if (isset($targets[$target])) {
+                    $this->fail('รายงานไฟล์ต้นฉบับซ้ำกับไฟล์สำรอง');
+                }
+                $targets[$target] = true;
+            }
+            $expectedTargets = array_map(static fn (array $file): string => $file['disk'].':'.$file['path'], $this->assetPaths($tables));
+            $actualTargets = array_keys($targets);
+            sort($expectedTargets);
+            sort($actualTargets);
+            if ($expectedTargets !== $actualTargets) {
+                $this->fail('ไฟล์สำรองและรายงานไฟล์ที่ขาดไม่ครอบคลุมรูปทั้งหมดในข้อมูล');
+            }
 
             return compact('manifest', 'tables');
         } catch (\JsonException|\TypeError $exception) {
@@ -467,7 +600,7 @@ class SemesterBackupService
     private function validateTables(array $tables, array $manifest): void
     {
         if (array_diff(self::TABLES, array_keys($tables)) !== [] || array_diff(array_keys($tables), self::TABLES) !== []
-            || ! preg_match('/^[0-9]{4}$/D', $manifest['scope']['year'] ?? '') || ! in_array($manifest['scope']['semester'] ?? '', ['1', '2'], true)) {
+            || ! $this->validBackupScope($manifest)) {
             $this->fail('ตารางหรือภาคเรียนในไฟล์สำรองไม่ถูกต้อง');
         }
         foreach (self::TABLES as $table) {
@@ -522,6 +655,59 @@ class SemesterBackupService
         }
     }
 
+    private function validBackupScope(array $manifest): bool
+    {
+        $year = $manifest['scope']['year'] ?? null;
+        $semester = $manifest['scope']['semester'] ?? null;
+        if (! is_string($year) || ! is_string($semester)) {
+            return false;
+        }
+        if (($manifest['version'] ?? 1) === 1) {
+            return (bool) preg_match('/^[0-9]{4}$/D', $year) && in_array($semester, ['1', '2'], true);
+        }
+        if (($manifest['legacy_scope'] ?? false) === true) {
+            return (bool) preg_match('~^[0-9/]{1,10}$~D', $year) && (bool) preg_match('~^[0-9/]{1,10}$~D', $semester);
+        }
+
+        return (bool) preg_match('/^25[0-9]{2}$/D', $year) && in_array($semester, ['1', '2'], true);
+    }
+
+    private function inventoryFingerprint(array $tables, array $inventory): string
+    {
+        return hash('sha256', $this->fingerprint($tables).$this->json($inventory));
+    }
+
+    private function storageFiles(array $bundle): array
+    {
+        $aliases = [];
+        foreach ($bundle['tables']['document_assets'] as $asset) {
+            $key = 'local:'.$asset['storage_path'];
+            $aliases[$key]['asset_ids'][] = (string) $asset['id'];
+            $aliases[$key]['urls'][] = '/api/documents/'.$asset['document_id'].'/assets/'.$asset['id'];
+        }
+        $addImage = function (array $image, string $recordId) use (&$aliases): void {
+            $normalized = RecordImageAssets::normalizeStoredPath($image['file_path']);
+            $key = str_starts_with($normalized ?? '', 'storage/') ? 'public:'.substr($normalized, 8) : 'legacy:'.$normalized;
+            $assetKey = hash('sha256', json_encode([$recordId, (string) $image['id'], (string) $image['file_path']], JSON_THROW_ON_ERROR));
+            $aliases[$key]['urls'][] = '/records/'.$recordId.'/image-files/'.$assetKey;
+            $aliases[$key]['urls'][] = '/records/'.$recordId.'/images/'.$image['id'];
+        };
+        foreach ($bundle['tables']['record_images'] as $image) {
+            $addImage($image, (string) $image['record_id']);
+        }
+        foreach ($bundle['tables']['record_revisions'] as $revision) {
+            $snapshot = json_decode($revision['snapshot'], true, 512, JSON_THROW_ON_ERROR);
+            foreach ($snapshot['images'] ?? [] as $image) {
+                $addImage($image, (string) $revision['record_id']);
+            }
+        }
+
+        return array_map(static fn (array $file): array => [...$file,
+            'asset_ids' => array_values(array_unique($aliases[$file['disk'].':'.$file['path']]['asset_ids'] ?? [])),
+            'urls' => array_values(array_unique($aliases[$file['disk'].':'.$file['path']]['urls'] ?? [])),
+        ], $bundle['manifest']['files']);
+    }
+
     private function validateRelations(array $tables): void
     {
         $submissionIds = array_column($tables['weekly_submissions'], 'id');
@@ -549,17 +735,21 @@ class SemesterBackupService
         return $this->read($path);
     }
 
-    private function archiveBlockers(object $backup, array $tables, array $files, ?array $current = null): array
+    private function archiveBlockers(object $backup, array $tables, array $files, ?array $current = null, array $missing = []): array
     {
         $blockers = [];
         if ($backup->downloaded_at === null) {
             $blockers[] = 'กรุณาดาวน์โหลดและเก็บไฟล์สำรองไว้นอกระบบก่อนเก็บภาคเรียน';
         }
         $current ??= $this->capture($backup->year, $backup->semester);
+        $inventory = $this->fileInventory($current);
         if (! hash_equals($backup->fingerprint, $this->fingerprint($current))) {
             $blockers[] = 'ข้อมูลเปลี่ยนหลังสำรอง กรุณาสร้างชุดสำรองใหม่';
-        } elseif ($files !== $this->files($current)) {
+        } elseif ($files !== $inventory['files']) {
             $blockers[] = 'รูปภาพหรือไฟล์เอกสารเปลี่ยนหลังสำรอง กรุณาสร้างชุดสำรองใหม่';
+        }
+        if ($missing !== $inventory['missing_files']) {
+            $blockers[] = 'สถานะไฟล์ที่เคยสูญหายเปลี่ยนหลังสำรอง กรุณาสำรองใหม่';
         }
         $ids = array_column($tables['records'], 'id');
         if ($this->activeDrafts($backup->year, $backup->semester, $ids)->exists()) {
@@ -712,7 +902,7 @@ class SemesterBackupService
         $path = Storage::disk('local')->path($relative);
         DB::table('semester_backups')->insert(['id' => $id, 'year' => $manifest['scope']['year'], 'semester' => $manifest['scope']['semester'], 'status' => $status,
             'created_by' => $user->id, 'storage_path' => $relative, 'sha256' => hash_file('sha256', $path), 'fingerprint' => $manifest['fingerprint'],
-            'counts' => $this->json($manifest['counts']), 'size_bytes' => filesize($path), 'created_at' => now(), 'updated_at' => now()]);
+            'counts' => $this->json([...$manifest['counts'], 'missing_files' => count($manifest['missing_files'] ?? []), 'asset_files' => count($manifest['files'])]), 'size_bytes' => filesize($path), 'created_at' => now(), 'updated_at' => now()]);
     }
 
     private function resource(object $backup): array
@@ -721,7 +911,8 @@ class SemesterBackupService
             'counts' => json_decode($backup->counts, true), 'size_bytes' => (int) $backup->size_bytes, 'created_at' => $backup->created_at,
             'archived_at' => $backup->archived_at, 'restored_at' => $backup->restored_at, 'downloaded_at' => $backup->downloaded_at,
             'download_url' => route('semester-backups.download', $backup->id, false),
-            'archive_confirmation' => 'ARCHIVE '.$backup->semester.'/'.$backup->year, 'restore_confirmation' => 'RESTORE '.$backup->semester.'/'.$backup->year];
+            'archive_confirmation' => 'ARCHIVE '.$backup->semester.'/'.$backup->year, 'restore_confirmation' => 'RESTORE '.$backup->semester.'/'.$backup->year,
+            'release_confirmation' => 'RELEASE '.$backup->semester.'/'.$backup->year, 'offload_confirmation' => 'OFFLOAD '.$backup->semester.'/'.$backup->year];
     }
 
     private function json(array $value): string

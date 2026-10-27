@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Services\AcademicTermService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -40,7 +41,7 @@ class StoreTeachingDraftRequest extends FormRequest
             $prefix.'scope.week' => ['nullable', 'integer', 'between:1,20'],
             $prefix.'scope.date' => ['nullable', 'date_format:Y-m-d'],
             $prefix.'scope.semester' => ['nullable', Rule::in(['1', '2', '3'])],
-            $prefix.'scope.year' => ['nullable', 'string', 'regex:/^25[0-9]{2}$/'],
+            $prefix.'scope.year' => ['string', ...AcademicTermService::yearRules(false)],
             $prefix.'active_level_code' => ['nullable', Rule::in(['1', '2', '3'])],
             $prefix.'enabled_level_codes' => ['sometimes', 'required', 'array', 'min:1', 'max:3'],
             $prefix.'enabled_level_codes.*' => ['required', 'distinct', Rule::in(['1', '2', '3'])],

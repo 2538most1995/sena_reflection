@@ -370,16 +370,22 @@ function normalizeRecordPayload(array $data) {
     $total = normalizeInputInt($data['total'] ?? 0, 0, 10000);
     $present = normalizeInputInt($data['present'] ?? 0, 0, $total);
     $defaultThaiAcademicYear = (int) date('Y') + 543;
-    $academicYear = normalizeInputString($data['year'] ?? (string) $defaultThaiAcademicYear, 4);
-    if (!preg_match('/^\d{4}$/', $academicYear) || (int) $academicYear < 2500 || (int) $academicYear > 2800) {
-        jsonResponse('error', 'ปีการศึกษาต้องเป็นปี พ.ศ. ที่ถูกต้อง');
+    $yearInput = $data['year'] ?? (string) $defaultThaiAcademicYear;
+    $academicYear = is_scalar($yearInput) ? trim((string) $yearInput) : '';
+    if (!preg_match('/^25[0-9]{2}$/D', $academicYear)) {
+        jsonResponse('error', 'ปีการศึกษาต้องเป็นปี พ.ศ. 4 หลัก เช่น 2569 โดยไม่ใส่ภาคเรียนในช่องปี');
+    }
+    $semesterInput = $data['semester'] ?? '1';
+    $semester = is_scalar($semesterInput) ? trim((string) $semesterInput) : '';
+    if (!in_array($semester, ['1', '2', '3'], true)) {
+        jsonResponse('error', 'กรุณาเลือกภาคเรียน 1, 2 หรือ 3');
     }
 
     return [
         'week' => $week,
         'date' => $date,
         'level' => normalizeInputString($data['level'] ?? '', 50),
-        'semester' => normalizeInputString($data['semester'] ?? '1', 10),
+        'semester' => $semester,
         'year' => $academicYear,
         'subject' => $subject,
         'subject_code' => normalizeInputString($data['subject_code'] ?? '', 50),

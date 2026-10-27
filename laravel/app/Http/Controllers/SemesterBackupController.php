@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\SemesterBackupService;
+use App\Services\SemesterTermRepairService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -23,9 +24,41 @@ class SemesterBackupController extends Controller
     public function store(Request $request, SemesterBackupService $backups): JsonResponse
     {
         $this->district($request);
-        $data = $request->validate(['year' => ['required', 'string', 'regex:/^[0-9]{4}$/D'], 'semester' => ['required', 'string', 'in:1,2']]);
+        $data = $request->validate([...$this->scopeRules(), 'allow_missing' => ['sometimes', 'boolean'],
+            'preflight_fingerprint' => ['nullable', 'required_if:allow_missing,true,1', 'string', 'regex:/^[a-f0-9]{64}$/D']]);
 
-        return response()->json(['backup' => $backups->create($request->user(), $data['year'], $data['semester'])], 201);
+        return response()->json(['backup' => $backups->create($request->user(), $data['year'], $data['semester'], $request->boolean('allow_missing'), $data['preflight_fingerprint'] ?? null)], 201);
+    }
+
+    public function preflight(Request $request, SemesterBackupService $backups): JsonResponse
+    {
+        $this->district($request);
+        $data = $request->validate($this->scopeRules());
+
+        return response()->json($backups->preflight($data['year'], $data['semester']));
+    }
+
+    public function repairPreview(Request $request, SemesterTermRepairService $repairs, SemesterBackupService $backups): JsonResponse
+    {
+        $this->district($request);
+        $data = $request->validate($this->repairRules());
+        $preview = $repairs->preview($request->user(), $data['source_year'], $data['source_semester'], $data['target_year'], $data['target_semester']);
+        $preview['preflight'] = $backups->preflight($data['source_year'], $data['source_semester']);
+
+        return response()->json($preview);
+    }
+
+    public function repair(Request $request, SemesterTermRepairService $repairs, SemesterBackupService $backups): JsonResponse
+    {
+        $this->district($request);
+        $data = $request->validate([...$this->repairRules(), 'fingerprint' => ['required', 'string', 'regex:/^[a-f0-9]{64}$/D'],
+            'backup_fingerprint' => ['required', 'string', 'regex:/^[a-f0-9]{64}$/D'], 'allow_missing' => ['sometimes', 'boolean'], 'confirmation' => ['required', 'string']]);
+        $expected = 'MOVE '.$data['source_semester'].'/'.$data['source_year'].' -> '.$data['target_semester'].'/'.$data['target_year'];
+        abort_unless(hash_equals($expected, $data['confirmation']), 422, 'กรุณาพิมพ์ข้อความยืนยันการย้ายภาคเรียนให้ตรง');
+        $result = $repairs->repair($request->user(), $data['source_year'], $data['source_semester'], $data['target_year'], $data['target_semester'], $data['fingerprint'],
+            fn (): array => $backups->create($request->user(), $data['source_year'], $data['source_semester'], $request->boolean('allow_missing'), $data['backup_fingerprint']));
+
+        return response()->json($result);
     }
 
     public function show(Request $request, string $backup, SemesterBackupService $backups): JsonResponse
@@ -40,7 +73,9 @@ class SemesterBackupController extends Controller
         $this->district($request);
         $entry = $backups->find($backup);
 
-        return response()->download($backups->downloadPath($backup), 'sena-semester-'.$entry->semester.'-'.$entry->year.'-'.$backup.'.zip', [
+        $label = preg_replace('~[^0-9-]~', '-', $entry->semester.'-'.$entry->year);
+
+        return response()->download($backups->downloadPath($backup), 'sena-semester-'.$label.'-'.$backup.'.zip', [
             'Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff',
         ]);
     }
@@ -60,9 +95,30 @@ class SemesterBackupController extends Controller
     public function archive(Request $request, string $backup, SemesterBackupService $backups): JsonResponse
     {
         $this->district($request);
-        $this->confirmation($request, $backups->find($backup), 'ARCHIVE');
+        $entry = $backups->find($backup);
+        $this->confirmation($request, $entry, 'ARCHIVE');
+        $request->validate(['external_copy' => ['required', 'accepted'],
+            'accept_missing_files' => (json_decode($entry->counts, true)['missing_files'] ?? 0) > 0 ? ['required', 'accepted'] : ['sometimes', 'boolean']]);
 
         return response()->json(['backup' => $backups->archive($backup)]);
+    }
+
+    public function release(Request $request, string $backup, SemesterBackupService $backups): JsonResponse
+    {
+        $this->district($request);
+        $this->confirmation($request, $backups->find($backup), 'RELEASE');
+        $request->validate(['external_copy' => ['required', 'accepted']]);
+
+        return response()->json(['storage' => $backups->releaseFiles($backup)]);
+    }
+
+    public function offload(Request $request, string $backup, SemesterBackupService $backups): JsonResponse
+    {
+        $this->district($request);
+        $this->confirmation($request, $backups->find($backup), 'OFFLOAD');
+        $request->validate(['external_copy' => ['required', 'accepted']]);
+
+        return response()->json(['backup' => $backups->offload($backup)]);
     }
 
     public function restore(Request $request, string $backup, SemesterBackupService $backups): JsonResponse
@@ -87,5 +143,17 @@ class SemesterBackupController extends Controller
     private function district(Request $request): void
     {
         abort_unless($request->user()?->isDistrict(), 403);
+    }
+
+    private function scopeRules(): array
+    {
+        // Raw existing legacy periods may be backed up/repaired; new records use stricter canonical rules.
+        return ['year' => ['required', 'string', 'regex:~^[0-9/]{1,10}$~D'], 'semester' => ['required', 'string', 'regex:~^[0-9/]{1,10}$~D']];
+    }
+
+    private function repairRules(): array
+    {
+        return ['source_year' => $this->scopeRules()['year'], 'source_semester' => $this->scopeRules()['semester'],
+            'target_year' => ['required', 'string', 'regex:/^25[0-9]{2}$/D'], 'target_semester' => ['required', 'string', 'in:1,2']];
     }
 }

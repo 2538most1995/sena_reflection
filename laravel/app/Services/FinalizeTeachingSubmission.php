@@ -58,6 +58,8 @@ class FinalizeTeachingSubmission
                 $scope = $payload['scope'] ?? [];
                 Validator::make(['payload' => ['scope' => $scope]], [
                     'payload.scope.week' => ['required', 'integer', 'between:1,20'],
+                    'payload.scope.year' => AcademicTermService::yearRules(),
+                    'payload.scope.semester' => ['required', 'in:1,2,3'],
                 ])->validate();
                 $entries = $this->validatedEntries($lockedDraft->load('images'), $payload, $confirmed);
                 $tambon = $user->isDistrict() ? (string) ($scope['tambon'] ?? '') : (string) $user->tambon;

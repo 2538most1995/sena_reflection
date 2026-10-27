@@ -9,6 +9,7 @@ use App\Models\RecordRevision;
 use App\Models\Tambon;
 use App\Models\TeachingRecord;
 use App\Models\WeeklySubmission;
+use App\Services\AcademicTermService;
 use App\Services\EducationLevelService;
 use App\Services\LegacyPrintService;
 use App\Services\RecordImageAssets;
@@ -137,7 +138,7 @@ class RecordController extends Controller
         $this->authorizeScope($request, $record);
         $data = $request->validate([
             'week' => ['required', 'integer', 'between:1,20'], 'date' => ['required', 'date'],
-            'year' => ['required', 'digits:4', 'integer', 'between:2500,2800'], 'semester' => ['required', 'in:1,2,3'],
+            'year' => AcademicTermService::yearRules(), 'semester' => ['required', 'in:1,2,3'],
             'level' => ['required', Rule::in(self::LEVELS)], 'subject' => ['required', 'string', 'max:150'],
             'total' => ['required', 'integer', 'min:0', 'max:10000'], 'present' => ['required', 'integer', 'min:0', 'lte:total'],
             'subject_code' => ['nullable', 'string', 'max:50'], 'class_group_code' => ['nullable', 'string', 'max:50'],
