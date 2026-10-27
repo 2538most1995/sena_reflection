@@ -52,7 +52,7 @@ class FinalizeTeachingSubmission
                     throw new DraftVersionConflictException($lockedDraft->load('images'));
                 }
                 if ($lockedDraft->status !== 'active') {
-                    throw ValidationException::withMessages(['draft' => 'ร่างนี้ยืนยันแล้ว']);
+                    throw ValidationException::withMessages(['draft' => $lockedDraft->status === 'paused' ? 'ร่างนี้พักไว้ กรุณานำกลับจากหน้าจัดการร่างก่อนยืนยัน' : 'ร่างนี้ยืนยันแล้ว']);
                 }
                 $payload = $lockedDraft->payload;
                 $scope = $payload['scope'] ?? [];

@@ -19,6 +19,7 @@ Route::middleware('auth')->prefix('admin/semester-backups')->name('semester-back
     Route::get('/{backup}', [SemesterBackupController::class, 'show'])->whereUuid('backup')->name('show');
     Route::get('/{backup}/download', [SemesterBackupController::class, 'download'])->whereUuid('backup')->name('download');
     Route::post('/{backup}/archive', [SemesterBackupController::class, 'archive'])->whereUuid('backup')->name('archive');
+    Route::post('/{backup}/closeout', [SemesterBackupController::class, 'closeout'])->whereUuid('backup')->name('closeout');
     Route::post('/{backup}/restore', [SemesterBackupController::class, 'restore'])->whereUuid('backup')->name('restore');
     Route::post('/{backup}/release', [SemesterBackupController::class, 'release'])->whereUuid('backup')->name('release');
     Route::post('/{backup}/offload', [SemesterBackupController::class, 'offload'])->whereUuid('backup')->name('offload');

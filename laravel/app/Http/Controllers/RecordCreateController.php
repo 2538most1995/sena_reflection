@@ -10,6 +10,7 @@ use App\Services\EducationLevelService;
 use App\Services\StudentApiService;
 use Closure;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -19,11 +20,15 @@ use Inertia\Response;
 
 class RecordCreateController extends Controller
 {
-    public function create(Request $request, StudentDirectoryController $students, EducationLevelService $levels, DraftService $drafts): Response
+    public function create(Request $request, StudentDirectoryController $students, EducationLevelService $levels, DraftService $drafts): Response|RedirectResponse
     {
         $draft = null;
         if ($request->filled('draft')) {
-            $draft = $drafts->resource($drafts->owned($request->user(), (string) $request->query('draft'))->load('images'));
+            $owned = $drafts->owned($request->user(), (string) $request->query('draft'));
+            if ($owned->status === 'paused') {
+                return redirect()->route('teaching-drafts.manage')->with('error', 'ร่างนี้พักไว้ กรุณานำร่างกลับมาแก้ไขจากหน้าจัดการร่าง');
+            }
+            $draft = $drafts->resource($owned->load('images'));
         }
 
         $optionsRequest = $draft ? $request->duplicate([...$request->query(), ...$draft['scope']]) : $request;

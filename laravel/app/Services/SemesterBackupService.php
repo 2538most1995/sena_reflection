@@ -184,21 +184,34 @@ class SemesterBackupService
     {
         $backup = $this->find($id);
         $bundle = $this->verified($backup);
-        $blockers = $this->archiveBlockers($backup, $bundle['tables'], $bundle['manifest']['files'], null, $bundle['manifest']['missing_files'] ?? []);
+        $closeoutBlockers = $this->archiveBlockers($backup, $bundle['tables'], $bundle['manifest']['files'], null, $bundle['manifest']['missing_files'] ?? [], true);
+        $draftReview = $this->draftReview($backup, $bundle['tables']);
+        $blockers = $closeoutBlockers;
+        if ($draftReview['count'] > 0) {
+            $blockers[] = 'ยังมีฉบับร่างที่กำลังใช้งาน ให้เจ้าของพักร่าง หรือเลือกพักร่างพร้อมล้างภาคเรียนโดยเก็บงานส่วนตัวไว้';
+        }
         $conflicts = $this->restoreConflicts($bundle['tables'], $bundle['manifest']);
 
         $storage = $backup->status === 'archived'
             ? app(SemesterBackupStorageService::class)->inspect($this->storageFiles($bundle), fn (string $disk, string $path): string => $this->physicalPath($disk, $path))
             : null;
 
+        $alreadyArchived = $backup->status === 'archived' && ! DB::table('records')->whereIn('id', array_column($bundle['tables']['records'], 'id'))->exists();
+
         return ['backup' => $this->resource($backup), 'can_archive' => $blockers === [], 'can_restore' => $conflicts === [], 'blockers' => $blockers, 'conflicts' => $conflicts,
+            'can_closeout' => $alreadyArchived || $closeoutBlockers === [], 'closeout_blockers' => $alreadyArchived ? [] : $closeoutBlockers, 'draft_review' => $draftReview,
             'missing_files' => $bundle['manifest']['missing_files'] ?? [], 'storage' => $storage];
     }
 
     /** Releasing originals is a separate, explicit step after a verified downloaded archive. */
     public function releaseFiles(string $id): array
     {
-        return $this->withStorageLock(fn (): array => DB::transaction(function () use ($id): array {
+        return $this->withStorageLock(fn (): array => $this->releaseFilesLocked($id));
+    }
+
+    private function releaseFilesLocked(string $id): array
+    {
+        return DB::transaction(function () use ($id): array {
             $backup = $this->find($id, true);
             if ($backup->status !== 'archived' || $backup->downloaded_at === null) {
                 $this->fail('ต้องดาวน์โหลด ZIP และเก็บภาคเรียนออกจากระบบก่อนคืนพื้นที่รูปต้นฉบับ');
@@ -209,7 +222,39 @@ class SemesterBackupService
             }
 
             return app(SemesterBackupStorageService::class)->release($this->storageFiles($bundle), fn (string $disk, string $path): string => $this->physicalPath($disk, $path));
-        }, 3));
+        }, 3);
+    }
+
+    /** Explicitly close an already downloaded backup; retain paused private work and the server ZIP. */
+    public function closeout(string $id, ?string $pauseDraftFingerprint = null): array
+    {
+        return $this->withStorageLock(function () use ($id, $pauseDraftFingerprint): array {
+            $paused = 0;
+            $entry = $this->find($id);
+            if ($entry->downloaded_at === null) {
+                $this->fail('กรุณาดาวน์โหลด ZIP ให้เสร็จและเก็บไว้นอกเซิร์ฟเวอร์ก่อนล้างข้อมูล');
+            }
+            if ($entry->status !== 'archived') {
+                $paused = $this->archiveRecords($id, $pauseDraftFingerprint);
+            } else {
+                $bundle = $this->verified($entry);
+                if (DB::table('records')->whereIn('id', array_column($bundle['tables']['records'], 'id'))->exists()) {
+                    $this->fail('มีข้อมูลในชุดนี้ถูกนำกลับแล้ว กรุณาสำรองฉบับล่าสุดก่อนล้างข้อมูล');
+                }
+            }
+            $backup = $this->resource($this->find($id));
+            try {
+                $storage = $this->releaseFilesLocked($id);
+
+                return ['backup' => $backup, 'paused_drafts' => $paused, 'storage' => $storage, 'cleanup_error' => null];
+            } catch (Throwable $exception) {
+                report($exception);
+
+                // Records remain recoverable from the ZIP. Retrying closeout only retries safe file cleanup.
+                return ['backup' => $backup, 'paused_drafts' => $paused, 'storage' => null,
+                    'cleanup_error' => 'นำบันทึกออกจากระบบแล้ว แต่คืนพื้นที่รูปยังไม่สำเร็จ กรุณากดตรวจและคืนพื้นที่รูปเพื่อตรวจสาเหตุและลองใหม่ ZIP และร่างที่พักไว้ยังอยู่ครบ'];
+            }
+        });
     }
 
     /** Keep the catalog as an offline reminder; importing the downloaded ZIP restores access. */
@@ -237,12 +282,30 @@ class SemesterBackupService
 
     public function archive(string $id): array
     {
-        DB::transaction(function () use ($id): void {
+        $this->archiveRecords($id);
+
+        return $this->resource($this->find($id));
+    }
+
+    private function archiveRecords(string $id, ?string $pauseDraftFingerprint = null): int
+    {
+        return DB::transaction(function () use ($id, $pauseDraftFingerprint): int {
             $backup = $this->find($id, true);
             $bundle = $this->verified($backup);
             $tables = $bundle['tables'];
             $current = $this->capture($backup->year, $backup->semester, true);
-            $this->activeDrafts($backup->year, $backup->semester, array_column($tables['records'], 'id'))->lockForUpdate()->get(['id']);
+            $drafts = $this->activeDrafts($backup->year, $backup->semester, array_column($tables['records'], 'id'))->orderBy('id')->lockForUpdate()->get();
+            $paused = 0;
+            if ($pauseDraftFingerprint !== null) {
+                if (! hash_equals($this->draftFingerprint($drafts->all()), $pauseDraftFingerprint)) {
+                    $this->fail('ร่างเปลี่ยนหลังตรวจรายการ กรุณาตรวจและยืนยันพักร่างอีกครั้ง');
+                }
+                $paused = $drafts->count();
+                foreach ($drafts as $draft) {
+                    DB::table('teaching_drafts')->where('id', $draft->id)->where('status', 'active')->where('lock_version', $draft->lock_version)
+                        ->update(['status' => 'paused', 'lock_version' => DB::raw('lock_version + 1'), 'updated_at' => now()]);
+                }
+            }
             $blockers = $this->archiveBlockers($backup, $tables, $bundle['manifest']['files'], $current, $bundle['manifest']['missing_files'] ?? []);
             if ($blockers !== []) {
                 $this->fail(implode(' ', $blockers));
@@ -261,9 +324,9 @@ class SemesterBackupService
                 }
             }
             DB::table('semester_backups')->where('id', $id)->update(['status' => 'archived', 'archived_at' => now(), 'updated_at' => now()]);
-        }, 3);
 
-        return $this->resource($this->find($id));
+            return $paused;
+        }, 3);
     }
 
     public function restore(string $id): array
@@ -735,7 +798,7 @@ class SemesterBackupService
         return $this->read($path);
     }
 
-    private function archiveBlockers(object $backup, array $tables, array $files, ?array $current = null, array $missing = []): array
+    private function archiveBlockers(object $backup, array $tables, array $files, ?array $current = null, array $missing = [], bool $ignoreDrafts = false): array
     {
         $blockers = [];
         if ($backup->downloaded_at === null) {
@@ -752,7 +815,7 @@ class SemesterBackupService
             $blockers[] = 'สถานะไฟล์ที่เคยสูญหายเปลี่ยนหลังสำรอง กรุณาสำรองใหม่';
         }
         $ids = array_column($tables['records'], 'id');
-        if ($this->activeDrafts($backup->year, $backup->semester, $ids)->exists()) {
+        if (! $ignoreDrafts && $this->activeDrafts($backup->year, $backup->semester, $ids)->exists()) {
             $blockers[] = 'ยังมีฉบับร่างที่กำลังใช้งานในภาคเรียนนี้หรือผูกกับบันทึกนี้ ให้เจ้าของบันทึกให้เสร็จก่อน';
         }
         $activeExports = DB::table('export_jobs')->where(function (Builder $query): void {
@@ -826,6 +889,19 @@ class SemesterBackupService
         return DB::table('teaching_drafts')->where('status', 'active')->where(function (Builder $query) use ($year, $semester, $ids): void {
             $query->where(fn (Builder $scope): Builder => $scope->where('year', $year)->where('semester', $semester))->orWhereIn('source_record_id', $ids);
         });
+    }
+
+    private function draftReview(object $backup, array $tables): array
+    {
+        $drafts = $this->activeDrafts($backup->year, $backup->semester, array_column($tables['records'], 'id'))->orderBy('id')->get();
+
+        return ['count' => $drafts->count(), 'fingerprint' => $this->draftFingerprint($drafts->all())];
+    }
+
+    /** Return only a digest to district; private content never leaves the service. */
+    private function draftFingerprint(array $drafts): string
+    {
+        return hash('sha256', $this->json($drafts));
     }
 
     /** Only allow image locations already used by the application, never arbitrary paths. */
@@ -912,7 +988,8 @@ class SemesterBackupService
             'archived_at' => $backup->archived_at, 'restored_at' => $backup->restored_at, 'downloaded_at' => $backup->downloaded_at,
             'download_url' => route('semester-backups.download', $backup->id, false),
             'archive_confirmation' => 'ARCHIVE '.$backup->semester.'/'.$backup->year, 'restore_confirmation' => 'RESTORE '.$backup->semester.'/'.$backup->year,
-            'release_confirmation' => 'RELEASE '.$backup->semester.'/'.$backup->year, 'offload_confirmation' => 'OFFLOAD '.$backup->semester.'/'.$backup->year];
+            'release_confirmation' => 'RELEASE '.$backup->semester.'/'.$backup->year, 'offload_confirmation' => 'OFFLOAD '.$backup->semester.'/'.$backup->year,
+            'closeout_confirmation' => 'CLOSE '.$backup->semester.'/'.$backup->year];
     }
 
     private function json(array $value): string

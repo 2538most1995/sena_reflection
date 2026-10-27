@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DraftImageController;
+use App\Http\Controllers\DraftLifecycleController;
 use App\Http\Controllers\RecordCreateController;
 use App\Http\Controllers\TeachingDraftController;
 use Illuminate\Support\Facades\Route;
@@ -10,6 +11,9 @@ Route::middleware('auth')->group(function (): void {
 
     Route::get('/teaching-drafts', [TeachingDraftController::class, 'index'])->name('teaching-drafts.index');
     Route::post('/teaching-drafts', [TeachingDraftController::class, 'store'])->name('teaching-drafts.store');
+    Route::get('/teaching-drafts/manage', [DraftLifecycleController::class, 'index'])->name('teaching-drafts.manage');
+    Route::post('/teaching-drafts/{teachingDraft}/pause', [DraftLifecycleController::class, 'pause'])->name('teaching-drafts.pause');
+    Route::post('/teaching-drafts/{teachingDraft}/resume', [DraftLifecycleController::class, 'resume'])->name('teaching-drafts.resume');
     Route::get('/teaching-drafts/{teachingDraft}', [TeachingDraftController::class, 'show'])->name('teaching-drafts.show');
     Route::patch('/teaching-drafts/{teachingDraft}', [TeachingDraftController::class, 'update'])->name('teaching-drafts.update');
     Route::post('/teaching-drafts/{teachingDraft}/preview', [TeachingDraftController::class, 'preview'])->middleware('throttle:document-previews')->name('teaching-drafts.preview');

@@ -21,15 +21,15 @@ type Semester = { year: string; semester: string; records: number; attendance: n
 type Backup = {
   id: string; year: string; semester: string; status: 'ready' | 'archived' | 'restored' | 'imported' | 'offline'; counts: Counts; size_bytes: number
   created_at: string; archived_at: string | null; restored_at: string | null; downloaded_at: string | null
-  download_url: string; archive_confirmation: string; restore_confirmation: string; release_confirmation: string; offload_confirmation: string
+  download_url: string; archive_confirmation: string; restore_confirmation: string; release_confirmation: string; offload_confirmation: string; closeout_confirmation: string
 }
 type Props = { semesters: Semester[]; backups: Backup[]; limits: { max_upload_mb: number; max_archive_mb?: number }; backupPagination?: { page: number; last_page: number; total: number; per_page: number } }
 type StorageInspection = { releasable_count: number; releasable_bytes: number; shared_count: number; changed_count: number; missing_count: number; deleted_count?: number; deleted_bytes?: number; failed_count?: number }
 type PendingUpload = { id: string; name: string; uploaded_parts: number; parts: number; total_bytes: number }
-type Inspection = { backup: Backup; can_archive: boolean; can_restore: boolean; blockers: string[]; conflicts: string[]; missing_files: { disk: string; path: string }[]; storage: StorageInspection | null }
-type Review = { backup: Backup; mode: 'archive' | 'restore' | 'release' | 'offload' }
+type Inspection = { backup: Backup; can_archive: boolean; can_restore: boolean; can_closeout: boolean; closeout_blockers: string[]; draft_review: { count: number; fingerprint: string }; blockers: string[]; conflicts: string[]; missing_files: { disk: string; path: string }[]; storage: StorageInspection | null }
+type Review = { backup: Backup; mode: 'archive' | 'restore' | 'release' | 'offload' | 'closeout' }
 const base = '/admin/semester-backups'
-const statuses = { ready: 'สำรองพร้อมใช้', archived: 'เก็บออกจากข้อมูลปัจจุบันแล้ว', restored: 'นำข้อมูลกลับแล้ว', imported: 'ตรวจไฟล์นำเข้าแล้ว', offline: 'เก็บ ZIP ไว้นอกเซิร์ฟเวอร์' }
+const statuses = { ready: 'สำรองแล้ว · ข้อมูลเดิมยังอยู่', archived: 'ล้างบันทึกออกจากระบบแล้ว', restored: 'นำข้อมูลกลับแล้ว', imported: 'ตรวจไฟล์นำเข้าแล้ว', offline: 'เก็บ ZIP ไว้นอกเซิร์ฟเวอร์' }
 const count = (value: number) => value.toLocaleString('th-TH')
 const term = (value: { semester: string; year: string }) => `${value.semester}/${value.year}`
 const size = (value: number) => `${(value / (value < 1024 * 1024 ? 1024 : 1024 * 1024)).toLocaleString('th-TH', { maximumFractionDigits: 1 })} ${value < 1024 * 1024 ? 'KB' : 'MB'}`
@@ -56,6 +56,7 @@ export default function SemesterBackups(initial: Props) {
   const [confirmation, setConfirmation] = useState('')
   const [copied, setCopied] = useState(false)
   const [acceptMissing, setAcceptMissing] = useState(false)
+  const [pauseDrafts, setPauseDrafts] = useState(false)
   const [preflight, setPreflight] = useState<BackupPreflight | null>(null)
   const [preflightError, setPreflightError] = useState<string | null>(null)
   const [allowMissing, setAllowMissing] = useState(false)
@@ -67,6 +68,7 @@ export default function SemesterBackups(initial: Props) {
   useEffect(() => () => uploadController.current?.abort(), [])
   useEffect(() => { const controller = new AbortController(); request<{ uploads: PendingUpload[] }>(`${base}/uploads`, { signal: controller.signal }).then(result => { if (!controller.signal.aborted) setPendingUploads(result.uploads) }).catch(() => {}); return () => controller.abort() }, [])
   const selected = data.semesters.find(item => item.year === scope.year && item.semester === scope.semester)
+  const closeoutCandidate = data.backups.find(item => item.year === scope.year && item.semester === scope.semester && ['ready', 'imported', 'restored'].includes(item.status))
   useEffect(() => {
     const controller = new AbortController()
     setPreflight(null); setPreflightError(null); setAllowMissing(false)
@@ -86,23 +88,24 @@ export default function SemesterBackups(initial: Props) {
   }
 
   useEffect(() => {
-    setInspection(null); setInspectionError(null); setConfirmation(''); setCopied(false); setAcceptMissing(false)
+    setInspection(null); setInspectionError(null); setConfirmation(''); setCopied(false); setAcceptMissing(false); setPauseDrafts(false)
     if (!review) return
     const controller = new AbortController()
-    request<Inspection>(`${base}/${review.backup.id}`, { signal: controller.signal }).then(setInspection).catch(reason => {
+    request<Inspection>(`${base}/${review.backup.id}`, { signal: controller.signal }).then(result => { if (!controller.signal.aborted) setInspection(result) }).catch(reason => {
       if (!controller.signal.aborted) setInspectionError(reason instanceof Error ? reason.message : 'ตรวจชุดสำรองไม่สำเร็จ')
     })
     return () => controller.abort()
   }, [review])
 
-  const perform = async (title: string, operation: () => Promise<unknown>, success: string, description: string | (() => string)) => {
+  const perform = async (title: string, operation: () => Promise<unknown>, success: string | (() => string), description: string | (() => string)) => {
     if (busyRef.current) return
     busyRef.current = true; setBusy(true); setError(null)
     const alert = actionAlert.loading(title, 'กรุณารอให้ระบบตรวจข้อมูลและไฟล์ครบก่อนปิดหน้านี้')
     try {
       await operation()
       await reload()
-      actionAlert.success(success, typeof description === 'function' ? description() : description, alert)
+      const message = typeof description === 'function' ? description() : description
+      actionAlert.success(typeof success === 'function' ? success() : success, message, alert)
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'ดำเนินการไม่สำเร็จ'
       setError(message); actionAlert.error('ดำเนินการไม่สำเร็จ', message, alert)
@@ -113,7 +116,7 @@ export default function SemesterBackups(initial: Props) {
 
   const create = (event: FormEvent) => {
     event.preventDefault()
-    void perform('กำลังสร้างชุดสำรอง', () => request(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...scope, allow_missing: allowMissing, preflight_fingerprint: preflight?.fingerprint }) }), 'สำรองข้อมูลแล้ว', 'ดาวน์โหลด ZIP เก็บไว้ในที่ปลอดภัย ก่อนเก็บภาคเรียนออกจากข้อมูลปัจจุบัน')
+    void perform('กำลังสร้างชุดสำรอง', () => request(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...scope, allow_missing: allowMissing, preflight_fingerprint: preflight?.fingerprint }) }), 'สร้าง ZIP แล้ว · ข้อมูลเดิมยังอยู่', 'ขั้นต่อไป: ดาวน์โหลด ZIP ให้เสร็จ แล้วกด ล้างข้อมูลที่สำรองแล้ว เพื่อเอาบันทึกออกจากระบบและคืนพื้นที่รูป')
   }
   const upload = (file?: File) => {
     if (!file || busyRef.current) return
@@ -125,31 +128,35 @@ export default function SemesterBackups(initial: Props) {
       finally { setUploadProgress(null); uploadController.current = null }
     }, 'ตรวจไฟล์นำเข้าแล้ว', 'ข้อมูลยังไม่ถูกนำกลับ กดตรวจและนำกลับเพื่อตรวจรายการก่อนยืนยัน')
   }
-  const titles = { archive: 'เก็บภาคเรียนออกจากข้อมูลปัจจุบัน', restore: 'นำข้อมูลกลับ', release: 'คืนพื้นที่รูปต้นฉบับ', offload: 'ลบ ZIP บนเซิร์ฟเวอร์' }
+  const titles = { archive: 'ล้างเฉพาะบันทึก', restore: 'นำข้อมูลกลับ', release: 'คืนพื้นที่รูปต้นฉบับ', offload: 'ลบ ZIP บนเซิร์ฟเวอร์', closeout: 'ล้างข้อมูลที่สำรองแล้ว' }
   const confirm = () => {
     if (!review || !inspection || busyRef.current) return
     const { backup, mode } = review
     setReview(null)
     let released: StorageInspection | null = null
+    let cleanupError: string | null = null
+    let paused = 0
     void perform(`กำลัง${titles[mode]}`, async () => {
-      const result = await request<{ storage?: StorageInspection }>(`${base}/${backup.id}/${mode}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation, external_copy: copied, accept_missing_files: acceptMissing }) })
+      const result = await request<{ storage?: StorageInspection; cleanup_error?: string | null; paused_drafts?: number }>(`${base}/${backup.id}/${mode}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation, external_copy: copied, accept_missing_files: acceptMissing, pause_active_drafts: mode === 'closeout' && pauseDrafts, draft_fingerprint: mode === 'closeout' && pauseDrafts ? inspection.draft_review.fingerprint : null }) })
       released = result.storage || null
-    }, `${titles[mode]}แล้ว`, () => mode === 'release' && released ? `ลบ ${released.deleted_count || 0} ไฟล์ คืนพื้นที่ ${size(released.deleted_bytes || 0)} คงไฟล์ที่ใช้ร่วมกันหรือเปลี่ยนหลังสำรองไว้ ลบไม่สำเร็จ ${released.failed_count || 0} ไฟล์ สามารถตรวจและลองใหม่ได้` : mode === 'offload' ? 'นำกลับได้โดยอัปโหลด ZIP ที่ดาวน์โหลดเก็บไว้ พร้อมใช้ APP_KEY เดิมของระบบ' : mode === 'restore' ? 'เปิดภาพรวมแล้วเลือกภาคเรียนเดิม เพื่อดู แก้ไข และพิมพ์เอกสารได้' : 'ข้อมูลอยู่ในชุดสำรองแล้ว กดคืนพื้นที่รูปต้นฉบับเพื่อลบเฉพาะไฟล์ที่ไม่มีงานอื่นใช้')
+      cleanupError = result.cleanup_error || null; paused = result.paused_drafts || 0
+    }, () => cleanupError ? 'ล้างบันทึกแล้ว · คืนพื้นที่รูปยังไม่ครบ' : mode === 'closeout' ? 'ล้างข้อมูลภาคเรียนแล้ว' : `${titles[mode]}แล้ว`, () => cleanupError || (mode === 'closeout' ? `นำ ${count(backup.counts.records)} บันทึกออกจากระบบแล้ว พักร่าง ${paused} ร่างโดยเก็บงานส่วนตัวไว้ครบ ` : '') + ((mode === 'release' || mode === 'closeout') && released ? `ลบ ${released.deleted_count || 0} ไฟล์ คืนพื้นที่ ${size(released.deleted_bytes || 0)} คงไฟล์ที่ใช้ร่วมกันหรือเปลี่ยนหลังสำรองไว้ ลบไม่สำเร็จ ${released.failed_count || 0} ไฟล์ สามารถตรวจและลองใหม่ได้` : mode === 'offload' ? 'นำกลับได้โดยอัปโหลด ZIP ที่ดาวน์โหลดเก็บไว้ พร้อมใช้ APP_KEY เดิมของระบบ' : mode === 'restore' ? 'เปิดภาพรวมแล้วเลือกภาคเรียนเดิม เพื่อดู แก้ไข และพิมพ์เอกสารได้' : 'ข้อมูลอยู่ในชุดสำรองแล้ว กดคืนพื้นที่รูปต้นฉบับเพื่อลบเฉพาะไฟล์ที่ไม่มีงานอื่นใช้'))
   }
-  const expected = review ? ({ archive: review.backup.archive_confirmation, restore: review.backup.restore_confirmation, release: review.backup.release_confirmation, offload: review.backup.offload_confirmation })[review.mode] : ''
-  const canConfirm = Boolean(inspection && review && confirmation === expected && (review.mode === 'archive' ? inspection.can_archive && copied && (!inspection.missing_files.length || acceptMissing) : review.mode === 'restore' ? inspection.can_restore : review.mode === 'release' ? copied && (inspection.storage?.releasable_count || 0) > 0 : copied && Boolean(inspection.backup.downloaded_at)))
+  const expected = review ? ({ archive: review.backup.archive_confirmation, restore: review.backup.restore_confirmation, release: review.backup.release_confirmation, offload: review.backup.offload_confirmation, closeout: review.backup.closeout_confirmation })[review.mode] : ''
+  const canConfirm = Boolean(inspection && review && confirmation === expected && (review.mode === 'closeout' ? inspection.can_closeout && copied && (!inspection.missing_files.length || acceptMissing) && (!inspection.draft_review.count || pauseDrafts || review.backup.status === 'archived') : review.mode === 'archive' ? inspection.can_archive && copied && (!inspection.missing_files.length || acceptMissing) : review.mode === 'restore' ? inspection.can_restore : review.mode === 'release' ? copied && (inspection.storage?.releasable_count || 0) > 0 : copied && Boolean(inspection.backup.downloaded_at)))
 
   return <AppShell>
     <Head title="สำรองข้อมูลภาคเรียน" />
     <PageHeader title="สำรองข้อมูลภาคเรียน" description="จัดการบันทึกทุกตำบลแยกตามภาคเรียน เก็บและนำกลับมาเรียกดูได้เมื่อจำเป็น" action={<Button asChild variant="outline"><AppLink href="/admin"><ArrowLeft size={17} />จัดการระบบ</AppLink></Button>} />
     {error && <div role="alert" className="mb-5 flex items-start gap-3 whitespace-pre-line rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive"><WarningCircle size={20} className="shrink-0" />{error}</div>}
-    <div className="mb-6 rounded-xl border bg-card p-4 text-sm leading-7"><b>ปิดภาคเรียนและคืนพื้นที่อย่างปลอดภัย</b><p className="text-muted-foreground">1. ตรวจปี/ภาคเรียนและไฟล์ → 2. สร้าง ZIP และดาวน์โหลดเก็บไว้ → 3. เก็บภาคเรียนออกจากระบบ → 4. คืนพื้นที่รูปต้นฉบับ → 5. ลบ ZIP บนเซิร์ฟเวอร์เมื่อมีสำเนาภายนอกแล้ว</p></div>
+    <div className="mb-6 rounded-xl border bg-card p-4 text-sm leading-7"><b>ปิดภาคเรียนและคืนพื้นที่</b><p className="text-muted-foreground">1. สร้าง ZIP → 2. ดาวน์โหลดให้เสร็จ → 3. กดล้างข้อมูลที่สำรองแล้ว เพื่อล้างบันทึกและคืนพื้นที่รูปในครั้งเดียว เมื่อตรวจ ZIP ที่เก็บไว้นอกระบบแล้ว ลบ ZIP สำเนาบนเซิร์ฟเวอร์เพื่อคืนพื้นที่ส่วนนี้ได้ด้วย</p></div>
+    {closeoutCandidate && selected?.records ? <section className="mb-6 flex flex-col gap-4 rounded-xl border border-primary/25 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between" aria-label="ขั้นตอนล้างหลังสำรอง"><div><h2 className="font-semibold">ภาคเรียน {term(scope)} สำรองแล้ว · ยังมี {count(selected.records)} บันทึกอยู่ในระบบ</h2><p className="mt-1 text-sm text-muted-foreground">ดาวน์โหลด ZIP ให้เสร็จ แล้วกดปุ่มนี้เพื่อเอาข้อมูลภาคเรียนเก่าออกจากภาพรวมและคืนพื้นที่รูป</p></div><Button variant="destructive" disabled={busy} className="shrink-0" onClick={() => setReview({ backup: closeoutCandidate, mode: 'closeout' })}>ล้างข้อมูลที่สำรองแล้ว</Button></section> : null}
     <SemesterTermRepair semesters={data.semesters} busy={busy} onBusyChange={value => { busyRef.current = value; setRepairBusy(value) }} onComplete={async target => { await reload(); setScope(target) }} />
     <div className="mb-6 grid gap-4 lg:grid-cols-2">
       <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Archive size={20} className="text-primary" />สำรองภาคเรียน</CardTitle><p className="text-sm text-muted-foreground">เริ่มจากสร้าง ZIP พร้อมบันทึก รูป รายชื่อ และประวัติเอกสาร</p></CardHeader><CardContent>
         <form onSubmit={create} className="grid gap-4">
           <div className="grid grid-cols-2 gap-3"><FormField label="ปีการศึกษา (พ.ศ.)"><NativeSelect value={scope.year} disabled={busy} onChange={event => setScope({ ...scope, year: event.target.value })}>{[...new Set([...data.semesters.map(item => item.year), scope.year])].map(year => <option key={year} value={year}>{year}{!/^25\d{2}$/.test(year) ? ' (รูปแบบปีเดิมผิด)' : ''}</option>)}</NativeSelect></FormField><FormField label="ภาคเรียน"><NativeSelect value={scope.semester} disabled={busy} onChange={event => setScope({ ...scope, semester: event.target.value })}>{!['1', '2', '3'].includes(scope.semester) && <option value={scope.semester}>{scope.semester}</option>}<option value="1">ภาคเรียน 1</option><option value="2">ภาคเรียน 2</option><option value="3">ภาคเรียน 3 (ข้อมูลเดิม)</option></NativeSelect></FormField></div>
-          <div className="rounded-lg bg-muted/50 p-3 text-sm"><b>{count(selected?.records || 0)} บันทึก</b><span className="text-muted-foreground"> · {count(selected?.attendance || 0)} รายชื่อเข้าเรียน · {count(selected?.images || 0)} รูป</span>{Boolean(selected?.active_drafts) && <p className="mt-2 text-amber-700 dark:text-amber-300">มีร่างที่ยังไม่ยืนยัน {count(selected!.active_drafts)} ร่าง ต้องให้เจ้าของจัดการก่อนเก็บภาคเรียน</p>}</div>
+          <div className="rounded-lg bg-muted/50 p-3 text-sm"><b>{count(selected?.records || 0)} บันทึก</b><span className="text-muted-foreground"> · {count(selected?.attendance || 0)} รายชื่อเข้าเรียน · {count(selected?.images || 0)} รูป</span>{Boolean(selected?.active_drafts) && <p className="mt-2 text-amber-700 dark:text-amber-300">มีร่างค้าง {count(selected!.active_drafts)} ร่าง เลือกพักร่างพร้อมล้างภาคเรียนได้ ข้อความและรูปส่วนตัวจะยังอยู่ครบ · <AppLink href="/teaching-drafts/manage" className="underline">จัดการร่างของฉัน</AppLink></p>}</div>
           {!preflight && !preflightError && selected?.records ? <p role="status" className="text-sm text-muted-foreground">กำลังตรวจรูปและเอกสารทั้งหมดในภาคเรียน…</p> : null}
           {preflightError && <p role="alert" className="whitespace-pre-line text-sm text-destructive">{preflightError}</p>}
           <Button type="button" size="sm" variant="ghost" disabled={busy || !selected?.records} onClick={() => setPreflightAttempt(value => value + 1)}>ตรวจไฟล์ต้นฉบับใหม่</Button>
@@ -180,7 +187,7 @@ export default function SemesterBackups(initial: Props) {
         <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:flex-wrap">
           {backup.status !== 'offline' && <>
           <Button asChild variant="outline"><a href={appUrl(backup.download_url)} onClick={event => { if (busy) { event.preventDefault(); return } actionAlert.info('กำลังส่งไฟล์สำรองให้ดาวน์โหลด', 'เก็บ ZIP ในที่ปลอดภัย และตรวจว่าไฟล์ดาวน์โหลดเสร็จก่อนเก็บภาคเรียน') }}><DownloadSimple size={18} />ดาวน์โหลด ZIP</a></Button>
-          {backup.status !== 'archived' && <Button type="button" variant="outline" disabled={busy} onClick={() => setReview({ backup, mode: 'archive' })}><Archive size={18} />ตรวจและเก็บภาคเรียน</Button>}
+          {backup.status !== 'archived' && <Button type="button" variant="destructive" disabled={busy} onClick={() => setReview({ backup, mode: 'closeout' })}><Archive size={18} />ล้างข้อมูลที่สำรองแล้ว</Button>}
           <Button type="button" variant="secondary" disabled={busy} onClick={() => setReview({ backup, mode: 'restore' })}><ClockCounterClockwise size={18} />ตรวจและนำกลับ</Button>
           {backup.status === 'archived' && <Button type="button" variant="outline" disabled={busy} onClick={() => setReview({ backup, mode: 'release' })}>ตรวจและคืนพื้นที่รูป</Button>}
           <Button type="button" variant="outline" disabled={busy || !backup.downloaded_at} onClick={() => setReview({ backup, mode: 'offload' })}>ลบ ZIP บนเซิร์ฟเวอร์</Button>
@@ -194,15 +201,16 @@ export default function SemesterBackups(initial: Props) {
     </CardContent></Card>
     <Dialog.Root open={Boolean(review)} onOpenChange={open => { if (!open) setReview(null) }}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-40 bg-foreground/35 backdrop-blur-sm" /><Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90dvh] w-[min(94vw,560px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl outline-none sm:p-6">
       <div className="flex items-start justify-between gap-3"><Dialog.Title className="text-lg font-semibold">{review ? titles[review.mode] : ''} {review && term(review.backup)}</Dialog.Title><Dialog.Close asChild><Button variant="ghost" size="icon" className="size-8" aria-label="ปิดหน้าตรวจชุดสำรอง"><X size={19} /></Button></Dialog.Close></div>
-      <Dialog.Description className="mt-2 text-sm leading-relaxed text-muted-foreground">{review?.mode === 'archive' ? 'บันทึกทุกตำบลในภาคเรียนนี้จะออกจากภาพรวม เรียกกลับด้วย ZIP ได้ รูปต้นฉบับจะยังอยู่จนกดคืนพื้นที่แยกต่างหาก' : review?.mode === 'release' ? 'ลบเฉพาะไฟล์ต้นฉบับที่มีใน ZIP และไม่มีงานอื่นใช้ ตรวจ checksum ซ้ำก่อนลบ เรียกรูปกลับได้เมื่อนำเข้าชุดสำรอง' : review?.mode === 'offload' ? 'ลบเฉพาะ ZIP สำเนาบนเซิร์ฟเวอร์ เมื่อจะนำกลับต้องอัปโหลด ZIP ที่เก็บไว้ในคอมพิวเตอร์ และใช้ APP_KEY เดิม' : 'ข้อมูลจะกลับเข้าไปในภาพรวมและเอกสารของภาคเรียนเดิม ต้องไม่มีรหัสรายการชนกับงานปัจจุบัน'}</Dialog.Description>
+      <Dialog.Description className="mt-2 text-sm leading-relaxed text-muted-foreground">{review?.mode === 'closeout' ? 'เอาบันทึก รายชื่อ และเอกสารของภาคเรียนนี้ออกจากภาพรวม พร้อมลบรูปต้นฉบับที่สำรองแล้วและไม่มีงานอื่นใช้ เก็บ ZIP ไว้เพื่อนำกลับ ร่างส่วนตัวยังคงอยู่และสามารถเลือกพักไว้ได้' : review?.mode === 'archive' ? 'บันทึกทุกตำบลในภาคเรียนนี้จะออกจากภาพรวม เรียกกลับด้วย ZIP ได้ รูปต้นฉบับจะยังอยู่จนกดคืนพื้นที่แยกต่างหาก' : review?.mode === 'release' ? 'ลบเฉพาะไฟล์ต้นฉบับที่มีใน ZIP และไม่มีงานอื่นใช้ ตรวจ checksum ซ้ำก่อนลบ เรียกรูปกลับได้เมื่อนำเข้าชุดสำรอง' : review?.mode === 'offload' ? 'ลบเฉพาะ ZIP สำเนาบนเซิร์ฟเวอร์ เมื่อจะนำกลับต้องอัปโหลด ZIP ที่เก็บไว้ในคอมพิวเตอร์ และใช้ APP_KEY เดิม' : 'ข้อมูลจะกลับเข้าไปในภาพรวมและเอกสารของภาคเรียนเดิม ต้องไม่มีรหัสรายการชนกับงานปัจจุบัน'}</Dialog.Description>
       <div className="my-5 rounded-lg bg-muted/40 p-4">{review && <BackupCounts counts={review.backup.counts} />}</div>
       {!inspection && !inspectionError && <p role="status" className="my-5 text-sm text-muted-foreground">กำลังตรวจไฟล์และข้อมูลปัจจุบัน…</p>}
       {inspectionError && <p role="alert" className="my-5 whitespace-pre-line text-sm text-destructive">{inspectionError}</p>}
       {inspection && (() => {
-        const issues = review?.mode === 'archive' ? inspection.blockers : review?.mode === 'restore' ? inspection.conflicts : []
+        const issues = review?.mode === 'closeout' ? inspection.closeout_blockers : review?.mode === 'archive' ? inspection.blockers : review?.mode === 'restore' ? inspection.conflicts : []
         return <>{issues.length > 0 && <div role="alert" className="mb-4 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><b>ต้องจัดการก่อนดำเนินการ</b><ul className="mt-2 list-disc space-y-1 pl-5">{issues.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
           {review?.mode !== 'restore' && <label className="mb-4 flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" className="mt-1 size-4 accent-primary" checked={copied} onChange={event => setCopied(event.target.checked)} />ฉันดาวน์โหลด ZIP เสร็จแล้ว และเก็บสำเนาไว้นอกระบบนี้</label>}
-          {review?.mode === 'archive' && inspection.missing_files.length > 0 && <label className="mb-4 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-300"><input type="checkbox" className="mt-1" checked={acceptMissing} onChange={event => setAcceptMissing(event.target.checked)} />รับทราบว่ารูปต้นฉบับ {inspection.missing_files.length} ไฟล์สูญหายก่อนสำรอง และจะกู้กลับจาก ZIP ไม่ได้ ข้อความและข้อมูลอ้างอิงเดิมยังถูกเก็บไว้</label>}
+          {review?.mode === 'closeout' && inspection.draft_review.count > 0 && review.backup.status !== 'archived' && <label className="mb-4 flex items-start gap-2 rounded-lg bg-muted/50 p-3 text-sm"><input type="checkbox" className="mt-1" checked={pauseDrafts} onChange={event => setPauseDrafts(event.target.checked)} />พักร่างที่เกี่ยวข้อง {inspection.draft_review.count} ร่างเพื่อปิดภาคเรียน โดยเก็บข้อความ รูป และเอกสารส่วนตัวไว้ครบ เจ้าของนำกลับได้หลังนำภาคเรียนกลับจาก ZIP</label>}
+          {(review?.mode === 'archive' || review?.mode === 'closeout') && inspection.missing_files.length > 0 && <label className="mb-4 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-300"><input type="checkbox" className="mt-1" checked={acceptMissing} onChange={event => setAcceptMissing(event.target.checked)} />รับทราบว่ารูปต้นฉบับ {inspection.missing_files.length} ไฟล์สูญหายก่อนสำรอง และจะกู้กลับจาก ZIP ไม่ได้ ข้อความและข้อมูลอ้างอิงเดิมยังถูกเก็บไว้</label>}
           {review?.mode === 'release' && inspection.storage && <p className="mb-4 rounded-lg bg-muted/40 p-3 text-sm">คืนพื้นที่ได้ {inspection.storage.releasable_count} ไฟล์ · {size(inspection.storage.releasable_bytes)}<br />คงไฟล์ที่ใช้ร่วมกัน {inspection.storage.shared_count} ไฟล์ · เปลี่ยนหลังสำรอง {inspection.storage.changed_count} ไฟล์ · ไม่มีต้นฉบับแล้ว {inspection.storage.missing_count} ไฟล์</p>}
           <FormField label={`พิมพ์ ${expected} เพื่อยืนยัน`}><Input autoComplete="off" spellCheck={false} value={confirmation} onChange={event => setConfirmation(event.target.value)} placeholder={expected} /></FormField>
         </>

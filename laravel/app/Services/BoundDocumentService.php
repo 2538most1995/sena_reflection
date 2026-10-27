@@ -59,7 +59,7 @@ class BoundDocumentService
     {
         return DB::transaction(function () use ($user, $draft, $levelCode): Document {
             $owned = $this->drafts->owned($user, TeachingDraft::query()->whereKey($draft->id)->lockForUpdate()->firstOrFail());
-            abort_unless($owned->status === 'active', 409, 'ร่างนี้ยืนยันแล้ว กรุณาเปิดจากรายการบันทึก');
+            abort_unless($owned->status === 'active', 409, $owned->status === 'paused' ? 'ร่างนี้พักไว้ กรุณานำกลับจากหน้าจัดการร่างก่อนแก้ไขเอกสาร' : 'ร่างนี้ยืนยันแล้ว กรุณาเปิดจากรายการบันทึก');
             $snapshot = $this->sourceSnapshot($this->drafts->snapshotForPreview($user, $owned, $levelCode, [], $owned->lock_version));
             $existing = Document::query()->where('binding_key', 'draft:'.$owned->id.':'.$levelCode)->lockForUpdate()->first();
             if ($existing) {
@@ -252,7 +252,7 @@ class BoundDocumentService
         $current = Document::query()->whereKey($document->id)->lockForUpdate()->firstOrFail();
         $binding = $current->binding_snapshot;
         $owned = $this->drafts->owned($user, TeachingDraft::query()->whereKey($binding['draft_id'])->lockForUpdate()->firstOrFail());
-        abort_unless($owned->status === 'active', 409, 'ร่างนี้ยืนยันแล้ว กรุณาเปิดจากรายการบันทึก');
+        abort_unless($owned->status === 'active', 409, $owned->status === 'paused' ? 'ร่างนี้พักไว้ กรุณานำกลับจากหน้าจัดการร่างก่อนแก้ไขเอกสาร' : 'ร่างนี้ยืนยันแล้ว กรุณาเปิดจากรายการบันทึก');
         $lock = (int) ($binding['lock_version'] ?? 0);
         $snapshot = $this->sourceSnapshot($this->drafts->snapshotForPreview($user, $owned, $binding['level_code'], [], $lock));
         if (($binding['source_fingerprint'] ?? '') !== $this->snapshotFingerprint($snapshot)) {

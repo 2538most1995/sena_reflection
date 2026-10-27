@@ -72,6 +72,8 @@ Hosting จริงคือ `https://krumost.com/sena_reflection` ใช้ `n
 
 การคืนพื้นที่เป็นขั้นตอนแยก: `SemesterBackupStorageService` ลบเฉพาะไฟล์ที่ checksum ตรงและไม่มีข้อมูลที่เหลืออ้างอิง ตรวจภายใต้ transaction/row locks และล็อกเดียวกับ restore; รูปใช้ร่วมกันหรือเปลี่ยนไปต้องเก็บไว้ จากนั้น offload ลบเฉพาะ ZIP บนเซิร์ฟเวอร์และเก็บสถานะ offline ให้เลือกนำเข้าจากสำเนาภายนอก `SemesterBackupUploadService` แบ่งอัปโหลด ZIP ไม่เกิน 2 GB ลงไฟล์ private เดียว ตรวจทุกส่วนและ ZIP ทั้งชุดก่อนย้ายเข้ารายการ ไม่เขียนทับข้อมูลเมื่อ restore ไม่มีการ archive/release/offload ระหว่าง deploy
 
+ปุ่มหลัก **ล้างข้อมูลที่สำรองแล้ว** เรียก closeout ซึ่งนำบันทึกออกแล้วคืนพื้นที่รูปต่อให้ในคำขอเดียว ใช้ตรวจ ZIP/ข้อมูลเดิม และล็อกร่วมกับ restore หากไฟล์ลบไม่สำเร็จต้องรายงานส่วนที่ทำสำเร็จและลอง cleanup ต่อโดยไม่ archive ซ้ำ ผู้ดูแลเลือกพักร่างที่เกี่ยวข้องโดยยืนยัน fingerprint ล่าสุดได้ สถานะ `paused` และ lock version เปลี่ยนใน transaction เดียวกับ archive โดยไม่แตะ payload/images/documents ส่วนตัว `DraftLifecycleService` และหน้า `/teaching-drafts/manage` จำกัดเฉพาะเจ้าของสำหรับ pause/resume; ร่างผูกต้นฉบับต้อง restore ต้นฉบับที่ fingerprint ตรงก่อน resume
+
 `SemesterTermRepairService` ตรวจปลายทางและ fingerprint ก่อนสร้าง ZIP ต้นทาง แล้วแก้ปี/ภาคเรียนภายใต้ transaction พร้อมเก็บ revision และรูปแบบเอกสารเดิม ไม่แก้ข้อมูลที่ชนหรือร่างส่วนตัว ทุกช่องทางบันทึกใหม่และ finalize ตรวจปี พ.ศ. รูปแบบ 25xx; UI ใช้ตัวเลือกปีเพื่อลดการพิมพ์ผิด
 
 ตรวจจริง 27 ต.ค. 2569 หลัง deploy `4af0d04` และ `optimize:clear`: แก้ปีผิดสองกลุ่มเป็น 1/2569 โดยสำรองต้นทางก่อน ทั้งภาคเรียนมี 770 บันทึก สำรอง ZIP 104.4 MB ดาวน์โหลดและตรวจ CRC/SHA-256 ผ่านครบ 1,754 ไฟล์ที่ยังอยู่ พร้อมรายงานไฟล์สูญหายเดิม 12 ไฟล์ ไม่ archive/release/offload ข้อมูลจริง; ยังมีร่างส่วนตัวที่ใช้งาน 5 ร่างเป็น blocker ตามสิทธิ์เดิม

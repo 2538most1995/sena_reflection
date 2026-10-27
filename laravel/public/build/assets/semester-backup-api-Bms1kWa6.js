@@ -1,0 +1,2 @@
+import{o as e}from"./button-DIEpHS9P.js";async function t(t,n={}){let r=document.querySelector(`meta[name="csrf-token"]`)?.content||``,i=await e(t,{...n,headers:{Accept:`application/json`,"X-CSRF-TOKEN":r,...n.headers}}),a=await i.json().catch(()=>null);if(!i.ok)throw Object.assign(Error(Object.values(a?.errors||{}).flat().join(`
+`)||a?.message||(i.status===413?`ไฟล์ใหญ่เกินขนาดที่เซิร์ฟเวอร์อนุญาต`:`ติดต่อระบบสำรองข้อมูลไม่สำเร็จ กรุณาลองใหม่`)),{status:i.status});return a}export{t};

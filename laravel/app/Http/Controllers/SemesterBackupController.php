@@ -112,6 +112,19 @@ class SemesterBackupController extends Controller
         return response()->json(['storage' => $backups->releaseFiles($backup)]);
     }
 
+    public function closeout(Request $request, string $backup, SemesterBackupService $backups): JsonResponse
+    {
+        $this->district($request);
+        $entry = $backups->find($backup);
+        $this->confirmation($request, $entry, 'CLOSE');
+        $data = $request->validate(['external_copy' => ['required', 'accepted'],
+            'accept_missing_files' => (json_decode($entry->counts, true)['missing_files'] ?? 0) > 0 ? ['required', 'accepted'] : ['sometimes', 'boolean'],
+            'pause_active_drafts' => ['sometimes', 'boolean'],
+            'draft_fingerprint' => ['nullable', 'required_if:pause_active_drafts,true,1', 'string', 'regex:/^[a-f0-9]{64}$/D']]);
+
+        return response()->json($backups->closeout($backup, $request->boolean('pause_active_drafts') ? $data['draft_fingerprint'] : null));
+    }
+
     public function offload(Request $request, string $backup, SemesterBackupService $backups): JsonResponse
     {
         $this->district($request);

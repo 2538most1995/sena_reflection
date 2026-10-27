@@ -82,6 +82,7 @@ export type TeachingDraftImage = {
 
 export type TeachingDraft = {
   id: string
+  status?: 'active' | 'paused' | 'finalized'
   lock_version: number
   schema_version: number
   scope: TeachingDraftPayload['scope']

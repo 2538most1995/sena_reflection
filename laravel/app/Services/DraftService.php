@@ -98,7 +98,7 @@ class DraftService
     {
         $owned = $this->owned($user, $draft);
         if ($owned->status !== 'active') {
-            throw ValidationException::withMessages(['draft' => 'ร่างนี้ยืนยันแล้วและไม่สามารถแก้ไขได้']);
+            throw ValidationException::withMessages(['draft' => $owned->status === 'paused' ? 'ร่างนี้พักไว้ กรุณาเปิดหน้าจัดการร่างและนำกลับมาแก้ไขก่อน' : 'ร่างนี้ยืนยันแล้วและไม่สามารถแก้ไขได้']);
         }
 
         $normalized = $this->normalizePayload($payload, $user);
@@ -485,7 +485,7 @@ class DraftService
             throw (new ModelNotFoundException)->setModel(TeachingDraft::class, [$id]);
         }
         if ($owned->status !== 'active') {
-            throw ValidationException::withMessages(['draft' => 'ร่างนี้ยืนยันแล้วและไม่สามารถแก้ไขได้']);
+            throw ValidationException::withMessages(['draft' => $owned->status === 'paused' ? 'ร่างนี้พักไว้ กรุณาเปิดหน้าจัดการร่างและนำกลับมาแก้ไขก่อน' : 'ร่างนี้ยืนยันแล้วและไม่สามารถแก้ไขได้']);
         }
         if ($owned->lock_version !== $lockVersion) {
             throw new DraftVersionConflictException($owned->load('images'));

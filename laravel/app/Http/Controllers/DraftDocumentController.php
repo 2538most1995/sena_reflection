@@ -21,7 +21,7 @@ class DraftDocumentController extends Controller
     public function edit(Request $request, TeachingDraft $teachingDraft, string $levelCode, DraftService $drafts, BoundDocumentService $bound, DocumentService $documents): InertiaResponse
     {
         $owned = $drafts->owned($request->user(), $teachingDraft);
-        abort_unless($owned->status === 'active', 409, 'ฉบับร่างนี้บันทึกแล้ว กรุณาเปิดจากรายการบันทึก');
+        abort_unless($owned->status === 'active', 409, $owned->status === 'paused' ? 'ร่างนี้พักไว้ กรุณานำกลับจากหน้าจัดการร่างก่อนแก้ไขเอกสาร' : 'ฉบับร่างนี้บันทึกแล้ว กรุณาเปิดจากรายการบันทึก');
         $document = $bound->forDraft($request->user(), $owned, $levelCode);
 
         return Inertia::render('documents/edit', ['document' => $documents->resource($document), 'editorContext' => $bound->context($document)]);

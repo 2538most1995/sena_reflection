@@ -7,6 +7,7 @@ use App\Models\TeachingDraft;
 use App\Models\TeachingRecord;
 use App\Models\User;
 use App\Services\SemesterBackupService;
+use App\Services\SemesterBackupStorageService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -260,9 +261,72 @@ class SemesterBackupTest extends TestCase
         foreach (['index', 'preflight', 'show', 'download'] as $action) {
             $this->getJson(route('semester-backups.'.$action, in_array($action, ['show', 'download']) ? $backup['id'] : []))->assertForbidden();
         }
-        foreach (['store', 'import', 'archive', 'restore', 'release', 'offload', 'terms.preview', 'terms.repair'] as $action) {
-            $this->postJson(route('semester-backups.'.$action, in_array($action, ['archive', 'restore', 'release', 'offload']) ? $backup['id'] : []))->assertForbidden();
+        foreach (['store', 'import', 'archive', 'restore', 'release', 'offload', 'closeout', 'terms.preview', 'terms.repair'] as $action) {
+            $this->postJson(route('semester-backups.'.$action, in_array($action, ['archive', 'restore', 'release', 'offload', 'closeout']) ? $backup['id'] : []))->assertForbidden();
         }
+    }
+
+    public function test_closeout_requires_review_and_preserves_paused_private_work_while_removing_backed_up_records_and_files(): void
+    {
+        $this->seedGraph();
+        $draft = TeachingDraft::query()->create(['user_id' => 'private-owner', 'tambon' => 't1', 'year' => '2569', 'semester' => '1', 'source_record_id' => 'record-old', 'status' => 'active', 'lock_version' => 7, 'payload' => ['secret' => 'private text stays private']]);
+        $unrelated = TeachingDraft::query()->create(['user_id' => 'private-owner', 'tambon' => 't1', 'year' => '2569', 'semester' => '2', 'status' => 'active', 'payload' => ['secret' => 'new term']]);
+        $backup = $this->createBackup();
+        $input = ['confirmation' => 'CLOSE 1/2569', 'external_copy' => true];
+        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertUnprocessable();
+        $this->get(route('semester-backups.download', $backup['id']))->assertOk();
+        $review = $this->getJson(route('semester-backups.show', $backup['id']))->assertOk()->assertJsonPath('can_archive', false)
+            ->assertJsonPath('can_closeout', true)->assertJsonPath('draft_review.count', 1)->assertDontSee('private text stays private')->json();
+        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertUnprocessable();
+        $this->assertDatabaseHas('records', ['id' => 'record-old']);
+        $this->postJson(route('semester-backups.closeout', $backup['id']), [...$input, 'pause_active_drafts' => true, 'draft_fingerprint' => $review['draft_review']['fingerprint']])
+            ->assertOk()->assertJsonPath('backup.status', 'archived')->assertJsonPath('paused_drafts', 1)->assertJsonPath('cleanup_error', null)->assertJsonPath('storage.deleted_count', 2);
+        $this->assertDatabaseMissing('records', ['id' => 'record-old']);
+        $this->assertDatabaseHas('records', ['id' => 'record-new', 'semester' => '2']);
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $draft->id, 'status' => 'paused', 'lock_version' => 8, 'source_record_id' => 'record-old']);
+        $this->assertSame($draft->payload, $draft->fresh()->payload);
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $unrelated->id, 'status' => 'active']);
+        Storage::disk('public')->assertMissing('records/2569/1/photo.png');
+        Storage::disk('local')->assertMissing($this->documentImage);
+        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertOk()->assertJsonPath('paused_drafts', 0)->assertJsonPath('storage.deleted_count', 0);
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $draft->id, 'lock_version' => 8]);
+        $imported = $this->postJson(route('semester-backups.import'), ['archive' => UploadedFile::fake()->createWithContent('external-copy.zip', file_get_contents($this->zipPath($backup['id'])))])->assertCreated()->json('backup');
+        $this->postJson(route('semester-backups.restore', $imported['id']), ['confirmation' => 'RESTORE 1/2569'])->assertOk();
+        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertUnprocessable();
+        $this->assertDatabaseHas('records', ['id' => 'record-old']);
+    }
+
+    public function test_changed_draft_review_or_changed_backup_cannot_pause_private_work_or_close_the_term(): void
+    {
+        $this->seedGraph();
+        $draft = TeachingDraft::query()->create(['user_id' => 'private-owner', 'tambon' => 't1', 'year' => '2569', 'semester' => '1', 'status' => 'active', 'lock_version' => 1, 'payload' => ['secret' => 'unchanged']]);
+        $backup = $this->createBackup();
+        $this->get(route('semester-backups.download', $backup['id']))->assertOk();
+        $review = $this->getJson(route('semester-backups.show', $backup['id']))->assertOk()->json();
+        $input = ['confirmation' => 'CLOSE 1/2569', 'external_copy' => true, 'pause_active_drafts' => true, 'draft_fingerprint' => $review['draft_review']['fingerprint']];
+        $draft->update(['lock_version' => 2]);
+        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertUnprocessable();
+        $fresh = $this->getJson(route('semester-backups.show', $backup['id']))->assertOk()->json();
+        DB::table('records')->where('id', 'record-old')->update(['result' => 'newer record edit']);
+        $this->postJson(route('semester-backups.closeout', $backup['id']), [...$input, 'draft_fingerprint' => $fresh['draft_review']['fingerprint']])->assertUnprocessable();
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $draft->id, 'status' => 'active', 'lock_version' => 2]);
+        $this->assertDatabaseHas('records', ['id' => 'record-old', 'result' => 'newer record edit']);
+        Storage::disk('public')->assertExists('records/2569/1/photo.png');
+    }
+
+    public function test_failed_file_cleanup_reports_partial_completion_and_can_be_retried_without_archiving_twice(): void
+    {
+        $this->seedGraph();
+        $backup = $this->createBackup();
+        $this->get(route('semester-backups.download', $backup['id']))->assertOk();
+        $this->mock(SemesterBackupStorageService::class)->shouldReceive('release')->once()->andThrow(new \RuntimeException('storage unavailable'));
+        $input = ['confirmation' => 'CLOSE 1/2569', 'external_copy' => true];
+        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertOk()->assertJsonPath('backup.status', 'archived')
+            ->assertJsonPath('storage', null)->assertJsonPath('cleanup_error', fn ($message): bool => is_string($message) && str_contains($message, 'คืนพื้นที่รูปยังไม่สำเร็จ'));
+        Storage::disk('public')->assertExists('records/2569/1/photo.png');
+        $this->assertDatabaseMissing('records', ['id' => 'record-old']);
+        $this->app->forgetInstance(SemesterBackupStorageService::class);
+        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertOk()->assertJsonPath('storage.deleted_count', 2);
     }
 
     public function test_index_reports_the_actual_php_upload_limit_and_failed_php_uploads_explain_the_limit(): void
@@ -322,6 +386,8 @@ class SemesterBackupTest extends TestCase
             ->assertCreated()->assertJsonPath('backup.counts.missing_files', 1)->json('backup');
         $this->get(route('semester-backups.download', $backup['id']))->assertOk();
         $this->postJson(route('semester-backups.archive', $backup['id']), ['confirmation' => 'ARCHIVE 1/2569', 'external_copy' => true])
+            ->assertUnprocessable()->assertJsonValidationErrors('accept_missing_files');
+        $this->postJson(route('semester-backups.closeout', $backup['id']), ['confirmation' => 'CLOSE 1/2569', 'external_copy' => true])
             ->assertUnprocessable()->assertJsonValidationErrors('accept_missing_files');
         $this->postJson(route('semester-backups.archive', $backup['id']), ['confirmation' => 'ARCHIVE 1/2569', 'external_copy' => true, 'accept_missing_files' => true])->assertOk();
         $this->getJson(route('semester-backups.show', $backup['id']))->assertOk()->assertJsonPath('missing_files.0.reason', 'missing');
