@@ -85,10 +85,10 @@ export function TeachingDetailsForm({
 
         <div className="grid content-start gap-3">
           <div className="flex items-center justify-between gap-2"><b className="text-sm">รายวิชา</b><Button type="button" variant="ghost" size="sm" onClick={() => setManualSubject((current) => !current)}>{manualSubject ? 'เลือกจากระบบ' : 'กรอกรายวิชาเอง'}</Button></div>
-          <p className="text-xs leading-5 text-muted-foreground" role="status">{subjectsLoading ? 'กำลังโหลดรายวิชาสำหรับภาคเรียนนี้...' : subjectSource === 'sdl' ? `รายวิชาจาก SDL School · ภาคเรียน ${subjectTerm || term}` : subjectSource === 'history' ? `รายวิชาจากประวัติบันทึก${subjectTerm ? ` · ภาคเรียน ${subjectTerm}` : ''}` : 'ยังไม่มีรายวิชาให้เลือกจากระบบ'}</p>
+          <p className="text-xs leading-5 text-muted-foreground" role="status">{subjectsLoading ? 'กำลังโหลดรายวิชาสำหรับภาคเรียนนี้...' : subjectSource === 'sdl' ? `รายวิชา${level.name}จาก SDL School · ภาคเรียน ${subjectTerm || term}` : subjectSource === 'history' ? `รายวิชาจากประวัติบันทึก${subjectTerm ? ` · ภาคเรียน ${subjectTerm}` : ''}` : 'ยังไม่มีรายวิชาให้เลือกจากระบบ'}</p>
           {subjectError && <p role="status" className="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-200"><WarningCircle size={16} className="mt-0.5 shrink-0" />{subjectError}</p>}
           {manualSubject || (!subjectsLoading && !levelSubjects.length) ? <>
-            {!manualSubject && <p className="text-xs leading-5 text-muted-foreground">ยังไม่มีรายวิชาในรายการสำหรับระดับนี้ สามารถกรอกชื่อและรหัสวิชาได้</p>}
+            {!manualSubject && <p className="text-xs leading-5 text-muted-foreground">ยังไม่มีรายวิชาที่ตรวจยืนยันระดับชั้นนี้จากต้นทาง สามารถกรอกชื่อและรหัสวิชาเองได้ โดยข้อมูลเดิมยังอยู่</p>}
             <div className="grid gap-3 sm:grid-cols-2"><FormField label="ชื่อรายวิชา *"><Input data-workspace-field="subject" maxLength={150} value={value.subject} onChange={(event) => onChange({ ...value, subject: event.target.value })} /></FormField><FormField label="รหัสวิชา"><Input maxLength={50} value={value.subject_code} onChange={(event) => onChange({ ...value, subject_code: event.target.value })} /></FormField></div>
           </> : <>
             {levelSubjects.length > 0 && <FormField label="ค้นหารายวิชา"><Input type="search" value={subjectQuery} onChange={(event) => setSubjectQuery(event.target.value)} disabled={subjectsLoading} placeholder="ค้นหารหัสหรือชื่อรายวิชา" /></FormField>}

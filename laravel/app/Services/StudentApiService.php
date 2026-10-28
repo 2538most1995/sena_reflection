@@ -157,7 +157,7 @@ class StudentApiService
         if ($credential === '') {
             throw new RuntimeException('SDL subject API is not configured');
         }
-        $cacheKey = 'student-source:subjects:v1:'.hash('sha256', $this->fingerprint().'|'.$term);
+        $cacheKey = 'student-source:subjects:v2:'.hash('sha256', $this->fingerprint().'|'.$term);
         if (! $refresh && is_array($cached = Cache::get($cacheKey))) {
             return collect($cached);
         }
@@ -176,15 +176,20 @@ class StudentApiService
         }
 
         $subjects = collect($payload['data'])->filter(fn ($row): bool => is_array($row))
-            ->map(function (array $row): ?array {
+            ->flatMap(function (array $row): array {
                 $code = is_string($row['code'] ?? null) ? trim($row['code']) : '';
                 $name = is_string($row['name'] ?? null) ? trim($row['name']) : '';
                 if ($code === '' || $name === '' || mb_strlen($code) > 50 || mb_strlen($name) > 150) {
-                    return null;
+                    return [];
                 }
+                $declared = is_array($row['levels'] ?? null) ? $row['levels'] : [$row['level'] ?? null];
+                $levels = collect($declared)->filter(fn ($value): bool => is_scalar($value))
+                    ->map(fn ($value): ?string => app(EducationLevelService::class)->code($value))->filter()->unique()->values();
 
-                return ['subject' => $name, 'subject_code' => $code, 'level' => '', 'source' => 'sdl'];
-            })->filter()->unique(fn (array $row): string => mb_strtolower($row['subject_code']))
+                return ($levels->isEmpty() ? collect(['']) : $levels)->map(fn (string $level): array => [
+                    'subject' => $name, 'subject_code' => $code, 'level' => $level, 'source' => 'sdl',
+                ])->all();
+            })->unique(fn (array $row): string => mb_strtolower($row['subject_code']).'|'.$row['level'])
             ->sortBy('subject_code')->values();
         if ($payload['data'] !== [] && $subjects->isEmpty()) {
             throw new RuntimeException('SDL subject API does not contain usable subjects');

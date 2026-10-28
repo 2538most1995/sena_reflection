@@ -1,7 +1,7 @@
 import type { SubjectOption } from './types'
 
 export function subjectsForLevel(subjects: SubjectOption[], levelCode: string, levelName: string): SubjectOption[] {
-  return subjects.filter(subject => !subject.level || subject.level === levelCode || subject.level === levelName)
+  return subjects.filter(subject => subject.level === levelCode || subject.level === levelName)
 }
 
 export function searchSubjects(subjects: SubjectOption[], query: string): SubjectOption[] {

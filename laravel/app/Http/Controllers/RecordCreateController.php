@@ -139,9 +139,12 @@ class RecordCreateController extends Controller
         if ($api->isSdl()) {
             try {
                 $catalogue = $api->subjects($subjectTerm ?? '', $request->boolean('refresh'));
-                $catalogueCodes = $catalogue->pluck('subject_code')->map(fn (string $code): string => mb_strtolower($code))->all();
-                $subjects = $catalogue->concat($subjects->reject(fn (array $row): bool => in_array(mb_strtolower($row['subject_code']), $catalogueCodes, true)))->values();
+                $catalogueKeys = $catalogue->map(fn (array $row): string => mb_strtolower($row['subject_code']).'|'.$row['level'])->all();
+                $subjects = $catalogue->concat($subjects->reject(fn (array $row): bool => in_array(mb_strtolower($row['subject_code']).'|'.$row['level_code'], $catalogueKeys, true)))->values();
                 $subjectSource = 'sdl';
+                if ($catalogue->contains(fn (array $row): bool => $row['level'] === '')) {
+                    $subjectError = 'SDL School ยังไม่ระบุระดับชั้นของรายวิชาบางรายการ จึงไม่แสดงวิชาที่ตรวจระดับไม่ได้ กรุณาอัปเดต API รายวิชา หรือเลือกประวัติของระดับชั้นนี้/กรอกรายวิชาเอง';
+                }
             } catch (\Throwable $exception) {
                 Log::warning('SDL School subject catalogue unavailable', ['exception' => $exception::class, 'term' => $subjectTerm]);
                 $subjectError = 'โหลดรายวิชาจาก SDL School ไม่สำเร็จ'.($subjectTerm ? ' สำหรับภาคเรียน '.$subjectTerm : '').' สามารถเลือกจากประวัติภาคเรียนนี้หรือเพิ่มรายวิชาเองได้';

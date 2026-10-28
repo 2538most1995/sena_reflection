@@ -23,6 +23,7 @@
 - ZIP v3 มีหน้าอ่านภาษาไทย/CSV และรูปพร้อมนามสกุลใน `images/` ต้องตรวจ signed readable_files และ checksum ร่วมกับข้อมูลดิบทุกครั้ง รักษา v1/v2 import; closeout offload ZIP ได้หลัง cleanup สำเร็จและยืนยันสำเนาภายนอกแล้วเท่านั้น
 - รายวิชา SDL `/subjects` ส่ง catalog ทั้งภาคเรียนในคำขอเดียว ไม่มี pagination/level/group filter; ต้องระบุ term และตรวจ `meta.term` ห้ามใช้ `requestPages(..., true)` หรืออนุมานระดับจากรหัสวิชา และไม่เขียนทับชื่อวิชา/attendance ที่ผู้ใช้กรอกเมื่อรีเฟรชตัวเลือก
 - Patch ฝั่ง SDL สำหรับ API ครูและโทเค็น Reflection ไม่หมดอายุอยู่ใน `docs/deployment/sdl-reflection-teachers/`; production อนุมัติเฉพาะ client 4 ผ่าน config allowlist ห้ามเปลี่ยนเป็นอนุญาตโทเค็น NULL expiry ทุกตัวหรือขยายสิทธิ์ client ของระบบอื่น และห้ามใส่ plaintext/hash จริงใน Git
+- กรองรายวิชาตาม levels จากการลงทะเบียนจริงหลัง patch `docs/deployment/sdl-reflection-subject-levels/` ห้ามเดาจากรหัสวิชา วิชาร่วมมีหลายระดับได้ และวิชาไม่ทราบระดับต้องไม่แสดงรวมทุกระดับ รักษาค่าร่างเดิมเสมอ
 
 ## 1. Project Context Agent
 

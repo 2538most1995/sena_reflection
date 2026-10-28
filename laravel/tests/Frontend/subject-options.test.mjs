@@ -9,11 +9,11 @@ const subjects = [
   { subject: 'คณิตศาสตร์', subject_code: 'พค31001', level: '3', source: 'history' },
 ]
 
-test('catalog subjects without level metadata remain available without guessing their level from the code', () => {
+test('subjects without verified level metadata are excluded without guessing from course codes', () => {
   for (const [code, name] of [['1', 'ประถมศึกษา'], ['2', 'มัธยมศึกษาตอนต้น'], ['3', 'มัธยมศึกษาตอนปลาย']]) {
-    assert.equal(subjectsForLevel(subjects, code, name).includes(subjects[0]), true)
+    assert.equal(subjectsForLevel(subjects, code, name).includes(subjects[0]), false)
   }
-  assert.deepEqual(subjectsForLevel(subjects, '2', 'มัธยมศึกษาตอนต้น'), [subjects[0], subjects[2]])
+  assert.deepEqual(subjectsForLevel(subjects, '2', 'มัธยมศึกษาตอนต้น'), [subjects[2]])
 })
 
 test('subject search matches Thai names, partial codes, Latin case and multiple search terms', () => {
@@ -24,11 +24,11 @@ test('subject search matches Thai names, partial codes, Latin case and multiple 
 })
 
 test('filtering preserves option identity for retaining a selected course while search results change', () => {
-  const selected = subjects[0]
+  const selected = subjects[3]
   const originalSubjects = structuredClone(subjects)
   const levelSubjects = subjectsForLevel(subjects, '3', 'มัธยมศึกษาตอนปลาย')
-  assert.equal(searchSubjects(levelSubjects, 'สค020')[0], selected)
-  assert.equal(searchSubjects(levelSubjects, 'คณิตศาสตร์').includes(selected), false)
+  assert.equal(searchSubjects(levelSubjects, 'พค310')[0], selected)
+  assert.equal(searchSubjects(levelSubjects, 'ไม่มีวิชา').includes(selected), false)
   assert.equal(searchSubjects(levelSubjects, '')[0], selected)
   assert.deepEqual(subjects, originalSubjects)
 })

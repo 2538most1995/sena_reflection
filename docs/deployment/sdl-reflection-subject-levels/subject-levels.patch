@@ -1,0 +1,36 @@
+--- a/laravel-app/app/Domain/Students/Services/StudentAcademicService.php
++++ b/laravel-app/app/Domain/Students/Services/StudentAcademicService.php
+@@ -402,8 +402,12 @@
+                     'code' => $subjectCode,
+                     'name' => trim($grade->subjectName) ?: $subjectCode,
+                     '_students' => [],
++                    '_levels' => [],
+                 ];
+                 $subjects[$subjectCode]['_students'][$studentKey] = true;
++                if (in_array((int) $student->level, [1, 2, 3], true)) {
++                    $subjects[$subjectCode]['_levels'][(int) $student->level] = true;
++                }
+ 
+                 $groups[$subjectCode][$groupCode] ??= [
+                     'id' => $groupCode,
+@@ -423,7 +427,9 @@
+         $subjectRows = [];
+         foreach ($subjects as $subject) {
+             $studentCount = count($subject['_students']);
+-            unset($subject['_students']);
++            $subject['levels'] = array_keys($subject['_levels']);
++            sort($subject['levels'], SORT_NUMERIC);
++            unset($subject['_students'], $subject['_levels']);
+             $subject['student_count'] = $studentCount;
+             $subjectRows[] = $subject;
+         }
+--- a/laravel-app/tests/Feature/Students/StudentDataOmrCatalogApiTest.php
++++ b/laravel-app/tests/Feature/Students/StudentDataOmrCatalogApiTest.php
+@@ -61,6 +61,7 @@
+             ->assertJsonPath('data.0.code', 'TH1001')
+             ->assertJsonPath('data.0.name', 'ภาษาไทย')
+             ->assertJsonPath('data.0.student_count', 2)
++            ->assertJsonPath('data.0.levels', [2])
+             ->assertJsonPath('meta.total', 1);
+ 
+         $this->withHeaders($headers)

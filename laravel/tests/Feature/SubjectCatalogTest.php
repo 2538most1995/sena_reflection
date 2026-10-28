@@ -78,7 +78,7 @@ class SubjectCatalogTest extends TestCase
     public function test_catalogue_normalizes_only_safe_metadata_and_fetches_a_large_catalogue_once(): void
     {
         $rows = array_map(fn (int $number): array => ['code' => sprintf('SUB%03d', $number), 'name' => 'วิชา '.$number, 'student_count' => 30, 'password' => 'remote-private-value', 'level' => 3], range(1, 150));
-        $rows[] = ['code' => ' sub001 ', 'name' => 'ชื่อซ้ำ'];
+        $rows[] = ['code' => ' sub001 ', 'name' => 'ชื่อซ้ำ', 'level' => 3];
         $rows[] = ['code' => '', 'name' => 'ไม่มีรหัส'];
         $rows[] = ['code' => ['invalid'], 'name' => 'รหัสผิดรูปแบบ'];
         $rows[] = ['code' => 'TOO-LONG', 'name' => str_repeat('ก', 151)];
@@ -87,7 +87,7 @@ class SubjectCatalogTest extends TestCase
         $subjects = app(StudentApiService::class)->subjects('2/2569');
 
         $this->assertCount(150, $subjects);
-        $this->assertSame(['subject' => 'วิชา 1', 'subject_code' => 'SUB001', 'level' => '', 'source' => 'sdl'], $subjects->first());
+        $this->assertSame(['subject' => 'วิชา 1', 'subject_code' => 'SUB001', 'level' => '3', 'source' => 'sdl'], $subjects->first());
         foreach ($subjects as $subject) {
             $this->assertSame(['subject', 'subject_code', 'level', 'source'], array_keys($subject));
         }
@@ -97,6 +97,19 @@ class SubjectCatalogTest extends TestCase
             && $request->hasHeader('Authorization', 'Bearer fixture-private-token')
             && $request->hasHeader('X-Student-Data-Token', 'fixture-private-token')
             && ! str_contains($request->url(), 'fixture-private-token'));
+    }
+
+    public function test_subject_levels_come_only_from_explicit_source_metadata_and_preserve_shared_courses(): void
+    {
+        Http::fake(['*' => Http::response(['data' => [
+            ['code' => 'UNRELATED-CODE', 'name' => 'วิชาร่วม', 'levels' => [1, 3, 1, 'invalid', ['id' => 2]]],
+            ['code' => 'UNRELATED-CODE', 'name' => 'วิชาร่วม', 'level' => 'มัธยมศึกษาตอนต้น'],
+            ['code' => 'พท11001', 'name' => 'วิชาไม่ระบุระดับ'],
+        ], 'meta' => ['term' => '2/2569']])]);
+        $subjects = app(StudentApiService::class)->subjects('2/2569');
+        $this->assertEqualsCanonicalizing(['1', '2', '3'], $subjects->where('subject_code', 'UNRELATED-CODE')->pluck('level')->all());
+        $this->assertSame('', $subjects->firstWhere('subject_code', 'พท11001')['level']);
+        Http::assertSentCount(1);
     }
 
     public function test_catalogue_cache_is_separated_by_term_and_refresh_bypasses_it(): void
@@ -188,19 +201,30 @@ class SubjectCatalogTest extends TestCase
         $this->history($teacher, 'own-history', 'HISTORY', 'วิชาของตำบล');
         $this->history($teacher, 'previous-term', 'OLDTERM', 'วิชาภาคเรียนก่อน', '1');
         $this->history($otherTeacher, 'other-history', 'OTHER', 'วิชาประวัติตำบลอื่น', '2', 't2');
-        $this->fakeWorkspace([['code' => 'API1', 'name' => 'วิชาจาก SDL', 'student_count' => 99, 'citizen_id' => 'remote-private-value']]);
+        $this->fakeWorkspace([['code' => 'API1', 'name' => 'วิชาจาก SDL', 'levels' => [1], 'student_count' => 99, 'citizen_id' => 'remote-private-value']]);
 
         foreach ([$teacher, $this->district()] as $user) {
             $response = $this->actingAs($user)->getJson(route('record-options.workspace', ['term' => '2/2569', 'tambon' => 't1']))
                 ->assertOk()->assertJsonPath('data.subject_source', 'sdl')->assertJsonPath('data.subject_term', '2/2569')
                 ->assertJsonPath('data.subject_error', null)->assertJsonCount(2, 'data.subjects')
-                ->assertJsonPath('data.subjects.0.subject', 'วิชาจาก SDL')->assertJsonPath('data.subjects.0.level', '')
+                ->assertJsonPath('data.subjects.0.subject', 'วิชาจาก SDL')->assertJsonPath('data.subjects.0.level', '1')
                 ->assertJsonPath('data.subjects.1.subject_code', 'HISTORY')
                 ->assertDontSee('ชื่อเก่าจากประวัติ')->assertDontSee('OLDTERM')->assertDontSee('OTHER')
                 ->assertDontSee('fixture-private-token')->assertDontSee('remote-private-value');
             $this->assertArrayNotHasKey('student_count', $response->json('data.subjects.0'));
             $this->assertSame(['G1'], array_column($response->json('data.groups'), 'group_code'));
         }
+    }
+
+    public function test_missing_source_level_metadata_warns_without_discarding_scoped_history(): void
+    {
+        $teacher = $this->teacher();
+        $this->history($teacher, 'known-primary', 'SAME', 'วิชาประถมที่เคยใช้');
+        $this->fakeWorkspace([['code' => 'SAME', 'name' => 'ชื่อจาก SDL ยังไม่ระบุระดับ']]);
+        $response = $this->actingAs($teacher)->getJson(route('record-options.workspace', ['term' => '2/2569', 'tambon' => 't1']))->assertOk();
+        $this->assertStringContainsString('ยังไม่ระบุระดับชั้น', $response->json('data.subject_error'));
+        $this->assertSame('1', collect($response->json('data.subjects'))->firstWhere('source', 'history')['level_code']);
+        $response->assertJsonCount(2, 'data.subjects');
     }
 
     public function test_catalogue_failure_keeps_current_term_history_and_returns_only_a_safe_notice(): void
