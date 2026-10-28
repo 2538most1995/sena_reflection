@@ -12,6 +12,8 @@ class AttendanceReportService
     {
         $rows = TeachingRecord::query()
             ->visibleTo($user)
+            ->when(! empty($filters['year']), fn ($query) => $query->where('records.year', $filters['year']))
+            ->when(! empty($filters['semester']), fn ($query) => $query->where('records.semester', $filters['semester']))
             ->when($user->isDistrict() && ! empty($filters['tambon']), fn ($query) => $query->where('records.tambon', $filters['tambon']))
             ->when(! empty($filters['level']), fn ($query) => $query->where('records.level', $filters['level']))
             ->join('record_attendance as ra', 'ra.record_id', '=', 'records.id')

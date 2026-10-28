@@ -21,7 +21,7 @@ class SemesterBackupService
     private const MAX_DATA_BYTES = 64 * 1024 * 1024;
 
     // Reserve room for the signed file inventory and ZIP entry headers as well as data.json.
-    private const MAX_ASSET_BYTES = self::MAX_BYTES - self::MAX_DATA_BYTES - 8 * 1024 * 1024;
+    private const MAX_ASSET_BYTES = self::MAX_BYTES - self::MAX_DATA_BYTES - SemesterBackupPresentation::MAX_BYTES - 8 * 1024 * 1024;
 
     private const TABLES = ['weekly_submissions', 'records', 'record_images', 'record_attendance', 'record_document_layouts', 'documents', 'document_assets', 'document_versions', 'record_revisions'];
 
@@ -89,7 +89,10 @@ class SemesterBackupService
                 if ($expectedFingerprint !== null && ! hash_equals($expectedFingerprint, $this->inventoryFingerprint($tables, $inventory))) {
                     $this->fail('ข้อมูลหรือรูปเปลี่ยนหลังตรวจรายการ กรุณาตรวจภาคเรียนอีกครั้งก่อนสำรอง');
                 }
-                $files = $inventory['files'];
+                $files = [];
+                foreach ($inventory['files'] as $index => $file) {
+                    $files[] = [...$file, 'entry' => SemesterBackupPresentation::imageEntry($index, $file['mime'])];
+                }
                 if ($inventory['missing_files'] !== [] && ! $allowMissing) {
                     $this->fail('พบรูปต้นฉบับที่สูญหาย กรุณาตรวจรายการและยืนยันสำรองเฉพาะไฟล์ที่ยังมีอยู่ โดยเก็บรายงานไฟล์ที่ขาดไว้ใน ZIP');
                 }
@@ -97,10 +100,15 @@ class SemesterBackupService
                 if (strlen($data) > self::MAX_DATA_BYTES) {
                     $this->fail('ข้อมูลภาคเรียนมีขนาดเกิน 64 MB กรุณาแบ่งชุดข้อมูลก่อนสำรอง');
                 }
-                $manifest = ['format' => 'sena-semester-backup', 'version' => 2, 'created_at' => now()->toIso8601String(),
+                $presentation = app(SemesterBackupPresentation::class)->build($tables, $files, $inventory['missing_files'], $year, $semester);
+                $readableFiles = [];
+                foreach ($presentation as $entry => $contents) {
+                    $readableFiles[] = ['entry' => $entry, 'size' => strlen($contents), 'sha256' => hash('sha256', $contents)];
+                }
+                $manifest = ['format' => 'sena-semester-backup', 'version' => 3, 'created_at' => now()->toIso8601String(),
                     'scope' => ['year' => $year, 'semester' => $semester], 'counts' => $this->counts($tables),
                     'data_sha256' => hash('sha256', $data), 'fingerprint' => $this->fingerprint($tables),
-                    'files' => $files, 'missing_files' => $inventory['missing_files'],
+                    'files' => $files, 'missing_files' => $inventory['missing_files'], 'readable_files' => $readableFiles,
                     'legacy_scope' => ! preg_match('/^25[0-9]{2}$/D', $year) || ! in_array($semester, ['1', '2'], true),
                     'identities' => $this->identities($tables)];
                 $manifest['signature'] = $this->signature($manifest);
@@ -111,6 +119,11 @@ class SemesterBackupService
                 try {
                     $zip->addFromString('manifest.json', $this->json($manifest));
                     $zip->addFromString('data.json', $data);
+                    foreach ($presentation as $entry => $contents) {
+                        if (! $zip->addFromString($entry, $contents)) {
+                            $this->fail('เขียนเอกสารภาษาไทยในชุดสำรองไม่สำเร็จ');
+                        }
+                    }
                     foreach ($files as $file) {
                         if (! $zip->addFile($this->physicalPath($file['disk'], $file['path']), $file['entry'])) {
                             $this->fail('อ่านรูปภาพเพื่อสำรองไม่สำเร็จ');
@@ -225,10 +238,10 @@ class SemesterBackupService
         }, 3);
     }
 
-    /** Explicitly close an already downloaded backup; retain paused private work and the server ZIP. */
-    public function closeout(string $id, ?string $pauseDraftFingerprint = null): array
+    /** Close a downloaded backup, retaining private work; optionally offload the server ZIP after cleanup. */
+    public function closeout(string $id, ?string $pauseDraftFingerprint = null, bool $offloadZip = false): array
     {
-        return $this->withStorageLock(function () use ($id, $pauseDraftFingerprint): array {
+        $result = $this->withStorageLock(function () use ($id, $pauseDraftFingerprint): array {
             $paused = 0;
             $entry = $this->find($id);
             if ($entry->downloaded_at === null) {
@@ -255,6 +268,21 @@ class SemesterBackupService
                     'cleanup_error' => 'นำบันทึกออกจากระบบแล้ว แต่คืนพื้นที่รูปยังไม่สำเร็จ กรุณากดตรวจและคืนพื้นที่รูปเพื่อตรวจสาเหตุและลองใหม่ ZIP และร่างที่พักไว้ยังอยู่ครบ'];
             }
         });
+
+        $result['server_zip_removed'] = false;
+        $result['offload_error'] = null;
+        if ($offloadZip && $result['cleanup_error'] === null && ($result['storage']['failed_count'] ?? 0) === 0) {
+            try {
+                // Acquire the shared lock again through offload(), after cleanup has released it.
+                $result['backup'] = $this->offload($id);
+                $result['server_zip_removed'] = true;
+            } catch (Throwable $exception) {
+                report($exception);
+                $result['offload_error'] = 'ล้างบันทึกและคืนพื้นที่รูปแล้ว แต่ ZIP สำเนาบนเซิร์ฟเวอร์ยังอยู่ กรุณากดลบ ZIP บนเซิร์ฟเวอร์เพื่อลองใหม่';
+            }
+        }
+
+        return $result;
     }
 
     /** Keep the catalog as an offline reminder; importing the downloaded ZIP restores access. */
@@ -571,7 +599,7 @@ class SemesterBackupService
             $this->fail('เปิดไฟล์ ZIP สำรองไม่ได้');
         }
         try {
-            if ($zip->numFiles > 20002) {
+            if ($zip->numFiles > 20002 + count(SemesterBackupPresentation::ENTRIES)) {
                 $this->fail('จำนวนไฟล์ในชุดสำรองมากเกินกำหนด');
             }
             $seen = [];
@@ -579,7 +607,7 @@ class SemesterBackupService
             for ($index = 0; $index < $zip->numFiles; $index++) {
                 $stat = $zip->statIndex($index);
                 $name = $stat['name'];
-                if (isset($seen[$name]) || ! preg_match('~^(manifest\.json|data\.json|files/[0-9]+)$~D', $name)
+                if (isset($seen[$name]) || ! preg_match('~^(manifest\.json|data\.json|files/[0-9]+|images/[0-9]{6}\.(jpg|png|webp|gif)|index\.html|README-TH\.txt|records\.csv|attendance\.csv|missing-files\.csv)$~D', $name)
                     || $stat['size'] > self::MAX_DATA_BYTES || ($name === 'manifest.json' && $stat['size'] > 4 * 1024 * 1024)
                     || ($stat['encryption_method'] ?? 0) !== 0) {
                     $this->fail('รายการไฟล์ใน ZIP ไม่ถูกต้อง');
@@ -601,7 +629,7 @@ class SemesterBackupService
             }
             $signature = $manifest['signature'] ?? '';
             unset($manifest['signature']);
-            if (($manifest['format'] ?? '') !== 'sena-semester-backup' || ! in_array($manifest['version'] ?? 0, [1, 2], true)
+            if (($manifest['format'] ?? '') !== 'sena-semester-backup' || ! in_array($manifest['version'] ?? 0, [1, 2, 3], true)
                 || ! is_string($signature) || ! hash_equals($this->signature($manifest), $signature)) {
                 $this->fail('ไฟล์สำรองไม่ใช่ของระบบนี้ ลายเซ็นไม่ถูกต้อง หรือ APP_KEY ต่างจากระบบที่สร้างไฟล์');
             }
@@ -611,16 +639,25 @@ class SemesterBackupService
             }
             $tables = json_decode($data, true, 512, JSON_THROW_ON_ERROR);
             $this->validateTables($tables, $manifest);
-            if (count($seen) !== count($manifest['files']) + 2) {
+            $readableFiles = $manifest['readable_files'] ?? [];
+            if (! is_array($manifest['files'] ?? null) || ! array_is_list($manifest['files']) || count($manifest['files']) > 20000
+                || ! is_array($readableFiles) || ! array_is_list($readableFiles)
+                || (($manifest['version'] < 3) && $readableFiles !== [])) {
+                $this->fail('รายการไฟล์ใน manifest ไม่ถูกต้อง');
+            }
+            if (count($seen) !== count($manifest['files']) + count($readableFiles) + 2) {
                 $this->fail('จำนวนไฟล์สำรองไม่ตรงกับ manifest');
             }
             $targets = [];
+            $claimed = ['manifest.json' => true, 'data.json' => true];
             foreach ($manifest['files'] as $file) {
                 $this->physicalPath($file['disk'], $file['path']);
                 $target = $file['disk'].':'.$file['path'];
-                if (isset($targets[$target]) || ! isset($seen[$file['entry']]) || ! preg_match('~^files/[0-9]+$~D', $file['entry'])) {
+                $entryPattern = $manifest['version'] === 3 ? '~^images/[0-9]{6}\.(jpg|png|webp|gif)$~D' : '~^files/[0-9]+$~D';
+                if (isset($targets[$target]) || isset($claimed[$file['entry']]) || ! isset($seen[$file['entry']]) || ! preg_match($entryPattern, $file['entry'])) {
                     $this->fail('ไฟล์รูปภาพในชุดสำรองซ้ำหรือขาดหาย');
                 }
+                $claimed[$file['entry']] = true;
                 $targets[$target] = true;
                 $stream = $zip->getStream($file['entry']);
                 if ($stream === false) {
@@ -632,6 +669,37 @@ class SemesterBackupService
                 if ($size !== $file['size'] || ! hash_equals($file['sha256'], hash_final($hash))) {
                     $this->fail('รูปภาพสำรองเสียหาย: checksum ไม่ตรง');
                 }
+            }
+            $readableEntries = [];
+            $readableBytes = 0;
+            foreach ($readableFiles as $file) {
+                if (! is_string($file['entry'] ?? null) || ! in_array($file['entry'], SemesterBackupPresentation::ENTRIES, true)
+                    || isset($claimed[$file['entry']]) || ! isset($seen[$file['entry']])
+                    || ! is_int($file['size'] ?? null) || $file['size'] < 0 || $file['size'] > SemesterBackupPresentation::MAX_BYTES
+                    || ! is_string($file['sha256'] ?? null) || ! preg_match('/^[a-f0-9]{64}$/D', $file['sha256'])) {
+                    $this->fail('เอกสารภาษาไทยในชุดสำรองไม่ถูกต้อง');
+                }
+                $contents = $zip->getFromName($file['entry']);
+                if ($contents === false || strlen($contents) !== $file['size'] || ! hash_equals($file['sha256'], hash('sha256', $contents))) {
+                    $this->fail('เอกสารภาษาไทยในชุดสำรองเสียหาย: checksum ไม่ตรง');
+                }
+                $readableBytes += strlen($contents);
+                if ($readableBytes > SemesterBackupPresentation::MAX_BYTES) {
+                    $this->fail('เอกสารสำหรับเปิดอ่านมีขนาดเกินขีดจำกัด');
+                }
+                $claimed[$file['entry']] = true;
+                $readableEntries[] = $file['entry'];
+            }
+            if ($manifest['version'] === 3) {
+                sort($readableEntries);
+                $expectedReadable = SemesterBackupPresentation::ENTRIES;
+                sort($expectedReadable);
+                if ($readableEntries !== $expectedReadable) {
+                    $this->fail('เอกสารสำหรับเปิดอ่านในชุดสำรองไม่ครบ');
+                }
+            }
+            if (array_diff_key($seen, $claimed) !== []) {
+                $this->fail('มีไฟล์ที่ไม่ได้ระบุใน manifest');
             }
             foreach ($manifest['missing_files'] ?? [] as $file) {
                 if (($manifest['version'] ?? 1) < 2 || ($file['reason'] ?? '') !== 'missing') {
@@ -740,6 +808,18 @@ class SemesterBackupService
         return hash('sha256', $this->fingerprint($tables).$this->json($inventory));
     }
 
+    /** ZIP member names changed in v3; original paths and bytes must still match exactly. */
+    private function sameFileInventory(array $archived, array $current): bool
+    {
+        $withoutEntries = static fn (array $files): array => array_map(static function (array $file): array {
+            unset($file['entry']);
+
+            return $file;
+        }, $files);
+
+        return $withoutEntries($archived) === $withoutEntries($current);
+    }
+
     private function storageFiles(array $bundle): array
     {
         $aliases = [];
@@ -808,7 +888,7 @@ class SemesterBackupService
         $inventory = $this->fileInventory($current);
         if (! hash_equals($backup->fingerprint, $this->fingerprint($current))) {
             $blockers[] = 'ข้อมูลเปลี่ยนหลังสำรอง กรุณาสร้างชุดสำรองใหม่';
-        } elseif ($files !== $inventory['files']) {
+        } elseif (! $this->sameFileInventory($files, $inventory['files'])) {
             $blockers[] = 'รูปภาพหรือไฟล์เอกสารเปลี่ยนหลังสำรอง กรุณาสร้างชุดสำรองใหม่';
         }
         if ($missing !== $inventory['missing_files']) {
@@ -978,7 +1058,7 @@ class SemesterBackupService
         $path = Storage::disk('local')->path($relative);
         DB::table('semester_backups')->insert(['id' => $id, 'year' => $manifest['scope']['year'], 'semester' => $manifest['scope']['semester'], 'status' => $status,
             'created_by' => $user->id, 'storage_path' => $relative, 'sha256' => hash_file('sha256', $path), 'fingerprint' => $manifest['fingerprint'],
-            'counts' => $this->json([...$manifest['counts'], 'missing_files' => count($manifest['missing_files'] ?? []), 'asset_files' => count($manifest['files'])]), 'size_bytes' => filesize($path), 'created_at' => now(), 'updated_at' => now()]);
+            'counts' => $this->json([...$manifest['counts'], 'missing_files' => count($manifest['missing_files'] ?? []), 'asset_files' => count($manifest['files']), 'format_version' => $manifest['version']]), 'size_bytes' => filesize($path), 'created_at' => now(), 'updated_at' => now()]);
     }
 
     private function resource(object $backup): array

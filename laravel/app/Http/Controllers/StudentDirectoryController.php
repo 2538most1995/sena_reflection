@@ -6,6 +6,7 @@ use App\Models\Tambon;
 use App\Models\TeachingRecord;
 use App\Models\User;
 use App\Services\AcademicTermService;
+use App\Services\ActiveAcademicTermService;
 use App\Services\EducationLevelService;
 use App\Services\StudentApiService;
 use Illuminate\Http\Request;
@@ -25,6 +26,9 @@ class StudentDirectoryController extends Controller
         $query = collect($request->only($allowed))->filter(fn ($value) => is_scalar($value) && $value !== '')->map(fn ($value) => (string) $value)->all();
         $query['limit'] ??= '1000';
         $query['status'] ??= 'active';
+        if ($this->api->isSdl() && $this->terms->fromFilters($query) === null && ($knownTerm = $this->api->latestKnownTerm()) !== null) {
+            $query['term'] = $knownTerm;
+        }
         try {
             [$items, $meta] = $this->api->fetch($query, $allPages, $request->boolean('refresh'));
             $items = $this->filterRawForUser($items, $user, $scopeTambon)
@@ -57,7 +61,8 @@ class StudentDirectoryController extends Controller
             Log::warning('Legacy Student API compatibility request failed', ['exception' => $exception::class]);
         }
 
-        $filters = ['q' => $query['q'] ?? $query['search'] ?? null, 'level' => $query['level'] ?? 'all', 'term' => $this->terms->fromFilters($query)];
+        $filters = ['q' => $query['q'] ?? $query['search'] ?? null, 'level' => $query['level'] ?? 'all',
+            'term' => $this->terms->fromFilters($query) ?? ($this->api->isSdl() ? app(ActiveAcademicTermService::class)->resolve()['term'] : null)];
         $rows = $this->localAttendanceRows($user, $filters, $scopeTambon);
         if (($query['view'] ?? '') === 'groups') {
             $rows = $rows->groupBy(fn ($row) => implode('|', [$row['group_code'], $row['class_name'], $row['level']]))
@@ -82,6 +87,9 @@ class StudentDirectoryController extends Controller
             'term' => ['nullable', 'regex:/^[123]\/25\d{2}$/'],
             'refresh' => ['nullable', 'boolean'],
         ]);
+        if ($this->api->isSdl() && $this->terms->fromFilters($filters) === null && ($knownTerm = $this->api->latestKnownTerm()) !== null) {
+            $filters['term'] = $knownTerm;
+        }
         $user = $request->user();
         $error = null;
         $notice = null;
@@ -98,7 +106,8 @@ class StudentDirectoryController extends Controller
             }
 
             if ($rows->isEmpty() && ! $user->isDistrict()) {
-                $fallback = $this->localAttendanceRows($user, $filters);
+                $fallbackFilters = $this->fallbackFilters($filters);
+                $fallback = $this->localAttendanceRows($user, $fallbackFilters);
                 if ($fallback->isNotEmpty()) {
                     $rows = $fallback;
                     $source = 'local_attendance';
@@ -107,6 +116,7 @@ class StudentDirectoryController extends Controller
             }
         } catch (\Throwable $exception) {
             Log::warning('Student directory API unavailable', ['exception' => $exception::class]);
+            $filters = $this->fallbackFilters($filters);
             $rows = $this->localAttendanceRows($user, $filters);
             $source = 'local_attendance';
             if ($rows->isNotEmpty()) {
@@ -123,6 +133,15 @@ class StudentDirectoryController extends Controller
         $items = $this->paginate($rows, $request);
 
         return Inertia::render('students/index', compact('items', 'filters', 'error', 'notice', 'source', 'studentMeta'));
+    }
+
+    private function fallbackFilters(array $filters): array
+    {
+        if ($this->api->isSdl() && $this->terms->fromFilters($filters) === null) {
+            $filters['term'] = app(ActiveAcademicTermService::class)->resolve()['term'];
+        }
+
+        return $filters;
     }
 
     private function safeRow(array $row): array

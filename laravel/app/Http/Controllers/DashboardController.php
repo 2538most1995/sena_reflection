@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Tambon;
 use App\Models\TeachingDraft;
 use App\Models\TeachingRecord;
+use App\Services\AcademicTermService;
+use App\Services\ActiveAcademicTermService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,7 +15,7 @@ use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function __invoke(Request $request): Response
+    public function __invoke(Request $request, ActiveAcademicTermService $activeTerms): Response
     {
         $filters = $request->validate([
             'year' => ['nullable', 'string', 'max:10'],
@@ -21,7 +23,17 @@ class DashboardController extends Controller
             'week' => ['nullable', 'integer', 'between:1,60'],
             'tambon' => ['nullable', 'string', 'max:20'],
             'search' => ['nullable', 'string', 'max:100'],
+            'scope' => ['nullable', 'in:current,selected,all'],
         ]);
+
+        $activeTerm = $activeTerms->resolve();
+        if (($filters['scope'] ?? null) === 'all') {
+            unset($filters['year'], $filters['semester']);
+        } elseif (! $request->filled('year') && ! $request->filled('semester')) {
+            $filters = [...$filters, 'year' => $activeTerm['year'], 'semester' => $activeTerm['semester'], 'scope' => 'current'];
+        } else {
+            $filters['scope'] = ($filters['year'] ?? null) === $activeTerm['year'] && ($filters['semester'] ?? null) === $activeTerm['semester'] && ($filters['scope'] ?? null) === 'current' ? 'current' : 'selected';
+        }
 
         $user = $request->user();
         $base = TeachingRecord::query()->visibleTo($user);
@@ -48,7 +60,7 @@ class DashboardController extends Controller
             ->orderByDesc('date')
             ->orderByDesc('created_at')
             ->paginate(30)
-            ->withQueryString()
+            ->appends(array_filter($filters, static fn ($value): bool => $value !== null && $value !== ''))
             ->through(function (TeachingRecord $record): array {
                 $payload = $record->toArray();
                 $payload['date'] = $record->date?->format('Y-m-d');
@@ -74,6 +86,11 @@ class DashboardController extends Controller
             'total_present' => (int) ($summary->total_present ?? 0),
             'unique_present_students' => $uniquePresentStudents,
         ];
+        $olderPeriods = TeachingRecord::query()->visibleTo($user)->select('year', 'semester')->selectRaw('COUNT(*) AS records')
+            ->groupBy('year', 'semester')->get()->filter(function ($period) use ($activeTerm): bool {
+                return app(AcademicTermService::class)->normalize($period->semester.'/'.$period->year) !== null
+                    && [(int) $period->year, (int) $period->semester] < [(int) $activeTerm['year'], (int) $activeTerm['semester']];
+            });
 
         return Inertia::render('dashboard', [
             'records' => $records,
@@ -81,14 +98,19 @@ class DashboardController extends Controller
             'availableWeeks' => $availableWeeks,
             'tambonOptions' => $tambonOptions,
             'filters' => $filters,
+            'activeTerm' => $activeTerm,
+            'olderRecordCount' => (int) $olderPeriods->sum('records'),
             'drafts' => TeachingDraft::query()->where('user_id', $user->id)->where('status', 'active')
+                ->when($filters['year'] ?? null, fn ($query, $year) => $query->where('year', $year))
+                ->when($filters['semester'] ?? null, fn ($query, $semester) => $query->where('semester', $semester))
+                ->withCount('images')
                 ->latest('last_saved_at')->limit(6)->get()->map(fn (TeachingDraft $draft) => [
                     'id' => $draft->id, 'last_saved_at' => $draft->last_saved_at?->toIso8601String(),
-                    'payload' => $draft->payload,
+                    'payload' => $draft->payload, 'images_count' => $draft->images_count,
                 ]),
             'weeklyDefaults' => [
-                'year' => (string) ((int) date('Y') + 543),
-                'semester' => '1',
+                'year' => $activeTerm['year'],
+                'semester' => $activeTerm['semester'],
                 'date' => now()->format('Y-m-d'),
             ],
         ]);

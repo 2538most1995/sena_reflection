@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\ActiveAcademicTermService;
 use App\Services\SemesterBackupService;
 use App\Services\SemesterTermRepairService;
 use Illuminate\Http\JsonResponse;
@@ -17,6 +18,7 @@ class SemesterBackupController extends Controller
         $this->district($request);
         $validated = $request->validate(['backup_page' => ['sometimes', 'integer', 'min:1', 'max:100000']]);
         $data = $backups->index((int) ($validated['backup_page'] ?? 1));
+        $data['activePeriod'] = app(ActiveAcademicTermService::class)->resolve();
 
         return $request->expectsJson() ? response()->json($data) : Inertia::render('admin/semester-backups', $data);
     }
@@ -120,9 +122,10 @@ class SemesterBackupController extends Controller
         $data = $request->validate(['external_copy' => ['required', 'accepted'],
             'accept_missing_files' => (json_decode($entry->counts, true)['missing_files'] ?? 0) > 0 ? ['required', 'accepted'] : ['sometimes', 'boolean'],
             'pause_active_drafts' => ['sometimes', 'boolean'],
+            'offload_server_zip' => ['sometimes', 'boolean'],
             'draft_fingerprint' => ['nullable', 'required_if:pause_active_drafts,true,1', 'string', 'regex:/^[a-f0-9]{64}$/D']]);
 
-        return response()->json($backups->closeout($backup, $request->boolean('pause_active_drafts') ? $data['draft_fingerprint'] : null));
+        return response()->json($backups->closeout($backup, $request->boolean('pause_active_drafts') ? $data['draft_fingerprint'] : null, $request->boolean('offload_server_zip')));
     }
 
     public function offload(Request $request, string $backup, SemesterBackupService $backups): JsonResponse

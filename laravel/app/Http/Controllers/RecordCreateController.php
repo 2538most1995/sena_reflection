@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Tambon;
 use App\Models\TeachingRecord;
 use App\Services\AcademicTermService;
+use App\Services\ActiveAcademicTermService;
 use App\Services\DraftService;
 use App\Services\EducationLevelService;
 use App\Services\StudentApiService;
@@ -34,6 +35,10 @@ class RecordCreateController extends Controller
         $optionsRequest = $draft ? $request->duplicate([...$request->query(), ...$draft['scope']]) : $request;
         $options = $this->options($optionsRequest, $students, $levels);
         $data = $options['data'];
+        $terms = app(AcademicTermService::class);
+        $defaultTerm = $terms->fromFilters($draft['scope'] ?? $request->query())
+            ?? (app(StudentApiService::class)->isSdl() ? app(ActiveAcademicTermService::class)->resolve()['term'] : $terms->normalize($data['latest_term'] ?? null))
+            ?? app(ActiveAcademicTermService::class)->resolve()['term'];
 
         return Inertia::render('records/create', [
             'groups' => $data['groups'],
@@ -44,7 +49,7 @@ class RecordCreateController extends Controller
             'tambonOptions' => $request->user()->isDistrict() ? Tambon::query()->orderBy('name')->get(['id', 'name']) : [],
             'studentSource' => $data['source'],
             'studentError' => $data['error_code'] ? $options['message'] : null,
-            'defaults' => [...app(AcademicTermService::class)->defaults($data['latest_term'] ?? null), 'date' => now()->format('Y-m-d')],
+            'defaults' => [...$terms->defaults($defaultTerm), 'date' => now()->format('Y-m-d')],
             'workspace' => [
                 'mode' => $draft && $draft['source_record_id'] ? 'edit' : 'create',
                 'draft' => $draft,
@@ -63,7 +68,8 @@ class RecordCreateController extends Controller
             'term' => ['nullable', 'regex:/^[123]\/25\d{2}$/'],
             'refresh' => ['nullable', 'boolean'],
         ]);
-        $term = app(AcademicTermService::class)->fromFilters($filters);
+        $term = app(AcademicTermService::class)->fromFilters($filters)
+            ?? (app(StudentApiService::class)->isSdl() ? app(StudentApiService::class)->latestKnownTerm() : null);
         $user = $request->user();
         $targetTambon = $user->isDistrict() ? trim((string) $request->query('tambon', '')) : (string) $user->tambon;
         if ($targetTambon !== '' && ! Tambon::query()->whereKey($targetTambon)->exists()) {

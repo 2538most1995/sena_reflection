@@ -320,13 +320,37 @@ class SemesterBackupTest extends TestCase
         $backup = $this->createBackup();
         $this->get(route('semester-backups.download', $backup['id']))->assertOk();
         $this->mock(SemesterBackupStorageService::class)->shouldReceive('release')->once()->andThrow(new \RuntimeException('storage unavailable'));
-        $input = ['confirmation' => 'CLOSE 1/2569', 'external_copy' => true];
+        $input = ['confirmation' => 'CLOSE 1/2569', 'external_copy' => true, 'offload_server_zip' => true];
         $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertOk()->assertJsonPath('backup.status', 'archived')
             ->assertJsonPath('storage', null)->assertJsonPath('cleanup_error', fn ($message): bool => is_string($message) && str_contains($message, 'คืนพื้นที่รูปยังไม่สำเร็จ'));
         Storage::disk('public')->assertExists('records/2569/1/photo.png');
+        Storage::disk('local')->assertExists(DB::table('semester_backups')->where('id', $backup['id'])->value('storage_path'));
         $this->assertDatabaseMissing('records', ['id' => 'record-old']);
         $this->app->forgetInstance(SemesterBackupStorageService::class);
-        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertOk()->assertJsonPath('storage.deleted_count', 2);
+        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertOk()->assertJsonPath('storage.deleted_count', 2)->assertJsonPath('server_zip_removed', true)->assertJsonPath('backup.status', 'offline');
+    }
+
+    public function test_closeout_can_free_the_server_zip_after_external_copy_then_import_and_restore_all_text_and_images(): void
+    {
+        $this->seedGraph();
+        $before = $this->graphRows();
+        $backup = $this->createBackup();
+        $path = $this->zipPath($backup['id']);
+        $externalBytes = file_get_contents($path);
+        $input = ['confirmation' => 'CLOSE 1/2569', 'external_copy' => true, 'offload_server_zip' => true];
+        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertUnprocessable();
+        $this->get(route('semester-backups.download', $backup['id']))->assertOk();
+        $this->postJson(route('semester-backups.closeout', $backup['id']), [...$input, 'external_copy' => false])->assertUnprocessable();
+        $this->postJson(route('semester-backups.closeout', $backup['id']), $input)->assertOk()->assertJsonPath('server_zip_removed', true)
+            ->assertJsonPath('backup.status', 'offline')->assertJsonPath('storage.deleted_count', 2)->assertJsonPath('offload_error', null);
+        $this->assertFileDoesNotExist($path);
+        $this->assertDatabaseMissing('records', ['id' => 'record-old']);
+        $this->assertDatabaseHas('records', ['id' => 'record-new', 'semester' => '2']);
+        $imported = $this->postJson(route('semester-backups.import'), ['archive' => UploadedFile::fake()->createWithContent('external-semester.zip', $externalBytes)])->assertCreated()->json('backup');
+        $this->postJson(route('semester-backups.restore', $imported['id']), ['confirmation' => 'RESTORE 1/2569'])->assertOk();
+        $this->assertSame($before, $this->graphRows());
+        Storage::disk('public')->assertExists('records/2569/1/photo.png');
+        Storage::disk('local')->assertExists($this->documentImage);
     }
 
     public function test_index_reports_the_actual_php_upload_limit_and_failed_php_uploads_explain_the_limit(): void
@@ -463,25 +487,37 @@ class SemesterBackupTest extends TestCase
         $this->assertSame('1/1', $manifest['scope']['semester']);
     }
 
-    public function test_original_version_one_backups_remain_importable_after_the_missing_report_upgrade(): void
+    public function test_original_version_one_and_two_backups_remain_importable_after_the_readable_format_upgrade(): void
     {
         $this->seedGraph();
         $backup = $this->createBackup();
-        $temporary = tempnam(sys_get_temp_dir(), 'sena-v1-backup-');
-        copy($this->zipPath($backup['id']), $temporary);
-        try {
-            $zip = new ZipArchive;
-            $zip->open($temporary);
-            $manifest = json_decode($zip->getFromName('manifest.json'), true, 512, JSON_THROW_ON_ERROR);
-            $manifest['version'] = 1;
-            unset($manifest['missing_files'], $manifest['legacy_scope'], $manifest['signature']);
-            $manifest['signature'] = hash_hmac('sha256', json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), config('app.key'));
-            $zip->addFromString('manifest.json', json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-            $zip->close();
-            $this->postJson(route('semester-backups.import'), ['archive' => UploadedFile::fake()->createWithContent('original-v1.zip', file_get_contents($temporary))])
-                ->assertCreated()->assertJsonPath('backup.counts.records', 1)->assertJsonPath('backup.counts.missing_files', 0);
-        } finally {
-            unlink($temporary);
+        foreach ([1, 2] as $version) {
+            $temporary = tempnam(sys_get_temp_dir(), 'sena-legacy-backup-');
+            copy($this->zipPath($backup['id']), $temporary);
+            try {
+                $zip = new ZipArchive;
+                $zip->open($temporary);
+                $manifest = json_decode($zip->getFromName('manifest.json'), true, 512, JSON_THROW_ON_ERROR);
+                foreach ($manifest['readable_files'] as $file) {
+                    $zip->deleteName($file['entry']);
+                }
+                foreach ($manifest['files'] as $index => &$file) {
+                    $zip->renameName($file['entry'], 'files/'.$index);
+                    $file['entry'] = 'files/'.$index;
+                }
+                unset($file, $manifest['readable_files'], $manifest['signature']);
+                $manifest['version'] = $version;
+                if ($version === 1) {
+                    unset($manifest['missing_files'], $manifest['legacy_scope']);
+                }
+                $manifest['signature'] = hash_hmac('sha256', json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), config('app.key'));
+                $zip->addFromString('manifest.json', json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                $zip->close();
+                $this->postJson(route('semester-backups.import'), ['archive' => UploadedFile::fake()->createWithContent('original-v'.$version.'.zip', file_get_contents($temporary))])
+                    ->assertCreated()->assertJsonPath('backup.counts.records', 1)->assertJsonPath('backup.counts.missing_files', 0)->assertJsonPath('backup.counts.format_version', $version);
+            } finally {
+                unlink($temporary);
+            }
         }
     }
 

@@ -7,6 +7,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
@@ -106,6 +107,45 @@ class StudentApiService
             || ($configuration['driver'] === 'auto' && str_contains((string) $configuration['url'], '/integrations/student-data'));
     }
 
+    /** Latest verified source term, independent of the term currently selected by the user. */
+    public function latestKnownTerm(): ?string
+    {
+        return $this->latestTerm(['latest_term' => $this->status()['latest_term'],
+            'current_term' => Cache::get('student-source:latest-term:'.$this->fingerprint())], collect());
+    }
+
+    /** @param array<string, mixed> $sourceConfiguration */
+    private function rememberLatestTerm(?string $term, array $sourceConfiguration): void
+    {
+        if (($sourceConfiguration['driver'] !== 'sdl' && ! ($sourceConfiguration['driver'] === 'auto' && str_contains((string) $sourceConfiguration['url'], '/integrations/student-data')))
+            || ($term = $this->terms->normalize($term)) === null) {
+            return;
+        }
+        $cacheKey = 'student-source:latest-term:'.hash('sha256', json_encode($sourceConfiguration, JSON_THROW_ON_ERROR));
+        $best = $this->latestTerm(['latest_term' => $term, 'current_term' => Cache::get($cacheKey)], collect());
+        if (Schema::hasTable('student_api_connections')) {
+            DB::transaction(function () use (&$best, $sourceConfiguration): void {
+                $connection = StudentApiConnection::query()->whereKey(1)->lockForUpdate()->first();
+                if ($connection === null) {
+                    return;
+                }
+                try {
+                    $credential = Crypt::decryptString((string) $connection->token);
+                } catch (\Throwable) {
+                    return;
+                }
+                if (! hash_equals($credential, (string) ($sourceConfiguration['token'] ?? ''))) {
+                    return;
+                }
+                $best = $this->latestTerm(['current_term' => $connection->latest_term, 'latest_term' => $best], collect());
+                if ($best !== $connection->latest_term) {
+                    $connection->update(['latest_term' => $best]);
+                }
+            });
+        }
+        Cache::forever($cacheKey, $best);
+    }
+
     /** @return Collection<int, array{subject: string, subject_code: string, level: string, source: string}> */
     public function subjects(string $term, bool $refresh = false): Collection
     {
@@ -158,12 +198,16 @@ class StudentApiService
     public function fetch(array $filters, bool $allPages = true, bool $refresh = false): array
     {
         $term = $this->terms->fromFilters($filters);
-        $cacheKey = 'student-source:v1:'.hash('sha256', json_encode([$this->fingerprint(), $filters, $allPages], JSON_THROW_ON_ERROR));
+        $configuration = $this->configuration();
+        $sourceFingerprint = hash('sha256', json_encode($configuration, JSON_THROW_ON_ERROR));
+        $cacheKey = 'student-source:v1:'.hash('sha256', json_encode([$sourceFingerprint, $filters, $allPages], JSON_THROW_ON_ERROR));
         if (! $refresh && is_array($cached = Cache::get($cacheKey))) {
+            $this->rememberLatestTerm($cached['meta']['latest_term'] ?? null, $configuration);
+
             return [collect($cached['items']), $cached['meta']];
         }
-        $sdl = $this->isSdl();
-        $configuration = $this->configuration();
+        $sdl = $configuration['driver'] === 'sdl'
+            || ($configuration['driver'] === 'auto' && str_contains((string) $configuration['url'], '/integrations/student-data'));
         $credential = trim((string) $configuration[$sdl ? 'token' : 'key']);
         $urls = $sdl ? [$configuration['url']] : [$configuration['url'], ...$configuration['fallback_urls']];
         $urls = array_values(array_unique(array_filter($urls)));
@@ -185,7 +229,7 @@ class StudentApiService
                     });
                 }
                 if ($sdl) {
-                    $teachers = $this->teachers((string) $url, $credential, $refresh);
+                    $teachers = $this->teachers((string) $url, $credential, $refresh, sourceFingerprint: $sourceFingerprint);
                     $rows = $rows->map(fn (array $row): array => [...$row, 'teachers' => $teachers->filter(fn (array $teacher): bool => count(array_intersect($teacher['assigned_groups'], [$row['group_code'], $row['class_name']])) > 0)->map(fn (array $teacher): array => ['username' => $teacher['username'], 'name' => $teacher['name']])->values()->all()]);
                     if (($filters['view'] ?? '') === 'groups') {
                         $rows = $rows->groupBy(fn (array $row): string => implode('|', [$row['group_code'], $row['class_name'], $row['level_code']]))
@@ -195,6 +239,7 @@ class StudentApiService
                 $meta = [...$meta, 'latest_term' => $sourceTerm, 'selected_term' => $selectedTerm, 'driver' => $sdl ? 'sdl' : 'legacy'];
                 $rows = $rows->values();
                 Cache::put($cacheKey, ['items' => $rows->all(), 'meta' => $meta], 300);
+                $this->rememberLatestTerm($sourceTerm, $configuration);
 
                 return [$rows, $meta];
             } catch (\Throwable $exception) {
@@ -262,10 +307,10 @@ class StudentApiService
     }
 
     /** @return Collection<int, array<string, mixed>> */
-    private function teachers(string $studentsUrl, string $credential, bool $refresh, bool $required = false): Collection
+    private function teachers(string $studentsUrl, string $credential, bool $refresh, bool $required = false, ?string $sourceFingerprint = null): Collection
     {
         $url = preg_replace('#/students/?$#', '/teachers', $studentsUrl);
-        $cacheKey = 'student-source:teachers:'.$this->fingerprint();
+        $cacheKey = 'student-source:teachers:'.($sourceFingerprint ?? $this->fingerprint());
         if (! $refresh && is_array($cached = Cache::get($cacheKey))) {
             return collect($cached);
         }

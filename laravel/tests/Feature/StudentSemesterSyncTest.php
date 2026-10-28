@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\StudentApiConnection;
 use App\Models\Tambon;
 use App\Models\TeachingRecord;
 use App\Models\User;
@@ -9,6 +10,7 @@ use App\Services\StudentApiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
@@ -154,8 +156,9 @@ class StudentSemesterSyncTest extends TestCase
             ->assertOk()->assertJsonPath('status', 'error')->assertJsonCount(0, 'data.items')->assertJsonPath('data.error_code', 'student_term_unavailable');
     }
 
-    public function test_default_local_fallback_uses_latest_scoped_semester_without_old_rosters(): void
+    public function test_default_local_fallback_uses_verified_api_semester_without_old_rosters(): void
     {
+        StudentApiConnection::create(['id' => 1, 'token' => Crypt::encryptString('test-sdl-token'), 'latest_term' => '2/2569', 'verified_at' => now()]);
         $user = $this->teacher();
         foreach (['1', '2'] as $semester) {
             $record = TeachingRecord::create(['id' => 'local-'.$semester, 'tambon' => 'own', 'year' => '2569', 'semester' => $semester, 'week' => 1, 'date' => '2026-10-25', 'level' => 'ประถมศึกษา', 'class_group_code' => 'G1', 'class_name' => 'กลุ่มเสนา', 'subject' => 'ภาษาไทย', 'created_by' => $user->id]);

@@ -5,6 +5,7 @@ import { Head, usePage } from '@inertiajs/react'
 import { ArrowRight, Books, CalendarBlank, CheckCircle, ClockCounterClockwise, Funnel, MagnifyingGlass, Plus, Printer, UsersThree, X } from '@phosphor-icons/react'
 import { FormEvent, useEffect, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
+import { AcademicTermNotice, type ActiveAcademicTerm } from '@/components/academic-term-notice'
 import { FlashMessages } from '@/components/flash-messages'
 import { ExportPanel } from '@/components/export-panel'
 import { FormField } from '@/components/form-field'
@@ -33,9 +34,11 @@ type Props = {
   summary: { record_count: number; week_count: number; total_students: number; total_present: number; unique_present_students: number }
   availableWeeks: number[]
   tambonOptions: Tambon[]
-  filters: Partial<Record<'year' | 'semester' | 'week' | 'tambon' | 'search', string>>
+  filters: Partial<Record<'year' | 'semester' | 'week' | 'tambon' | 'search' | 'scope', string>>
   weeklyDefaults: { year: string; semester: string; date: string }
   drafts?: DraftSummary[]
+  activeTerm: ActiveAcademicTerm
+  olderRecordCount: number
 }
 
 function Metric({ label, value, unit, icon: Icon, emphasized = false, detail }: { label: string; value: string; unit: string; icon: React.ElementType; emphasized?: boolean; detail?: string }) {
@@ -82,13 +85,15 @@ function DraftWorkList({ drafts }: { drafts?: Props['drafts'] }) {
   </section>
 }
 
-function Filters({ filters, weeks, tambons, district }: { filters: Props['filters']; weeks: number[]; tambons: Tambon[]; district: boolean }) {
-  const [data, setData] = useState({ year: filters.year || '', semester: filters.semester || '', week: filters.week || '', tambon: filters.tambon || '', search: filters.search || '' })
+function Filters({ filters, weeks, tambons, district, current }: { filters: Props['filters']; weeks: number[]; tambons: Tambon[]; district: boolean; current: ActiveAcademicTerm }) {
+  const [data, setData] = useState({ year: filters.year || '', semester: filters.semester || '', week: filters.week || '', tambon: filters.tambon || '', search: filters.search || '', scope: filters.scope || 'current' })
+  useEffect(() => setData({ year: filters.year || '', semester: filters.semester || '', week: filters.week || '', tambon: filters.tambon || '', search: filters.search || '', scope: filters.scope || 'current' }), [filters.year, filters.semester, filters.week, filters.tambon, filters.search, filters.scope])
   const active = Object.values(data).some(Boolean)
   const apply = (event: FormEvent) => { event.preventDefault(); router.get('/', data, { preserveState: true, replace: true }) }
   return <form onSubmit={apply} className="grid gap-4 rounded-xl bg-muted/45 p-4 md:grid-cols-2 xl:grid-cols-6">
-    <FormField label="ปีการศึกษา"><Input inputMode="numeric" value={data.year} onChange={(event) => setData({ ...data, year: event.target.value })} placeholder="เช่น 2569" /></FormField>
-    <FormField label="ภาคเรียน"><NativeSelect value={data.semester} onChange={(event) => setData({ ...data, semester: event.target.value })}><option value="">ทุกภาคเรียน</option>{['1', '2', '3'].map((term) => <option key={term} value={term}>ภาคเรียน {term}</option>)}</NativeSelect></FormField>
+    <FormField label="ช่วงข้อมูล"><NativeSelect value={data.scope} onChange={event => { const scope = event.target.value; setData({ ...data, scope, ...(scope === 'current' ? { year: current.year, semester: current.semester } : scope === 'all' ? { year: '', semester: '' } : {}) }) }}><option value="current">ภาคเรียนปัจจุบัน</option><option value="selected">เลือกปี / ภาคเรียน</option><option value="all">ทุกภาคเรียน</option></NativeSelect></FormField>
+    <FormField label="ปีการศึกษา"><Input inputMode="numeric" disabled={data.scope === 'all'} value={data.year} onChange={(event) => setData({ ...data, year: event.target.value, scope: 'selected' })} placeholder="เช่น 2569" /></FormField>
+    <FormField label="ภาคเรียน"><NativeSelect value={data.semester} disabled={data.scope === 'all'} onChange={(event) => setData({ ...data, semester: event.target.value, scope: 'selected' })}><option value="">ทุกภาคเรียน</option>{['1', '2', '3'].map((term) => <option key={term} value={term}>ภาคเรียน {term}</option>)}</NativeSelect></FormField>
     <FormField label="สัปดาห์"><NativeSelect value={data.week} onChange={(event) => setData({ ...data, week: event.target.value })}><option value="">ทุกสัปดาห์</option>{weeks.map((week) => <option key={week} value={week}>สัปดาห์ {week}</option>)}</NativeSelect></FormField>
     {district && <FormField label="ตำบล"><NativeSelect value={data.tambon} onChange={(event) => setData({ ...data, tambon: event.target.value })}><option value="">ทุกตำบล</option>{tambons.map((tambon) => <option key={tambon.id} value={tambon.id}>{tambon.name}</option>)}</NativeSelect></FormField>}
     <FormField label="ค้นหารายวิชา" className={district ? 'xl:col-span-2' : 'xl:col-span-3'}><div className="relative"><MagnifyingGlass size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input value={data.search} onChange={(event) => setData({ ...data, search: event.target.value })} className="pl-10" placeholder="ชื่อหรือรหัสวิชา" /></div></FormField>
@@ -118,6 +123,7 @@ export default function Dashboard(props: Props) {
     <Head title="ภาพรวม" />
     <PageHeader title="บันทึกหลังการสอน" description="ติดตามรายการ ตรวจสอบการเข้าเรียน และส่งออกเอกสาร" action={<Button asChild size="lg"><Link href="/records/create"><Plus size={19} />สร้างบันทึกหลังสอน</Link></Button>} />
     <FlashMessages />
+    <AcademicTermNotice active={props.activeTerm} filters={props.filters} district={district} olderCount={props.olderRecordCount} />
     <DraftWorkList drafts={props.drafts} />
     <section className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="สรุปข้อมูล">
       <Metric label="รายการที่แสดง" value={number(props.summary.record_count)} unit="บันทึก" icon={Books} />
@@ -126,7 +132,7 @@ export default function Dashboard(props: Props) {
       <Metric emphasized label="อัตรามาเรียน" value={`${rate.toFixed(1)}%`} unit="ของผู้เรียน" icon={CheckCircle} detail={`${number(props.summary.total_present)} คน จาก ${number(props.summary.total_students)} คน`} />
     </section>
     <Card>
-      <CardHeader className="gap-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle>รายการบันทึก</CardTitle><p className="mt-1 text-sm text-muted-foreground">ค้นหา ตรวจสอบ แก้ไข และพิมพ์ข้อมูล</p></div><Badge variant="outline">{number(props.records.total)} รายการ</Badge></div><Filters filters={props.filters} weeks={props.availableWeeks} tambons={props.tambonOptions} district={district} /></CardHeader>
+      <CardHeader className="gap-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle>รายการบันทึก</CardTitle><p className="mt-1 text-sm text-muted-foreground">ค้นหา ตรวจสอบ แก้ไข และพิมพ์ข้อมูล</p></div><Badge variant="outline">{number(props.records.total)} รายการ</Badge></div><Filters filters={props.filters} weeks={props.availableWeeks} tambons={props.tambonOptions} district={district} current={props.activeTerm} /></CardHeader>
       <CardContent>
         <ExportPanel filters={props.filters} />
         <RecordsList records={props.records} />
