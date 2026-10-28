@@ -11,3 +11,7 @@ Patch `subject-levels.patch` เพิ่ม `levels: [1, 2, 3]` ตามระ
 Rollback: reverse patch เฉพาะการเติม _levels/levels เท่านั้น Reflection ซ่อนวิชาที่ไม่ทราบระดับไว้และยังกรอกเองได้ ไม่เดาระดับและไม่แก้ร่างเก่า
 
 ห้าม commit token, APP_KEY หรือข้อมูลนักศึกษาจริงลงใน patch นี้
+
+ติดตั้งจริง 28 ต.ค. 2569: เพิ่มการสะสมระดับและส่ง `levels` ใน SDL `laravel-app/app/Domain/Students/Services/StudentAcademicService.php` ผ่าน Plesk โดยฉบับติดตั้งใช้ `array_keys($subject['_levels'] ?? [])` ป้องกันกรณีไม่มีระดับที่รองรับ ติดตั้ง Reflection commit `0d5d02a` แล้ว ตรวจหน้าสร้างบันทึกภาคเรียน 2/2569 บนเว็บจริง: ประถม 14 วิชา ม.ต้น 19 วิชา และ ม.ปลายแสดงวิชาของระดับนั้นรวมวิชาเลือกเช่น ทร02006 และ สค0200036 ไม่มีการเลือกวิชา/ยืนยันบันทึกจริงระหว่างตรวจ
+
+ทดสอบ Reflection ที่เกี่ยวข้อง 32 tests /566 assertions และ frontend96รายการผ่าน พร้อม TypeScript/Pint/production-build checks ทดสอบ patch SDL บนสำเนาแยก SQLite 2tests/25assertions ผ่านทั้งระดับเดียว [2] และวิชาร่วม [1,3] ไม่แก้ฐานจริงหรือสิทธิ์ token
