@@ -43,11 +43,39 @@ type Props = {
 }
 
 function Metric({ label, value, unit, icon: Icon, emphasized = false, detail }: { label: string; value: string; unit: string; icon: React.ElementType; emphasized?: boolean; detail?: string }) {
-  return <article className="min-h-36 min-w-0 rounded-2xl border bg-card p-5 sm:p-6">
-    <div className="flex items-start justify-between gap-3"><span className="text-sm font-medium text-muted-foreground">{label}</span><Icon size={20} weight="regular" className="shrink-0 text-primary/75" /></div>
-    <div className="mt-5 flex flex-wrap items-baseline gap-x-2"><strong className={cn('text-3xl font-semibold tracking-[-0.04em] tabular-nums', emphasized && 'text-primary')}>{value}</strong><small className="text-muted-foreground">{unit}</small></div>
-    {detail && <p className="mt-2 text-xs leading-5 text-muted-foreground">{detail}</p>}
-  </article>
+  return (
+    <article className="min-w-0 rounded-xl border border-border bg-card p-4 transition-colors sm:p-5 shadow-none">
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-xs font-medium text-muted-foreground sm:text-sm">{label}</span>
+        <span
+          className={cn(
+            'grid size-8 shrink-0 place-items-center rounded-lg border',
+            emphasized
+              ? 'border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-900/60 dark:bg-blue-950/50 dark:text-blue-400'
+              : 'border-border/60 bg-muted/60 text-muted-foreground'
+          )}
+        >
+          <Icon size={18} weight="regular" />
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-baseline gap-1.5 sm:mt-4 sm:gap-2">
+        <strong
+          className={cn(
+            'text-2xl font-bold tracking-tight tabular-nums sm:text-3xl',
+            emphasized ? 'text-primary' : 'text-foreground'
+          )}
+        >
+          {value}
+        </strong>
+        <span className="text-xs font-normal text-muted-foreground sm:text-sm">{unit}</span>
+      </div>
+      {detail ? (
+        <p className="mt-1.5 truncate text-[11px] text-muted-foreground sm:mt-2">{detail}</p>
+      ) : (
+        <div className="mt-1.5 h-4 sm:mt-2" aria-hidden="true" />
+      )}
+    </article>
+  )
 }
 
 function DraftWorkList({ drafts }: { drafts?: Props['drafts'] }) {
@@ -80,8 +108,19 @@ function DraftWorkList({ drafts }: { drafts?: Props['drafts'] }) {
     }
   }
 
-  return <section className="mb-6 rounded-2xl border bg-card p-5 sm:p-6" aria-labelledby="draft-work-heading">
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 id="draft-work-heading" className="flex items-center gap-2 font-semibold"><ClockCounterClockwise size={20} className="text-primary" />งานที่ทำค้างไว้</h2><p className="mt-1 text-xs text-muted-foreground">ร่างบันทึกบนเซิร์ฟเวอร์ กลับมาทำต่อจากอุปกรณ์เครื่องเดิมหรือเครื่องอื่นได้</p></div><Badge variant="outline">{items.length} ฉบับร่าง</Badge></div>
+  return <section className="mb-6 rounded-xl border border-border bg-card p-4 sm:p-5 shadow-none" aria-labelledby="draft-work-heading">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 id="draft-work-heading" className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <ClockCounterClockwise size={18} className="text-primary" weight="regular" />
+          งานที่ทำค้างไว้
+        </h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">ร่างบันทึกบนเซิร์ฟเวอร์ กลับมาทำต่อจากอุปกรณ์เครื่องเดิมหรือเครื่องอื่นได้</p>
+      </div>
+      <Badge variant="outline" className="self-start rounded-md px-2 py-0.5 text-xs font-medium sm:self-auto">
+        {items.length} ฉบับร่าง
+      </Badge>
+    </div>
     <div className="mt-4 grid gap-3 lg:grid-cols-3">{items.slice(0, 6).map((draft) => {
       const scope = draft.scope || draft.payload?.scope || { tambon: '', year: '', semester: '', week: '', date: '' }
       let completed = 0
@@ -96,11 +135,28 @@ function DraftWorkList({ drafts }: { drafts?: Props['drafts'] }) {
       } catch {
         totalLevels = 3
       }
-      return <article key={draft.id} className="flex flex-col rounded-xl border bg-background p-4">
-        <div className="flex items-start justify-between gap-3"><div><b className="text-sm">สัปดาห์ {scope.week || 'ยังไม่เลือก'}</b><p className="mt-0.5 text-xs text-muted-foreground">ปี {scope.year} · ภาคเรียน {scope.semester}</p></div><Badge variant={completed === totalLevels ? 'secondary' : 'outline'}>{completed}/{totalLevels} ระดับ</Badge></div>
-        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-muted" aria-label={`ทำเสร็จ ${completed} จาก ${totalLevels} ระดับ`}><div className="h-full rounded-full bg-primary transition-[width] duration-200" style={{ width: `${(completed / totalLevels) * 100}%` }} /></div>
-        <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground"><span>{scope.date || 'ยังไม่เลือกวันที่'}</span><span>{draft.images_count || 0} รูป</span></div>
-        <Button asChild variant="outline" size="sm" className="mt-4 w-full"><Link href={`/records/create?draft=${encodeURIComponent(draft.id)}`}>ทำต่อจากร่างนี้<ArrowRight size={16} /></Link></Button>
+      return <article key={draft.id} className="flex flex-col rounded-lg border border-border bg-background p-3.5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <b className="text-xs font-semibold text-foreground sm:text-sm">สัปดาห์ {scope.week || 'ยังไม่เลือก'}</b>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">ปี {scope.year} · ภาคเรียน {scope.semester}</p>
+          </div>
+          <Badge variant={completed === totalLevels ? 'secondary' : 'outline'} className="text-[11px]">
+            {completed}/{totalLevels} ระดับ
+          </Badge>
+        </div>
+        <div className="mt-3.5 h-1.5 overflow-hidden rounded-full bg-muted" aria-label={`ทำเสร็จ ${completed} จาก ${totalLevels} ระดับ`}>
+          <div className="h-full rounded-full bg-primary transition-[width] duration-200" style={{ width: `${(completed / totalLevels) * 100}%` }} />
+        </div>
+        <div className="mt-2.5 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span>{scope.date || 'ยังไม่เลือกวันที่'}</span>
+          <span>{draft.images_count || 0} รูป</span>
+        </div>
+        <Button asChild variant="outline" size="sm" className="mt-3.5 h-9 w-full rounded-lg text-xs font-medium">
+          <Link href={`/records/create?draft=${encodeURIComponent(draft.id)}`}>
+            ทำต่อจากร่างนี้<ArrowRight size={15} />
+          </Link>
+        </Button>
       </article>
     })}</div>
   </section>
@@ -108,18 +164,188 @@ function DraftWorkList({ drafts }: { drafts?: Props['drafts'] }) {
 
 function Filters({ filters, weeks, tambons, district, current }: { filters: Props['filters']; weeks: number[]; tambons: Tambon[]; district: boolean; current: ActiveAcademicTerm }) {
   const [data, setData] = useState({ year: filters.year || '', semester: filters.semester || '', week: filters.week || '', tambon: filters.tambon || '', search: filters.search || '', scope: filters.scope || 'current' })
+  const [mobileOpen, setMobileOpen] = useState(false)
+
   useEffect(() => setData({ year: filters.year || '', semester: filters.semester || '', week: filters.week || '', tambon: filters.tambon || '', search: filters.search || '', scope: filters.scope || 'current' }), [filters.year, filters.semester, filters.week, filters.tambon, filters.search, filters.scope])
-  const active = Object.values(data).some(Boolean)
+
+  const activeCount = useMemo(() => {
+    let count = 0
+    if (data.scope !== 'current') count++
+    if (data.year && data.scope !== 'current') count++
+    if (data.semester && data.scope !== 'current') count++
+    if (data.week) count++
+    if (data.tambon) count++
+    if (data.search) count++
+    return count
+  }, [data])
+
+  const hasAnyFilter = Object.values(data).some(Boolean)
   const apply = (event: FormEvent) => { event.preventDefault(); router.get('/', data, { preserveState: true, replace: true }) }
-  return <form onSubmit={apply} className="grid gap-4 rounded-xl bg-muted/45 p-4 md:grid-cols-2 xl:grid-cols-6">
-    <FormField label="ช่วงข้อมูล"><NativeSelect value={data.scope} onChange={event => { const scope = event.target.value; setData({ ...data, scope, ...(scope === 'current' ? { year: current.year, semester: current.semester } : scope === 'all' ? { year: '', semester: '' } : {}) }) }}><option value="current">ภาคเรียนปัจจุบัน</option><option value="selected">เลือกปี / ภาคเรียน</option><option value="all">ทุกภาคเรียน</option></NativeSelect></FormField>
-    <FormField label="ปีการศึกษา"><Input inputMode="numeric" disabled={data.scope === 'all'} value={data.year} onChange={(event) => setData({ ...data, year: event.target.value, scope: 'selected' })} placeholder="เช่น 2569" /></FormField>
-    <FormField label="ภาคเรียน"><NativeSelect value={data.semester} disabled={data.scope === 'all'} onChange={(event) => setData({ ...data, semester: event.target.value, scope: 'selected' })}><option value="">ทุกภาคเรียน</option>{['1', '2', '3'].map((term) => <option key={term} value={term}>ภาคเรียน {term}</option>)}</NativeSelect></FormField>
-    <FormField label="สัปดาห์"><NativeSelect value={data.week} onChange={(event) => setData({ ...data, week: event.target.value })}><option value="">ทุกสัปดาห์</option>{weeks.map((week) => <option key={week} value={week}>สัปดาห์ {week}</option>)}</NativeSelect></FormField>
-    {district && <FormField label="ตำบล"><NativeSelect value={data.tambon} onChange={(event) => setData({ ...data, tambon: event.target.value })}><option value="">ทุกตำบล</option>{tambons.map((tambon) => <option key={tambon.id} value={tambon.id}>{tambon.name}</option>)}</NativeSelect></FormField>}
-    <FormField label="ค้นหารายวิชา" className={district ? 'xl:col-span-2' : 'xl:col-span-3'}><div className="relative"><MagnifyingGlass size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input value={data.search} onChange={(event) => setData({ ...data, search: event.target.value })} className="pl-10" placeholder="ชื่อหรือรหัสวิชา" /></div></FormField>
-    <div className="flex items-end gap-2 md:col-span-2 xl:col-span-full xl:justify-end">{active && <Button type="button" variant="ghost" onClick={() => router.get('/')}><X size={17} />ล้างค่า</Button>}<Button type="submit" variant="secondary"><Funnel size={17} />แสดงผล</Button></div>
-  </form>
+  const reset = () => { router.get('/') }
+
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 p-3 sm:p-4">
+      {/* Mobile Collapsible Header */}
+      <div className="flex items-center justify-between sm:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileOpen(prev => !prev)}
+          className="flex items-center gap-2 text-xs font-semibold text-foreground focus-visible:outline-none"
+          aria-expanded={mobileOpen}
+        >
+          <Funnel size={15} className="text-primary" weight="regular" />
+          <span>ตัวกรองข้อมูล</span>
+          {activeCount > 0 && (
+            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+              {activeCount} ตัวกรอง
+            </Badge>
+          )}
+        </button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => setMobileOpen(prev => !prev)}
+        >
+          {mobileOpen ? (
+            <span className="flex items-center gap-1">
+              ซ่อน <CaretUp size={13} />
+            </span>
+          ) : (
+            <span className="flex items-center gap-1">
+              เปิดตัวกรอง <CaretDown size={13} />
+            </span>
+          )}
+        </Button>
+      </div>
+
+      {/* Filter Form - 2-3 col grid on tablet/desktop, collapsible on mobile */}
+      <form
+        onSubmit={apply}
+        className={cn(
+          'pt-3 sm:pt-0',
+          !mobileOpen && 'hidden sm:block'
+        )}
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+          <FormField label="ช่วงข้อมูล">
+            <NativeSelect
+              value={data.scope}
+              onChange={(event) => {
+                const scope = event.target.value
+                setData({
+                  ...data,
+                  scope,
+                  ...(scope === 'current'
+                    ? { year: current.year, semester: current.semester }
+                    : scope === 'all'
+                      ? { year: '', semester: '' }
+                      : {}),
+                })
+              }}
+            >
+              <option value="current">ภาคเรียนปัจจุบัน</option>
+              <option value="selected">เลือกปี / ภาคเรียน</option>
+              <option value="all">ทุกภาคเรียน</option>
+            </NativeSelect>
+          </FormField>
+
+          <FormField label="ปีการศึกษา">
+            <Input
+              inputMode="numeric"
+              disabled={data.scope === 'all'}
+              value={data.year}
+              onChange={(event) => setData({ ...data, year: event.target.value, scope: 'selected' })}
+              placeholder="เช่น 2569"
+            />
+          </FormField>
+
+          <FormField label="ภาคเรียน">
+            <NativeSelect
+              value={data.semester}
+              disabled={data.scope === 'all'}
+              onChange={(event) => setData({ ...data, semester: event.target.value, scope: 'selected' })}
+            >
+              <option value="">ทุกภาคเรียน</option>
+              {['1', '2', '3'].map((term) => (
+                <option key={term} value={term}>
+                  ภาคเรียน {term}
+                </option>
+              ))}
+            </NativeSelect>
+          </FormField>
+
+          <FormField label="สัปดาห์">
+            <NativeSelect
+              value={data.week}
+              onChange={(event) => setData({ ...data, week: event.target.value })}
+            >
+              <option value="">ทุกสัปดาห์</option>
+              {weeks.map((week) => (
+                <option key={week} value={week}>
+                  สัปดาห์ {week}
+                </option>
+              ))}
+            </NativeSelect>
+          </FormField>
+
+          {district && (
+            <FormField label="ตำบล">
+              <NativeSelect
+                value={data.tambon}
+                onChange={(event) => setData({ ...data, tambon: event.target.value })}
+              >
+                <option value="">ทุกตำบล</option>
+                {tambons.map((tambon) => (
+                  <option key={tambon.id} value={tambon.id}>
+                    {tambon.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </FormField>
+          )}
+
+          <FormField
+            label="ค้นหารายวิชา"
+            className={district ? 'sm:col-span-2 md:col-span-1 xl:col-span-1' : 'sm:col-span-2 md:col-span-2 xl:col-span-2'}
+          >
+            <div className="relative">
+              <MagnifyingGlass
+                size={16}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                value={data.search}
+                onChange={(event) => setData({ ...data, search: event.target.value })}
+                className="pl-9"
+                placeholder="ชื่อหรือรหัสวิชา"
+              />
+            </div>
+          </FormField>
+        </div>
+
+        <div className="mt-3.5 flex items-center justify-end gap-2 border-t border-border/50 pt-3">
+          {hasAnyFilter && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={reset}
+              className="h-9 gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X size={15} />
+              ล้างค่า
+            </Button>
+          )}
+          <Button type="submit" variant="secondary" size="sm" className="h-9 gap-1.5 px-4 text-xs font-semibold">
+            <Funnel size={15} weight="regular" />
+            แสดงผล
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
 }
 
 function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
@@ -160,320 +386,345 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
 
   if (!recordList.length) {
     return (
-      <div className="grid min-h-52 place-items-center rounded-xl border border-dashed bg-muted/20 px-6 text-center">
+      <div className="grid min-h-52 place-items-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center">
         <div>
-          <Books size={34} className="mx-auto text-muted-foreground" />
-          <b className="mt-3 block">ไม่พบรายการบันทึก</b>
-          <p className="mt-1 text-sm text-muted-foreground">เปลี่ยนตัวกรองหรือสร้างบันทึกรายสัปดาห์ใหม่</p>
+          <Books size={32} className="mx-auto text-muted-foreground/80" weight="regular" />
+          <b className="mt-3 block text-sm font-semibold text-foreground">ไม่พบรายการบันทึก</b>
+          <p className="mt-1 text-xs text-muted-foreground">เปลี่ยนตัวกรองหรือสร้างบันทึกรายสัปดาห์ใหม่</p>
         </div>
       </div>
     )
   }
 
-  return <>
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-      <div>
-        แสดงรายการรายสัปดาห์: <b className="text-foreground">{groups.length}</b> สัปดาห์ (บันทึกรวม <b className="text-foreground">{recordList.length}</b> ระดับชั้น)
+  return (
+    <>
+      <div className="mb-3.5 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <div>
+          แสดงรายการรายสัปดาห์: <b className="font-semibold text-foreground">{groups.length}</b> สัปดาห์ (บันทึกรวม <b className="font-semibold text-foreground">{recordList.length}</b> ระดับชั้น)
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          onClick={toggleAll}
+        >
+          {allExpanded ? (
+            <>
+              <CaretUp size={14} /> หุบระดับชั้นทั้งหมด
+            </>
+          ) : (
+            <>
+              <CaretDown size={14} /> คลี่ดูระดับชั้นทั้งหมด
+            </>
+          )}
+        </Button>
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-        onClick={toggleAll}
-      >
-        {allExpanded ? <><CaretUp size={15} /> หุบระดับชั้นทั้งหมด</> : <><CaretDown size={15} /> คลี่ดูระดับชั้นทั้งหมด</>}
-      </Button>
-    </div>
 
-    <div className="hidden overflow-x-auto lg:block">
-      <table className="w-full min-w-[980px] text-left text-sm">
-        <thead>
-          <tr className="border-b bg-muted/35 text-xs text-muted-foreground">
-            <th className="px-4 py-3 font-medium">สัปดาห์</th>
-            <th className="px-4 py-3 font-medium">วันที่สอน</th>
-            <th className="px-4 py-3 font-medium">ปี / ภาค</th>
-            <th className="px-4 py-3 font-medium">ตำบล</th>
-            <th className="px-4 py-3 font-medium">ระดับชั้นที่บันทึก</th>
-            <th className="px-4 py-3 font-medium">การเข้าเรียนรวม</th>
-            <th className="px-4 py-3 font-medium">รูปภาพรวม</th>
-            <th className="px-4 py-3 text-right font-medium">คลิกดูระดับชั้น</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((group) => {
-            const isExpanded = !!expandedKeys[group.key]
-            return (
-              <Fragment key={group.key}>
-                <tr
-                  className="border-b hover:bg-muted/30 cursor-pointer transition-colors"
-                  onClick={() => toggleExpand(group.key)}
-                >
-                  <td className="px-4 py-3.5 whitespace-nowrap">
-                    <Badge className="text-sm font-semibold">{`สัปดาห์ที่ ${group.week}`}</Badge>
-                  </td>
-                  <td className="px-4 py-3.5 whitespace-nowrap">{group.date ? thaiDate(group.date) : '-'}</td>
-                  <td className="px-4 py-3.5 whitespace-nowrap">
-                    <b>{group.year}</b>
-                    <small className="block text-muted-foreground">ภาคเรียน {group.semester}</small>
-                  </td>
-                  <td className="px-4 py-3.5">{group.tambonName}</td>
-                  <td className="px-4 py-3.5">
-                    <div className="flex flex-wrap items-center gap-1">
-                      {group.records.map((r) => (
-                        <Badge key={r.id} variant="secondary" className="text-xs">
-                          {r.level || '-'}
-                        </Badge>
-                      ))}
-                      <span className="text-xs text-muted-foreground ml-1">
-                        ({group.records.length} ระดับชั้น)
+      {/* Desktop/Tablet Minimal Data Table */}
+      <div className="hidden overflow-x-auto rounded-xl border border-border bg-card lg:block">
+        <table className="w-full min-w-[980px] text-left text-sm border-collapse">
+          <thead>
+            <tr className="border-b border-border bg-slate-50/80 text-xs font-semibold text-muted-foreground dark:bg-slate-800/60">
+              <th className="px-4 py-3">สัปดาห์</th>
+              <th className="px-4 py-3">วันที่สอน</th>
+              <th className="px-4 py-3">ปี / ภาค</th>
+              <th className="px-4 py-3">ตำบล</th>
+              <th className="px-4 py-3">ระดับชั้นที่บันทึก</th>
+              <th className="px-4 py-3">การเข้าเรียนรวม</th>
+              <th className="px-4 py-3">รูปภาพรวม</th>
+              <th className="px-4 py-3 text-right">ระดับชั้น</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/60">
+            {groups.map((group) => {
+              const isExpanded = !!expandedKeys[group.key]
+              return (
+                <Fragment key={group.key}>
+                  <tr
+                    className="cursor-pointer transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                    onClick={() => toggleExpand(group.key)}
+                  >
+                    <td className="px-4 py-3.5 whitespace-nowrap">
+                      <span className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/50 dark:text-blue-300">
+                        {`สัปดาห์ที่ ${group.week}`}
                       </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 whitespace-nowrap">
-                    <b>{number(group.totalPresent)}/{number(group.totalStudents)}</b>
-                    <small className="block text-muted-foreground">มาเรียน / ทั้งหมด</small>
-                  </td>
-                  <td className="px-4 py-3.5 whitespace-nowrap">{group.totalImages} รูป</td>
-                  <td className="px-4 py-3.5 text-right">
-                    <Button
-                      type="button"
-                      variant={isExpanded ? 'secondary' : 'outline'}
-                      size="sm"
-                      className="gap-1.5"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        toggleExpand(group.key)
-                      }}
-                    >
-                      {isExpanded ? (
-                        <>
-                          <CaretUp size={16} /> ซ่อนระดับชั้น
-                        </>
-                      ) : (
-                        <>
-                          <CaretDown size={16} /> ดูระดับชั้น ({group.records.length})
-                        </>
-                      )}
-                    </Button>
-                  </td>
-                </tr>
-
-                {isExpanded && (
-                  <tr className="border-b bg-muted/10">
-                    <td colSpan={8} className="p-3 sm:p-4">
-                      <div className="rounded-xl border bg-card p-3 sm:p-4 shadow-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="font-medium text-xs">
-                              สัปดาห์ที่ {group.week}
-                            </Badge>
-                            <span className="text-xs font-semibold text-foreground">
-                              ระดับชั้นที่บันทึกไว้ ({group.records.length} ระดับชั้น)
-                            </span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {group.tambonName} {group.date ? `· วันที่ ${thaiDate(group.date)}` : ''}
-                          </span>
-                        </div>
-                        <div className="overflow-x-auto rounded-lg border bg-background">
-                          <table className="w-full text-left text-sm">
-                            <thead>
-                              <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
-                                <th className="px-3.5 py-2.5 font-medium">ระดับชั้น</th>
-                                <th className="px-3.5 py-2.5 font-medium">รายวิชา</th>
-                                <th className="px-3.5 py-2.5 font-medium">การเข้าเรียน</th>
-                                <th className="px-3.5 py-2.5 font-medium">รูปภาพ</th>
-                                <th className="px-3.5 py-2.5 text-right font-medium"><span className="sr-only">จัดการ</span></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {group.records.map((record) => {
-                                const canDelete = district || (record.tambon && record.tambon === auth?.user?.tambon)
-                                return (
-                                  <tr key={record.id} className="border-b last:border-0 hover:bg-muted/20">
-                                    <td className="px-3.5 py-2.5 whitespace-nowrap">
-                                      <Badge variant="secondary" className="font-medium">
-                                        {record.level || '-'}
-                                      </Badge>
-                                    </td>
-                                    <td className="max-w-64 px-3.5 py-2.5">
-                                      <b className="block truncate">{record.subject}</b>
-                                      <small className="block truncate text-muted-foreground">
-                                        {record.subject_code || 'ไม่ระบุรหัสวิชา'}
-                                      </small>
-                                    </td>
-                                    <td className="px-3.5 py-2.5 whitespace-nowrap">
-                                      <b>{number(record.present)}/{number(record.total)}</b>
-                                      <span className="text-xs text-muted-foreground ml-1">คน</span>
-                                    </td>
-                                    <td className="px-3.5 py-2.5 whitespace-nowrap text-xs">
-                                      {record.images_count || 0} รูป
-                                    </td>
-                                    <td className="px-3.5 py-2.5">
-                                      <div className="flex justify-end gap-1">
-                                        <Button asChild variant="ghost" size="sm">
-                                          <Link href={`/records/${record.id}`}>ดู</Link>
-                                        </Button>
-                                        <Button asChild size="sm">
-                                          <Link href={`/records/${record.id}/document`}>
-                                            <Printer size={16} />จัดเอกสาร
-                                          </Link>
-                                        </Button>
-                                        <Button asChild variant="outline" size="sm">
-                                          <Link href={`/records/${record.id}/edit`}>
-                                            แก้ไข
-                                          </Link>
-                                        </Button>
-                                        {canDelete && (
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            className="text-destructive hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
-                                            disabled={deletingId === record.id}
-                                            onClick={(e) => {
-                                              e.stopPropagation()
-                                              handleDelete(record)
-                                            }}
-                                            title="ลบบันทึกหลังสอน"
-                                          >
-                                            <Trash size={15} />ลบ
-                                          </Button>
-                                        )}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                    </td>
+                    <td className="px-4 py-3.5 whitespace-nowrap text-xs text-foreground font-medium">
+                      {group.date ? thaiDate(group.date) : '-'}
+                    </td>
+                    <td className="px-4 py-3.5 whitespace-nowrap">
+                      <b className="text-xs font-semibold text-foreground">{group.year}</b>
+                      <small className="block text-[11px] text-muted-foreground">ภาคเรียน {group.semester}</small>
+                    </td>
+                    <td className="px-4 py-3.5 text-xs text-foreground font-medium">{group.tambonName}</td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {group.records.map((r) => (
+                          <Badge key={r.id} variant="secondary" className="px-2 py-0.5 text-xs font-normal">
+                            {r.level || '-'}
+                          </Badge>
+                        ))}
+                        <span className="ml-1 text-[11px] text-muted-foreground">
+                          ({group.records.length} ระดับ)
+                        </span>
                       </div>
                     </td>
+                    <td className="px-4 py-3.5 whitespace-nowrap">
+                      <b className="text-xs font-semibold text-foreground">{number(group.totalPresent)}/{number(group.totalStudents)}</b>
+                      <small className="block text-[11px] text-muted-foreground">มาเรียน / ทั้งหมด</small>
+                    </td>
+                    <td className="px-4 py-3.5 whitespace-nowrap text-xs text-muted-foreground">
+                      {group.totalImages} รูป
+                    </td>
+                    <td className="px-4 py-3.5 text-right">
+                      <Button
+                        type="button"
+                        variant={isExpanded ? 'secondary' : 'outline'}
+                        size="sm"
+                        className="h-8 gap-1.5 rounded-lg text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleExpand(group.key)
+                        }}
+                      >
+                        {isExpanded ? (
+                          <>
+                            <CaretUp size={14} /> ซ่อนระดับชั้น
+                          </>
+                        ) : (
+                          <>
+                            <CaretDown size={14} /> ดูระดับชั้น ({group.records.length})
+                          </>
+                        )}
+                      </Button>
+                    </td>
                   </tr>
-                )}
-              </Fragment>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
 
-    <div className="grid gap-3 lg:hidden">
-      {groups.map((group) => {
-        const isExpanded = !!expandedKeys[group.key]
-        return (
-          <article key={group.key} className="rounded-xl border bg-card p-4 shadow-2xs">
-            <div
-              className="flex items-start justify-between gap-3 cursor-pointer"
-              onClick={() => toggleExpand(group.key)}
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <Badge className="font-semibold">{`สัปดาห์ที่ ${group.week}`}</Badge>
-                  <span className="text-xs text-muted-foreground">ปี {group.year} · ภาค {group.semester}</span>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {group.tambonName} {group.date ? `· ${thaiDate(group.date)}` : ''}
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant={isExpanded ? 'secondary' : 'outline'}
-                size="sm"
-                className="shrink-0 gap-1 text-xs"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  toggleExpand(group.key)
-                }}
+                  {/* Accordion Sub-table */}
+                  {isExpanded && (
+                    <tr className="bg-slate-50/40 dark:bg-slate-900/40">
+                      <td colSpan={8} className="p-3.5 sm:p-4">
+                        <div className="rounded-xl border border-border bg-card p-3.5 shadow-none sm:p-4">
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center rounded-md border border-border bg-muted/60 px-2 py-0.5 text-xs font-semibold text-foreground">
+                                สัปดาห์ที่ {group.week}
+                              </span>
+                              <span className="text-xs font-semibold text-foreground">
+                                รายละเอียดระดับชั้น ({group.records.length} ระดับชั้น)
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {group.tambonName} {group.date ? `· วันที่ ${thaiDate(group.date)}` : ''}
+                            </span>
+                          </div>
+                          <div className="overflow-x-auto rounded-lg border border-border bg-background">
+                            <table className="w-full text-left text-sm border-collapse">
+                              <thead>
+                                <tr className="border-b border-border bg-slate-50/70 text-xs font-semibold text-muted-foreground dark:bg-slate-800/50">
+                                  <th className="px-3.5 py-2.5">ระดับชั้น</th>
+                                  <th className="px-3.5 py-2.5">รายวิชา</th>
+                                  <th className="px-3.5 py-2.5">การเข้าเรียน</th>
+                                  <th className="px-3.5 py-2.5">รูปภาพ</th>
+                                  <th className="px-3.5 py-2.5 text-right font-medium">
+                                    <span className="sr-only">จัดการ</span>
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border/60">
+                                {group.records.map((record) => {
+                                  const canDelete = district || (record.tambon && record.tambon === auth?.user?.tambon)
+                                  return (
+                                    <tr key={record.id} className="transition-colors hover:bg-muted/30">
+                                      <td className="px-3.5 py-2.5 whitespace-nowrap">
+                                        <Badge variant="secondary" className="px-2 py-0.5 text-xs font-medium">
+                                          {record.level || '-'}
+                                        </Badge>
+                                      </td>
+                                      <td className="max-w-64 px-3.5 py-2.5">
+                                        <b className="block truncate text-xs font-semibold text-foreground">{record.subject}</b>
+                                        <small className="block truncate text-[11px] text-muted-foreground">
+                                          {record.subject_code || 'ไม่ระบุรหัสวิชา'}
+                                        </small>
+                                      </td>
+                                      <td className="px-3.5 py-2.5 whitespace-nowrap text-xs">
+                                        <b className="font-semibold text-foreground">{number(record.present)}/{number(record.total)}</b>
+                                        <span className="ml-1 text-[11px] text-muted-foreground">คน</span>
+                                      </td>
+                                      <td className="px-3.5 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
+                                        {record.images_count || 0} รูป
+                                      </td>
+                                      <td className="px-3.5 py-2.5 text-right">
+                                        <div className="flex justify-end gap-1">
+                                          <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-xs">
+                                            <Link href={`/records/${record.id}`}>ดู</Link>
+                                          </Button>
+                                          <Button asChild size="sm" className="h-8 gap-1 px-2.5 text-xs font-semibold">
+                                            <Link href={`/records/${record.id}/document`}>
+                                              <Printer size={14} />จัดเอกสาร
+                                            </Link>
+                                          </Button>
+                                          <Button asChild variant="outline" size="sm" className="h-8 px-2 text-xs">
+                                            <Link href={`/records/${record.id}/edit`}>
+                                              แก้ไข
+                                            </Link>
+                                          </Button>
+                                          {canDelete && (
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              className="h-8 px-2 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
+                                              disabled={deletingId === record.id}
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleDelete(record)
+                                              }}
+                                              title="ลบบันทึกหลังสอน"
+                                            >
+                                              <Trash size={14} />ลบ
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile Card List with Level Accordion */}
+      <div className="grid gap-3 lg:hidden">
+        {groups.map((group) => {
+          const isExpanded = !!expandedKeys[group.key]
+          return (
+            <article key={group.key} className="rounded-xl border border-border bg-card p-4 shadow-none">
+              <div
+                className="flex items-start justify-between gap-3 cursor-pointer"
+                onClick={() => toggleExpand(group.key)}
               >
-                {isExpanded ? <CaretUp size={15} /> : <CaretDown size={15} />}
-                {isExpanded ? 'ซ่อน' : `ดูระดับชั้น (${group.records.length})`}
-              </Button>
-            </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/50 dark:text-blue-300">
+                      {`สัปดาห์ที่ ${group.week}`}
+                    </span>
+                    <span className="text-xs text-muted-foreground">ปี {group.year} · ภาค {group.semester}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {group.tambonName} {group.date ? `· ${thaiDate(group.date)}` : ''}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant={isExpanded ? 'secondary' : 'outline'}
+                  size="sm"
+                  className="shrink-0 gap-1 h-8 px-2 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleExpand(group.key)
+                  }}
+                >
+                  {isExpanded ? <CaretUp size={14} /> : <CaretDown size={14} />}
+                  {isExpanded ? 'ซ่อน' : `ดูระดับชั้น (${group.records.length})`}
+                </Button>
+              </div>
 
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {group.records.map((r) => (
-                <Badge key={r.id} variant="secondary" className="text-xs">
-                  {r.level}
-                </Badge>
-              ))}
-            </div>
+              <div className="mt-3 flex flex-wrap gap-1">
+                {group.records.map((r) => (
+                  <Badge key={r.id} variant="secondary" className="px-2 py-0.5 text-xs font-normal">
+                    {r.level}
+                  </Badge>
+                ))}
+              </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground border-t pt-2.5">
-              <div>มาเรียนรวม: <b className="text-foreground">{number(group.totalPresent)}/{number(group.totalStudents)} คน</b></div>
-              <div>รูปภาพรวม: <b className="text-foreground">{group.totalImages} รูป</b></div>
-            </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground border-t border-border/60 pt-2.5">
+                <div>มาเรียนรวม: <b className="font-semibold text-foreground">{number(group.totalPresent)}/{number(group.totalStudents)} คน</b></div>
+                <div>รูปภาพรวม: <b className="font-semibold text-foreground">{group.totalImages} รูป</b></div>
+              </div>
 
-            {isExpanded && (
-              <div className="mt-4 space-y-3 border-t pt-3">
-                <h4 className="text-xs font-semibold text-muted-foreground">
-                  ระดับชั้นที่บันทึก ({group.records.length} ระดับชั้น)
-                </h4>
-                {group.records.map((record) => {
-                  const canDelete = district || (record.tambon && record.tambon === auth?.user?.tambon)
-                  return (
-                    <div key={record.id} className="rounded-lg border bg-muted/20 p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <Badge variant="outline" className="mb-1 text-xs">{record.level}</Badge>
-                          <b className="block text-sm">{record.subject}</b>
-                          <small className="text-xs text-muted-foreground">{record.subject_code || 'ไม่ระบุรหัสวิชา'}</small>
+              {isExpanded && (
+                <div className="mt-3.5 space-y-2.5 border-t border-border/60 pt-3">
+                  <h4 className="text-xs font-semibold text-muted-foreground">
+                    ระดับชั้นที่บันทึกไว้ ({group.records.length} ระดับชั้น)
+                  </h4>
+                  {group.records.map((record) => {
+                    const canDelete = district || (record.tambon && record.tambon === auth?.user?.tambon)
+                    return (
+                      <div key={record.id} className="rounded-lg border border-border bg-muted/20 p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <Badge variant="outline" className="mb-1 text-[11px] font-medium">{record.level}</Badge>
+                            <b className="block truncate text-sm font-semibold text-foreground">{record.subject}</b>
+                            <small className="block truncate text-xs text-muted-foreground">{record.subject_code || 'ไม่ระบุรหัสวิชา'}</small>
+                          </div>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                          <div>มาเรียน: <b className="font-semibold text-foreground">{number(record.present)}/{number(record.total)} คน</b></div>
+                          <div>รูปภาพ: <b className="font-semibold text-foreground">{record.images_count || 0} รูป</b></div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border/50 pt-2.5">
+                          <Button asChild variant="outline" size="sm" className="h-8 flex-1 text-xs">
+                            <Link href={`/records/${record.id}`}>ดูข้อมูล</Link>
+                          </Button>
+                          <Button asChild size="sm" className="h-8 gap-1 text-xs font-semibold">
+                            <Link href={`/records/${record.id}/document`}>
+                              <Printer size={14} />จัดเอกสาร
+                            </Link>
+                          </Button>
+                          <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                            <Link href={`/records/${record.id}/edit`}>แก้ไข</Link>
+                          </Button>
+                          {canDelete && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
+                              disabled={deletingId === record.id}
+                              onClick={() => handleDelete(record)}
+                              title="ลบบันทึกหลังสอน"
+                            >
+                              <Trash size={14} />ลบ
+                            </Button>
+                          )}
                         </div>
                       </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                        <div>มาเรียน: <b className="text-foreground">{number(record.present)}/{number(record.total)} คน</b></div>
-                        <div>รูปภาพ: <b className="text-foreground">{record.images_count || 0} รูป</b></div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-1.5 border-t pt-2">
-                        <Button asChild variant="outline" size="sm" className="flex-1">
-                          <Link href={`/records/${record.id}`}>ดูข้อมูล</Link>
-                        </Button>
-                        <Button asChild size="sm">
-                          <Link href={`/records/${record.id}/document`}><Printer size={15} />จัดเอกสาร</Link>
-                        </Button>
-                        <Button asChild variant="outline" size="sm">
-                          <Link href={`/records/${record.id}/edit`}>แก้ไข</Link>
-                        </Button>
-                        {canDelete && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="text-destructive hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
-                            disabled={deletingId === record.id}
-                            onClick={() => handleDelete(record)}
-                            title="ลบบันทึกหลังสอน"
-                          >
-                            <Trash size={15} />ลบ
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </article>
-        )
-      })}
-    </div>
-
-    {Boolean(records?.last_page && records.last_page > 1 && Array.isArray(records?.links)) && (
-      <nav className="mt-5 flex flex-wrap justify-center gap-1" aria-label="แบ่งหน้า">
-        {records!.links.map((link, index) =>
-          link.url ? (
-            <Button key={index} asChild variant={link.active ? 'default' : 'outline'} size="sm">
-              <Link href={link.url} preserveScroll dangerouslySetInnerHTML={{ __html: link.label }} />
-            </Button>
-          ) : (
-            <Button key={index} variant="outline" size="sm" disabled dangerouslySetInnerHTML={{ __html: link.label }} />
+                    )
+                  })}
+                </div>
+              )}
+            </article>
           )
-        )}
-      </nav>
-    )}
-  </>
+        })}
+      </div>
+
+      {Boolean(records?.last_page && records.last_page > 1 && Array.isArray(records?.links)) && (
+        <nav className="mt-5 flex flex-wrap justify-center gap-1" aria-label="แบ่งหน้า">
+          {records!.links.map((link, index) =>
+            link.url ? (
+              <Button key={index} asChild variant={link.active ? 'default' : 'outline'} size="sm" className="h-9 rounded-lg">
+                <Link href={link.url} preserveScroll dangerouslySetInnerHTML={{ __html: link.label }} />
+              </Button>
+            ) : (
+              <Button key={index} variant="outline" size="sm" disabled className="h-9 rounded-lg" dangerouslySetInnerHTML={{ __html: link.label }} />
+            )
+          )}
+        </nav>
+      )}
+    </>
+  )
 }
 
 export default function Dashboard(props: Props) {
@@ -494,18 +745,26 @@ export default function Dashboard(props: Props) {
   return (
     <AppShell>
       <Head title="ภาพรวม" />
-      <PageHeader
-        title="บันทึกหลังการสอน"
-        description="ติดตามรายการ ตรวจสอบการเข้าเรียน และส่งออกเอกสาร"
-        action={
-          <Button asChild size="lg">
-            <Link href="/records/create">
-              <Plus size={19} />
-              สร้างบันทึกหลังสอน
-            </Link>
-          </Button>
-        }
-      />
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-[28px]">บันทึกหลังการสอน</h1>
+            {props.activeTerm?.term && (
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/50 dark:text-blue-300">
+                <CalendarBlank size={14} weight="bold" /> ภาคเรียนปัจจุบัน {props.activeTerm.term}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">ติดตามรายการ ตรวจสอบการเข้าเรียน และส่งออกเอกสาร</p>
+        </div>
+        <Button asChild size="lg" className="h-11 rounded-lg px-5 font-semibold shadow-none shrink-0">
+          <Link href="/records/create">
+            <Plus size={18} weight="bold" />
+            สร้างบันทึกหลังสอน
+          </Link>
+        </Button>
+      </div>
+
       <FlashMessages />
       <AcademicTermNotice
         active={props.activeTerm}
@@ -514,7 +773,7 @@ export default function Dashboard(props: Props) {
         olderCount={props.olderRecordCount}
       />
       <DraftWorkList drafts={props.drafts} />
-      <section className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="สรุปข้อมูล">
+      <section className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4" aria-label="สรุปข้อมูล">
         <Metric label="รายการที่แสดง" value={number(summary.record_count)} unit="บันทึก" icon={Books} />
         <Metric label="จำนวนสัปดาห์" value={number(summary.week_count)} unit="สัปดาห์" icon={CalendarBlank} />
         <Metric
@@ -533,14 +792,16 @@ export default function Dashboard(props: Props) {
           detail={`${number(totalPresent)} คน จาก ${number(totalStudents)} คน`}
         />
       </section>
-      <Card>
-        <CardHeader className="gap-4">
+      <Card className="rounded-xl border border-border bg-card shadow-none">
+        <CardHeader className="gap-4 p-4 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <CardTitle>รายการบันทึก</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">ค้นหา ตรวจสอบ แก้ไข และพิมพ์ข้อมูล</p>
+              <CardTitle className="text-base font-bold sm:text-lg">รายการบันทึก</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground sm:text-sm">ค้นหา ตรวจสอบ แก้ไข และพิมพ์ข้อมูล</p>
             </div>
-            <Badge variant="outline">{number(totalRecords)} รายการ</Badge>
+            <Badge variant="outline" className="self-start rounded-md px-2.5 py-1 text-xs font-semibold sm:self-auto">
+              {number(totalRecords)} รายการ
+            </Badge>
           </div>
           <Filters
             filters={props.filters}
@@ -550,7 +811,7 @@ export default function Dashboard(props: Props) {
             current={props.activeTerm}
           />
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
           <ExportPanel filters={props.filters} />
           <RecordsList records={props.records} />
         </CardContent>

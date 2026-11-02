@@ -7,7 +7,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --font-sans: 'Noto Sans Thai', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Anuphan', 'Noto Sans Thai', ui-sans-serif, system-ui, sans-serif;
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-card: hsl(var(--card));
@@ -31,48 +31,48 @@
 
 :root {
   color-scheme: light;
-  --background: 210 20% 98%;
-  --foreground: 222 28% 17%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 28% 17%;
+  --background: 210 40% 98%; /* #F8FAFC */
+  --foreground: 222 47% 17%; /* #1E293B */
+  --card: 0 0% 100%;         /* #FFFFFF */
+  --card-foreground: 222 47% 17%;
   --popover: 0 0% 100%;
-  --popover-foreground: 222 28% 17%;
-  --primary: 217 82% 48%;
+  --popover-foreground: 222 47% 17%;
+  --primary: 221 83% 53%;    /* #2563EB */
   --primary-foreground: 0 0% 100%;
-  --secondary: 215 20% 95%;
-  --secondary-foreground: 222 22% 27%;
-  --muted: 215 20% 96%;
-  --muted-foreground: 217 11% 45%;
-  --accent: 216 95% 96%;
-  --accent-foreground: 217 78% 40%;
-  --destructive: 3 67% 47%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 215 18% 90%;
-  --input: 216 16% 82%;
-  --ring: 217 82% 53%;
+  --secondary: 210 40% 96%;  /* #F1F5F9 */
+  --secondary-foreground: 222 47% 17%;
+  --muted: 210 40% 96%;      /* #F1F5F9 */
+  --muted-foreground: 215 16% 47%; /* #64748B */
+  --accent: 214 100% 97%;    /* #EFF6FF */
+  --accent-foreground: 221 83% 53%; /* #2563EB */
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 32% 91%;     /* #E2E8F0 */
+  --input: 214 32% 91%;      /* #E2E8F0 */
+  --ring: 221 83% 53%;       /* #2563EB */
 }
 
 .dark {
   color-scheme: dark;
-  --background: 222 25% 9%;
-  --foreground: 215 20% 94%;
-  --card: 222 23% 12%;
-  --card-foreground: 215 20% 94%;
-  --popover: 222 23% 12%;
-  --popover-foreground: 215 20% 94%;
-  --primary: 215 85% 68%;
-  --primary-foreground: 222 40% 12%;
-  --secondary: 220 20% 18%;
-  --secondary-foreground: 215 20% 90%;
-  --muted: 220 18% 16%;
-  --muted-foreground: 216 13% 68%;
-  --accent: 218 34% 20%;
-  --accent-foreground: 214 85% 79%;
-  --destructive: 3 58% 55%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 219 17% 24%;
-  --input: 219 16% 32%;
-  --ring: 215 85% 68%;
+  --background: 222 47% 11%; /* #0F172A */
+  --foreground: 210 40% 98%; /* #F8FAFC */
+  --card: 217 33% 17%;       /* #1E293B */
+  --card-foreground: 210 40% 98%;
+  --popover: 217 33% 17%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 217 91% 60%;    /* #3B82F6 */
+  --primary-foreground: 222 47% 11%;
+  --secondary: 215 25% 27%;  /* #334155 */
+  --secondary-foreground: 210 40% 98%;
+  --muted: 215 25% 22%;
+  --muted-foreground: 215 20% 65%; /* #94A3B8 */
+  --accent: 224 76% 25%;
+  --accent-foreground: 217 91% 75%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 215 25% 27%;     /* #334155 */
+  --input: 215 25% 27%;
+  --ring: 217 91% 60%;
 }
 
 * { border-color: hsl(var(--border)); }

@@ -18,11 +18,11 @@ const items = [
 ]
 
 function Brand() {
-  return <Link href="/" className="focus-ring flex shrink-0 items-center gap-2 rounded-lg" aria-label="SENA Reflection หน้าหลัก">
-    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-[12px] font-semibold tracking-tight text-primary-foreground shadow-xs">SR</span>
+  return <Link href="/" className="focus-ring flex shrink-0 items-center gap-2.5 rounded-lg" aria-label="SENA Reflection หน้าหลัก">
+    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-[12px] font-bold tracking-tight text-white">SR</span>
     <span className="min-w-0 leading-tight">
-      <b className="block text-[13px] font-semibold tracking-[-0.02em]">SENA Reflection</b>
-      <small className="hidden text-[10px] text-muted-foreground sm:block">ระบบบันทึกหลังการสอน</small>
+      <b className="block text-[13px] font-semibold tracking-[-0.01em] text-foreground">SENA Reflection</b>
+      <small className="hidden text-[11px] text-muted-foreground sm:block">ระบบบันทึกหลังการสอน</small>
     </span>
   </Link>
 }
@@ -31,7 +31,7 @@ function NavLinks({ className }: { className?: string }) {
   const { url, props } = usePage<SharedProps>()
   const pathname = appPathname(url)
   const links = props?.auth?.user?.role === 'district' ? [...items, { href: '/admin', label: 'จัดการระบบ', icon: Buildings, match: (value: string) => value.startsWith('/admin') }] : items
-  return <nav className={cn('min-w-0 items-center gap-1', className)} aria-label="เมนูหลัก">
+  return <nav className={cn('min-w-0 items-center gap-1.5', className)} aria-label="เมนูหลัก">
     {links.map(({ href, label, icon: Icon, match }) => {
       const active = match(pathname)
       return <Link
@@ -39,10 +39,10 @@ function NavLinks({ className }: { className?: string }) {
         href={href}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'focus-ring flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-150',
+          'focus-ring flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] transition-colors duration-150',
           active
-            ? 'bg-primary/10 text-primary font-semibold'
-            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            ? 'bg-blue-50 text-blue-600 font-semibold dark:bg-blue-950/60 dark:text-blue-400'
+            : 'text-muted-foreground font-medium hover:bg-muted hover:text-foreground'
         )}
       >
         <Icon size={16} weight={active ? 'bold' : 'regular'} />
