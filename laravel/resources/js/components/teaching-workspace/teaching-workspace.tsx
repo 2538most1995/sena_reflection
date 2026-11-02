@@ -102,9 +102,9 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const district = auth.user?.role === 'district'
   const fallbackPayload = useMemo(() => {
     const value = emptyTeachingDraft(defaults)
-    value.scope.tambon = auth.user?.tambon || tambonOptions[0]?.id || ''
+    value.scope.tambon = auth.user?.tambon || ''
     return value
-  }, [auth.user?.tambon, defaults, tambonOptions])
+  }, [auth.user?.tambon, defaults])
   const initialDraft = workspace?.draft || null
   const [payload, setPayload] = useState<TeachingDraftPayload>(() => normalizeDraftPayload(initialDraft?.payload, fallbackPayload))
   const [draft, setDraft] = useState<TeachingDraft | null>(initialDraft)
@@ -424,7 +424,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     }
     setSubjectCatalog((current) => ({ ...current, error: null }))
     const params = new URLSearchParams({
-      tambon: payload.scope.tambon,
+      ...(!district && payload.scope.tambon ? { tambon: payload.scope.tambon } : {}),
       year: payload.scope.year,
       semester: payload.scope.semester,
     })
@@ -536,10 +536,14 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     const serial = ++requestSerial.current[levelCode]
     const current = payloadRef.current.levels[levelCode]
     const sameGroup = current.class_group_code === group.group_code
+    const matchedTambon = district ? tambonOptions.find((t) => t.name && group.class_name.includes(t.name)) : undefined
+    if (district && matchedTambon && matchedTambon.id !== payloadRef.current.scope.tambon) {
+      setPayload((prev) => ({ ...prev, scope: { ...prev.scope, tambon: matchedTambon.id } }))
+    }
     updateLevel(levelCode, { ...current, class_group_code: group.group_code, class_name: group.class_name, attendance: sameGroup ? current.attendance : [], attendance_mode: 'roster', attendance_reviewed: false, total: sameGroup ? current.total : 0, present: sameGroup ? current.present : 0 })
     setLoadStates((values) => ({ ...values, [levelCode]: { ...values[levelCode], loading: true, error: null } }))
     try {
-      const query = new URLSearchParams({ group_code: group.group_code, level: levelCode, year: payloadRef.current.scope.year, semester: payloadRef.current.scope.semester, ...(sameGroup ? { refresh: '1' } : {}), ...(district && payloadRef.current.scope.tambon ? { tambon: payloadRef.current.scope.tambon } : {}) })
+      const query = new URLSearchParams({ group_code: group.group_code, level: levelCode, year: payloadRef.current.scope.year, semester: payloadRef.current.scope.semester, ...(sameGroup ? { refresh: '1' } : {}) })
       const response = await fetch(`/record-options/students?${query}`, { headers: { Accept: 'application/json' } })
       const envelope = await response.json() as { status?: string; message?: string; data?: { items?: WorkspaceAttendanceRow[]; source?: string } }
       if (!response.ok || envelope.status !== 'success') throw new Error(envelope.message || 'โหลดรายชื่อนักศึกษาไม่สำเร็จ')

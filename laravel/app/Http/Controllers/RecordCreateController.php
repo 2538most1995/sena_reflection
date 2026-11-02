@@ -32,7 +32,12 @@ class RecordCreateController extends Controller
             $draft = $drafts->resource($owned->load('images'));
         }
 
-        $optionsRequest = $draft ? $request->duplicate([...$request->query(), ...$draft['scope']]) : $request;
+        $optionsQuery = $request->query();
+        $optionsScope = $draft ? $draft['scope'] : [];
+        if ($request->user()->isDistrict()) {
+            unset($optionsQuery['tambon'], $optionsScope['tambon']);
+        }
+        $optionsRequest = $request->duplicate([...$optionsQuery, ...$optionsScope]);
         $options = $this->options($optionsRequest, $students, $levels);
         $data = $options['data'];
         $terms = app(AcademicTermService::class);

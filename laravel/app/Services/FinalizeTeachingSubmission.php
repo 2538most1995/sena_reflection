@@ -64,11 +64,25 @@ class FinalizeTeachingSubmission
                 $entries = $this->validatedEntries($lockedDraft->load('images'), $payload, $confirmed);
                 $tambon = $user->isDistrict() ? (string) ($scope['tambon'] ?? '') : (string) $user->tambon;
                 if ($tambon === '' || ! Tambon::query()->whereKey($tambon)->exists()) {
-                    $fallbackTambon = (string) (Tambon::query()->orderBy('id')->value('id') ?? $user->tambon);
-                    if ($fallbackTambon !== '' && Tambon::query()->whereKey($fallbackTambon)->exists()) {
-                        $tambon = $fallbackTambon;
+                    $allTambons = Tambon::query()->get();
+                    $matchedTambon = null;
+                    foreach ($entries as $entry) {
+                        $className = (string) ($entry['record']['class_name'] ?? '');
+                        $found = $allTambons->first(fn ($t) => $t->name !== '' && str_contains($className, (string) $t->name));
+                        if ($found) {
+                            $matchedTambon = (string) $found->id;
+                            break;
+                        }
+                    }
+                    if ($matchedTambon !== null && Tambon::query()->whereKey($matchedTambon)->exists()) {
+                        $tambon = $matchedTambon;
                     } else {
-                        throw ValidationException::withMessages(['payload.scope.tambon' => 'กรุณาเลือกตำบลที่ถูกต้อง']);
+                        $fallbackTambon = (string) (Tambon::query()->orderBy('id')->value('id') ?? $user->tambon);
+                        if ($fallbackTambon !== '' && Tambon::query()->whereKey($fallbackTambon)->exists()) {
+                            $tambon = $fallbackTambon;
+                        } else {
+                            throw ValidationException::withMessages(['payload.scope.tambon' => 'กรุณาเลือกตำบลที่ถูกต้อง']);
+                        }
                     }
                 }
                 if (! empty($scope['tambon']) && ! $user->isDistrict() && $tambon !== (string) ($scope['tambon'] ?? '')) {
