@@ -416,9 +416,10 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     }
     const controller = new AbortController()
     setSubjectsLoading(true)
-    if (forceRefresh) {
-      actionAlert.loading('กำลังอัปเดตรายวิชาจากระบบ...')
-    } else {
+    const alertId = forceRefresh
+      ? actionAlert.loading('กำลังอัปเดตรายวิชาจากระบบ...', 'กรุณารอสักครู่ ระบบกำลังดึงข้อมูลล่าสุดจาก SDL School')
+      : undefined
+    if (!forceRefresh) {
       setAvailableSubjects([])
     }
     setSubjectCatalog((current) => ({ ...current, error: null }))
@@ -452,7 +453,10 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
         },
       }))
       .then(({ response, envelope }) => {
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted) {
+          if (alertId) actionAlert.dismiss(alertId)
+          return
+        }
         if (!response.ok || !envelope.data) throw new Error(envelope.message || 'โหลดตัวเลือกไม่สำเร็จ')
         if (envelope.data?.groups) setAvailableGroups(envelope.data.groups)
         setAvailableSubjects(envelope.data.subjects || [])
@@ -475,18 +479,22 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
         }
         if (envelope.status === 'error') {
           setPageError(envelope.message || 'โหลดตัวเลือกสำหรับภาคเรียนนี้ไม่สำเร็จ')
-        } else if (forceRefresh) {
-          actionAlert.success('อัปเดตรายวิชาจากระบบเรียบร้อยแล้ว')
+          if (alertId) actionAlert.error('อัปเดตรายวิชาไม่สำเร็จ', envelope.message || 'โหลดตัวเลือกไม่สำเร็จ', alertId)
+        } else if (alertId) {
+          actionAlert.success('อัปเดตรายวิชาจากระบบเรียบร้อยแล้ว', `พบรายวิชา ${envelope.data.subjects?.length || 0} รายการ`, alertId)
         }
       })
       .catch((error) => {
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted) {
+          if (alertId) actionAlert.dismiss(alertId)
+          return
+        }
         if (!forceRefresh) setAvailableSubjects([])
         loadedSubjectContext.current = optionsContext
         setSubjectOptionsContext(optionsContext)
         setSubjectCatalog({ source: 'unavailable', error: 'โหลดรายวิชาไม่สำเร็จ สามารถกรอกชื่อและรหัสวิชาเองได้', term: null })
-        if (forceRefresh) {
-          actionAlert.error('อัปเดตรายวิชาไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง')
+        if (alertId) {
+          actionAlert.error('อัปเดตรายวิชาไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', alertId)
         }
         if (error instanceof Error && error.name !== 'AbortError') setPageError(error.message)
       })
