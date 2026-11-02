@@ -1,4 +1,4 @@
-import { BookOpen, Database, NotePencil, UsersThree, WarningCircle } from '@phosphor-icons/react'
+import { ArrowClockwise, BookOpen, Database, NotePencil, UsersThree, WarningCircle } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState } from 'react'
 import { AttendancePicker } from './attendance-picker'
 import { ImageManager } from './image-manager'
@@ -32,6 +32,7 @@ type Props = {
   onUploadImages: (files: File[]) => Promise<void>
   onDeleteImage: (image: TeachingDraftImage) => Promise<void>
   onReorderImages: (imageIds: string[]) => Promise<void>
+  onRefreshSubjects?: () => void
 }
 
 export function TeachingDetailsForm({
@@ -54,17 +55,25 @@ export function TeachingDetailsForm({
   onUploadImages,
   onDeleteImage,
   onReorderImages,
+  onRefreshSubjects,
 }: Props) {
   const level = teachingLevels.find((item) => item.code === levelCode) ?? teachingLevels[0]
   const levelGroups = useMemo(() => groups.filter((group) => !group.level || group.level === levelCode), [groups, levelCode])
   const levelSubjects = useMemo(() => subjectsForLevel(subjects, levelCode, level.name), [level.name, levelCode, subjects])
+  const [showAllSubjects, setShowAllSubjects] = useState(false)
+  const selectableSubjects = useMemo(() => {
+    if (showAllSubjects) return subjects
+    if (levelSubjects.length > 0) return levelSubjects
+    return subjects
+  }, [showAllSubjects, levelSubjects, subjects])
+
   const groupIndex = levelGroups.findIndex((group) => group.group_code === value.class_group_code && group.class_name === value.class_name)
-  const subjectIndex = levelSubjects.findIndex((subject) => subject.subject === value.subject && subject.subject_code === value.subject_code)
+  const subjectIndex = selectableSubjects.findIndex((subject) => subject.subject === value.subject && subject.subject_code === value.subject_code)
   const [manualGroup, setManualGroup] = useState(Boolean((value.class_group_code || value.class_name) && groupIndex < 0))
   const [manualSubject, setManualSubject] = useState(Boolean(value.subject && subjectIndex < 0))
   const [subjectQuery, setSubjectQuery] = useState('')
-  const matchingSubjects = useMemo(() => searchSubjects(levelSubjects, subjectQuery), [levelSubjects, subjectQuery])
-  const selectedSubject = levelSubjects[subjectIndex]
+  const matchingSubjects = useMemo(() => searchSubjects(selectableSubjects, subjectQuery), [selectableSubjects, subjectQuery])
+  const selectedSubject = selectableSubjects[subjectIndex]
   useEffect(() => { setSubjectQuery('') }, [levelCode, term, subjectContext, value.class_group_code])
   const editGroup = (patch: Partial<Pick<TeachingLevelDraft, 'class_group_code' | 'class_name'>>) => onChange({ ...value, ...patch, attendance: [], attendance_reviewed: false, total: 0, present: 0 })
   const selectedGroup: GroupOption = levelGroups[groupIndex] || { group_code: value.class_group_code, class_name: value.class_name, level: levelCode, level_name: level.name, district_id: '', district_name: '' }
@@ -84,20 +93,57 @@ export function TeachingDetailsForm({
         </div>
 
         <div className="grid content-start gap-3">
-          <div className="flex items-center justify-between gap-2"><b className="text-sm">รายวิชา</b><Button type="button" variant="ghost" size="sm" onClick={() => setManualSubject((current) => !current)}>{manualSubject ? 'เลือกจากระบบ' : 'กรอกรายวิชาเอง'}</Button></div>
+          <div className="flex items-center justify-between gap-2">
+            <b className="text-sm">รายวิชา</b>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {onRefreshSubjects && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={subjectsLoading}
+                  onClick={() => void onRefreshSubjects()}
+                  title="ดึงข้อมูลรายวิชาล่าสุดจากระบบ SDL School"
+                  className="gap-1 text-xs"
+                >
+                  <ArrowClockwise size={13} className={subjectsLoading ? 'animate-spin' : ''} />
+                  {subjectsLoading ? 'กำลังอัปเดต...' : 'อัปเดตรายวิชา'}
+                </Button>
+              )}
+              {levelSubjects.length > 0 && subjects.length > levelSubjects.length && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowAllSubjects((current) => !current)}
+                  className="text-xs text-muted-foreground"
+                >
+                  {showAllSubjects ? `เฉพาะ${level.name}` : 'วิชาทั้งหมด'}
+                </Button>
+              )}
+              <Button type="button" variant="ghost" size="sm" onClick={() => setManualSubject((current) => !current)}>
+                {manualSubject ? 'เลือกจากระบบ' : 'กรอกรายวิชาเอง'}
+              </Button>
+            </div>
+          </div>
           <p className="text-xs leading-5 text-muted-foreground" role="status">{subjectsLoading ? 'กำลังโหลดรายวิชาสำหรับภาคเรียนนี้...' : subjectSource === 'sdl' ? `รายวิชา${level.name}จาก SDL School · ภาคเรียน ${subjectTerm || term}` : subjectSource === 'history' ? `รายวิชาจากประวัติบันทึก${subjectTerm ? ` · ภาคเรียน ${subjectTerm}` : ''}` : 'ยังไม่มีรายวิชาให้เลือกจากระบบ'}</p>
           {subjectError && <p role="status" className="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-200"><WarningCircle size={16} className="mt-0.5 shrink-0" />{subjectError}</p>}
-          {manualSubject || (!subjectsLoading && !levelSubjects.length) ? <>
-            {!manualSubject && <p className="text-xs leading-5 text-muted-foreground">ยังไม่มีรายวิชาที่ตรวจยืนยันระดับชั้นนี้จากต้นทาง สามารถกรอกชื่อและรหัสวิชาเองได้ โดยข้อมูลเดิมยังอยู่</p>}
+          {manualSubject || (!subjectsLoading && !selectableSubjects.length) ? <>
+            {!manualSubject && <p className="text-xs leading-5 text-muted-foreground">ยังไม่มีรายวิชาในระบบ สามารถกรอกชื่อและรหัสวิชาเองได้ โดยข้อมูลเดิมยังอยู่</p>}
             <div className="grid gap-3 sm:grid-cols-2"><FormField label="ชื่อรายวิชา *"><Input data-workspace-field="subject" maxLength={150} value={value.subject} onChange={(event) => onChange({ ...value, subject: event.target.value })} /></FormField><FormField label="รหัสวิชา"><Input maxLength={50} value={value.subject_code} onChange={(event) => onChange({ ...value, subject_code: event.target.value })} /></FormField></div>
           </> : <>
-            {levelSubjects.length > 0 && <FormField label="ค้นหารายวิชา"><Input type="search" value={subjectQuery} onChange={(event) => setSubjectQuery(event.target.value)} disabled={subjectsLoading} placeholder="ค้นหารหัสหรือชื่อรายวิชา" /></FormField>}
-            <FormField label="เลือกรายวิชา *" hint="เลือกครั้งเดียว ระบบจะใส่รหัสและชื่อวิชาให้"><NativeSelect data-workspace-field="subject" disabled={subjectsLoading || !matchingSubjects.length} value={subjectIndex >= 0 ? String(subjectIndex) : ''} onChange={(event) => { if (!event.target.value || subjectsLoading) return; const subject = levelSubjects[Number(event.target.value)]; if (subject) onChange({ ...value, subject: subject.subject, subject_code: subject.subject_code }) }}>
+            {levelSubjects.length === 0 && selectableSubjects.length > 0 && !manualSubject && (
+              <p className="text-xs leading-5 text-muted-foreground">
+                ยังไม่พบวิชาที่ระบุระดับ{level.name}โดยตรง แสดงรายวิชาทั้งหมดจากระบบ ({selectableSubjects.length} วิชา) สามารถเลือกวิชาด้านล่าง หรือกด "กรอกรายวิชาเอง"
+              </p>
+            )}
+            {selectableSubjects.length > 0 && <FormField label="ค้นหารายวิชา"><Input type="search" value={subjectQuery} onChange={(event) => setSubjectQuery(event.target.value)} disabled={subjectsLoading} placeholder="ค้นหารหัสหรือชื่อรายวิชา" /></FormField>}
+            <FormField label="เลือกรายวิชา *" hint="เลือกครั้งเดียว ระบบจะใส่รหัสและชื่อวิชาให้"><NativeSelect data-workspace-field="subject" disabled={subjectsLoading || !matchingSubjects.length} value={subjectIndex >= 0 ? String(subjectIndex) : ''} onChange={(event) => { if (!event.target.value || subjectsLoading) return; const subject = selectableSubjects[Number(event.target.value)]; if (subject) onChange({ ...value, subject: subject.subject, subject_code: subject.subject_code }) }}>
               <option value="">{subjectsLoading ? 'กำลังโหลดรายวิชา...' : !matchingSubjects.length ? 'ไม่พบรายวิชาที่ค้นหา' : 'เลือกรายวิชา'}</option>
               {selectedSubject && !matchingSubjects.includes(selectedSubject) && <option hidden value={subjectIndex}>{selectedSubject.subject_code ? `${selectedSubject.subject_code} - ` : ''}{selectedSubject.subject}</option>}
               {(['sdl', 'history'] as const).map(source => {
                 const items = matchingSubjects.filter(subject => (subject.source || 'history') === source)
-                return items.length > 0 && <optgroup key={source} label={source === 'sdl' ? 'SDL School' : 'ประวัติบันทึก'}>{items.map(subject => <option key={`${subject.level}|${subject.subject_code}|${subject.subject}`} value={levelSubjects.indexOf(subject)}>{subject.subject_code ? `${subject.subject_code} - ` : ''}{subject.subject}</option>)}</optgroup>
+                return items.length > 0 && <optgroup key={source} label={source === 'sdl' ? 'SDL School' : 'ประวัติบันทึก'}>{items.map(subject => <option key={`${subject.level}|${subject.subject_code}|${subject.subject}`} value={selectableSubjects.indexOf(subject)}>{subject.subject_code ? `${subject.subject_code} - ` : ''}{subject.subject}{(showAllSubjects || levelSubjects.length === 0) && subject.level ? ` (${subject.level})` : ''}</option>)}</optgroup>
               })}
             </NativeSelect></FormField>
             {value.subject && <p className="rounded-lg border bg-background/70 px-3 py-2 text-xs leading-5"><span className="text-muted-foreground">วิชาที่ใช้ในบันทึก: </span>{value.subject_code ? `${value.subject_code} · ` : ''}{value.subject}</p>}
