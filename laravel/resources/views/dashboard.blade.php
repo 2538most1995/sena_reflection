@@ -95,7 +95,7 @@
                         <td><b>{{ $record->subject }}</b><small>{{ $record->subject_code ?: 'ไม่ระบุรหัสวิชา' }}</small></td>
                         <td><b>{{ number_format($record->present) }}/{{ number_format($record->total) }}</b><small>มาเรียน / ทั้งหมด</small></td>
                         <td>{{ $record->images_count }}</td>
-                        <td><div class="row-actions"><a class="row-action" href="{{ route('records.show', $record) }}">ดู</a><a class="row-action" href="{{ route('records.print', $record) }}" target="_blank" rel="noopener">พิมพ์</a><a class="row-action" href="{{ route('records.edit', $record) }}">แก้ไข <span aria-hidden="true">›</span></a></div></td>
+                        <td><div class="row-actions"><a class="row-action" href="{{ route('records.show', $record) }}">ดู</a><a class="row-action" href="{{ route('records.print', $record) }}" target="_blank" rel="noopener">พิมพ์</a><a class="row-action" href="{{ route('records.edit', $record) }}">แก้ไข <span aria-hidden="true">›</span></a>@if(auth()->user()->isDistrict() || $record->tambon === auth()->user()->tambon)<form method="post" action="{{ route('records.destroy', $record) }}" onsubmit="return confirm('ยืนยันการลบบันทึกหลังสอนหรือไม่? ข้อมูลและรูปภาพจะถูกลบออก');" style="display:inline;">@csrf @method('DELETE')<button type="submit" class="row-action" style="background:none;border:none;cursor:pointer;color:#dc2626;">ลบ</button></form>@endif</div></td>
                     </tr>
                 @empty
                     <tr><td colspan="9"><div class="empty-state"><b>ไม่พบรายการบันทึก</b><span>ลองเปลี่ยนตัวกรอง หรือสร้างบันทึกรายสัปดาห์ใหม่</span></div></td></tr>

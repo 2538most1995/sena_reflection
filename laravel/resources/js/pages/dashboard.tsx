@@ -2,7 +2,7 @@ import { AppLink as Link } from '@/components/app-link'
 import { appRouter as router } from '@/lib/app-router'
 import { appFetch as fetch } from '@/lib/app-url'
 import { Head, usePage } from '@inertiajs/react'
-import { ArrowRight, Books, CalendarBlank, CheckCircle, ClockCounterClockwise, Funnel, MagnifyingGlass, Plus, Printer, UsersThree, X } from '@phosphor-icons/react'
+import { ArrowRight, Books, CalendarBlank, CheckCircle, ClockCounterClockwise, Funnel, MagnifyingGlass, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
 import { FormEvent, useEffect, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
 import { AcademicTermNotice, type ActiveAcademicTerm } from '@/components/academic-term-notice'
@@ -102,15 +102,98 @@ function Filters({ filters, weeks, tambons, district, current }: { filters: Prop
 }
 
 function RecordsList({ records }: { records: Paginated<RecordRow> }) {
+  const { auth } = usePage<SharedProps>().props
+  const district = auth.user?.role === 'district'
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const handleDelete = (record: RecordRow) => {
+    const label = record.subject ? `"${record.subject}" (สัปดาห์ที่ ${record.week})` : `สัปดาห์ที่ ${record.week}`
+    if (!window.confirm(`ยืนยันการลบบันทึกหลังสอน ${label}?\n\nข้อมูลการสอน การเข้าเรียน และรูปภาพของบันทึกนี้จะถูกลบออกทั้งหมด`)) {
+      return
+    }
+    setDeletingId(record.id)
+    router.delete(`/records/${record.id}`, {
+      preserveScroll: true,
+      onFinish: () => setDeletingId(null),
+    })
+  }
+
   if (!records.data.length) return <div className="grid min-h-52 place-items-center rounded-xl border border-dashed bg-muted/20 px-6 text-center"><div><Books size={34} className="mx-auto text-muted-foreground" /><b className="mt-3 block">ไม่พบรายการบันทึก</b><p className="mt-1 text-sm text-muted-foreground">เปลี่ยนตัวกรองหรือสร้างบันทึกรายสัปดาห์ใหม่</p></div></div>
   return <>
     <div className="hidden overflow-x-auto lg:block">
       <table className="w-full min-w-[980px] text-left text-sm">
         <thead><tr className="border-b bg-muted/35 text-xs text-muted-foreground"><th className="px-4 py-3 font-medium">ปี / ภาค</th><th className="px-4 py-3 font-medium">สัปดาห์</th><th className="px-4 py-3 font-medium">วันที่สอน</th><th className="px-4 py-3 font-medium">ตำบล</th><th className="px-4 py-3 font-medium">ระดับชั้น</th><th className="px-4 py-3 font-medium">รายวิชา</th><th className="px-4 py-3 font-medium">เข้าเรียน</th><th className="px-4 py-3 font-medium">รูป</th><th className="px-4 py-3"><span className="sr-only">จัดการ</span></th></tr></thead>
-        <tbody>{records.data.map((record) => <tr key={record.id} className="border-b last:border-0 hover:bg-muted/25"><td className="px-4 py-3.5"><b>{record.year}</b><small className="block text-muted-foreground">ภาคเรียน {record.semester}</small></td><td className="px-4 py-3.5"><Badge>{record.week}</Badge></td><td className="px-4 py-3.5 whitespace-nowrap">{thaiDate(record.date)}</td><td className="px-4 py-3.5">{record.tambon_relation?.name || record.tambon}</td><td className="px-4 py-3.5"><Badge variant="secondary">{record.level || '-'}</Badge></td><td className="max-w-64 px-4 py-3.5"><b className="block truncate">{record.subject}</b><small className="block truncate text-muted-foreground">{record.subject_code || 'ไม่ระบุรหัสวิชา'}</small></td><td className="px-4 py-3.5"><b>{number(record.present)}/{number(record.total)}</b></td><td className="px-4 py-3.5">{record.images_count || 0}</td><td className="px-4 py-3.5"><div className="flex justify-end gap-1"><Button asChild variant="ghost" size="sm"><Link href={`/records/${record.id}`}>ดู</Link></Button><Button asChild size="sm"><Link href={`/records/${record.id}/document`}><Printer size={16} />จัดเอกสาร</Link></Button><Button asChild variant="outline" size="sm"><Link href={`/records/${record.id}/edit`}>แก้ไข</Link></Button></div></td></tr>)}</tbody>
+        <tbody>{records.data.map((record) => {
+          const canDelete = district || record.tambon === auth.user?.tambon
+          return <tr key={record.id} className="border-b last:border-0 hover:bg-muted/25">
+            <td className="px-4 py-3.5"><b>{record.year}</b><small className="block text-muted-foreground">ภาคเรียน {record.semester}</small></td>
+            <td className="px-4 py-3.5"><Badge>{record.week}</Badge></td>
+            <td className="px-4 py-3.5 whitespace-nowrap">{thaiDate(record.date)}</td>
+            <td className="px-4 py-3.5">{record.tambon_relation?.name || record.tambon}</td>
+            <td className="px-4 py-3.5"><Badge variant="secondary">{record.level || '-'}</Badge></td>
+            <td className="max-w-64 px-4 py-3.5"><b className="block truncate">{record.subject}</b><small className="block truncate text-muted-foreground">{record.subject_code || 'ไม่ระบุรหัสวิชา'}</small></td>
+            <td className="px-4 py-3.5"><b>{number(record.present)}/{number(record.total)}</b></td>
+            <td className="px-4 py-3.5">{record.images_count || 0}</td>
+            <td className="px-4 py-3.5">
+              <div className="flex justify-end gap-1">
+                <Button asChild variant="ghost" size="sm"><Link href={`/records/${record.id}`}>ดู</Link></Button>
+                <Button asChild size="sm"><Link href={`/records/${record.id}/document`}><Printer size={16} />จัดเอกสาร</Link></Button>
+                <Button asChild variant="outline" size="sm"><Link href={`/records/${record.id}/edit`}>แก้ไข</Link></Button>
+                {canDelete && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
+                    disabled={deletingId === record.id}
+                    onClick={() => handleDelete(record)}
+                    title="ลบบันทึกหลังสอน"
+                  >
+                    <Trash size={15} />ลบ
+                  </Button>
+                )}
+              </div>
+            </td>
+          </tr>
+        })}</tbody>
       </table>
     </div>
-    <div className="grid gap-3 lg:hidden">{records.data.map((record) => <article key={record.id} className="rounded-xl border bg-card p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="block truncate">{record.subject}</b><p className="mt-0.5 text-xs text-muted-foreground">{record.subject_code || 'ไม่ระบุรหัสวิชา'} | {record.tambon_relation?.name || record.tambon}</p></div><Badge>{`สัปดาห์ ${record.week}`}</Badge></div><div className="mt-4 grid grid-cols-2 gap-3 text-sm"><div><small className="text-muted-foreground">ระดับชั้น</small><p>{record.level}</p></div><div><small className="text-muted-foreground">วันที่สอน</small><p>{thaiDate(record.date)}</p></div><div><small className="text-muted-foreground">การเข้าเรียน</small><p>{number(record.present)}/{number(record.total)} คน</p></div><div><small className="text-muted-foreground">รูปประกอบ</small><p>{record.images_count || 0} รูป</p></div></div><div className="mt-4 flex gap-2 border-t pt-3"><Button asChild variant="outline" size="sm" className="flex-1"><Link href={`/records/${record.id}`}>ดูข้อมูล</Link></Button><Button asChild size="sm"><Link href={`/records/${record.id}/document`}><Printer size={17} />จัดเอกสาร</Link></Button></div></article>)}</div>
+    <div className="grid gap-3 lg:hidden">{records.data.map((record) => {
+      const canDelete = district || record.tambon === auth.user?.tambon
+      return <article key={record.id} className="rounded-xl border bg-card p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <b className="block truncate">{record.subject}</b>
+            <p className="mt-0.5 text-xs text-muted-foreground">{record.subject_code || 'ไม่ระบุรหัสวิชา'} | {record.tambon_relation?.name || record.tambon}</p>
+          </div>
+          <Badge>{`สัปดาห์ ${record.week}`}</Badge>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div><small className="text-muted-foreground">ระดับชั้น</small><p>{record.level}</p></div>
+          <div><small className="text-muted-foreground">วันที่สอน</small><p>{thaiDate(record.date)}</p></div>
+          <div><small className="text-muted-foreground">การเข้าเรียน</small><p>{number(record.present)}/{number(record.total)} คน</p></div>
+          <div><small className="text-muted-foreground">รูปประกอบ</small><p>{record.images_count || 0} รูป</p></div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
+          <Button asChild variant="outline" size="sm" className="flex-1"><Link href={`/records/${record.id}`}>ดูข้อมูล</Link></Button>
+          <Button asChild size="sm"><Link href={`/records/${record.id}/document`}><Printer size={17} />จัดเอกสาร</Link></Button>
+          <Button asChild variant="outline" size="sm"><Link href={`/records/${record.id}/edit`}>แก้ไข</Link></Button>
+          {canDelete && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
+              disabled={deletingId === record.id}
+              onClick={() => handleDelete(record)}
+              title="ลบบันทึกหลังสอน"
+            >
+              <Trash size={16} />ลบ
+            </Button>
+          )}
+        </div>
+      </article>
+    })}</div>
     {records.last_page > 1 && <nav className="mt-5 flex flex-wrap justify-center gap-1" aria-label="แบ่งหน้า">{records.links.map((link, index) => link.url ? <Button key={index} asChild variant={link.active ? 'default' : 'outline'} size="sm"><Link href={link.url} preserveScroll dangerouslySetInnerHTML={{ __html: link.label }} /></Button> : <Button key={index} variant="outline" size="sm" disabled dangerouslySetInnerHTML={{ __html: link.label }} />)}</nav>}
   </>
 }

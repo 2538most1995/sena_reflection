@@ -1,27 +1,42 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { appUrl } from '@/lib/app-url'
+import { appRouter as router } from '@/lib/app-router'
 import { AppLink as Link } from '@/components/app-link'
 import { ActivityImage } from '@/components/activity-image'
-import { Head } from '@inertiajs/react'
-import { ArrowLeft, FileText, ImageSquare, NotePencil, Printer, Student } from '@phosphor-icons/react'
+import { Head, usePage } from '@inertiajs/react'
+import { ArrowLeft, FileText, ImageSquare, NotePencil, Printer, Student, Trash } from '@phosphor-icons/react'
 import { AppShell, PageHeader } from '@/components/app-shell'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { number, thaiDate } from '@/lib/utils'
-import type { RecordRow } from '@/types'
+import type { RecordRow, SharedProps } from '@/types'
 
 function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="rounded-lg bg-muted/45 p-4"><dt className="text-xs font-medium text-muted-foreground">{label}</dt><dd className="mt-1.5 text-sm font-semibold">{value || '-'}</dd></div>
 }
 
 export default function Show({ record }: { record: RecordRow }) {
+  const [deleting, setDeleting] = useState(false)
+  const { auth } = usePage<SharedProps>().props
+  const canDelete = auth.user?.role === 'district' || record.tambon === auth.user?.tambon
+
+  const handleDelete = () => {
+    if (!window.confirm(`ยืนยันการลบบันทึกหลังสอน "${record.subject}" (สัปดาห์ที่ ${record.week})?\n\nข้อมูลการสอน การเข้าเรียน และรูปภาพของบันทึกนี้จะถูกลบออกทั้งหมด`)) {
+      return
+    }
+    setDeleting(true)
+    router.delete(`/records/${record.id}`, {
+      onFinish: () => setDeleting(false),
+    })
+  }
+
   useEffect(() => {
     if (window.location.hash === '#activity-images') document.getElementById('activity-images')?.scrollIntoView({ block: 'start' })
   }, [record.id])
   return <AppShell>
     <Head title={`รายละเอียด ${record.subject}`} />
-    <PageHeader title={record.subject} description={`สัปดาห์ ${record.week} | ${record.level} | ${record.tambon_relation?.name || record.tambon}`} action={<div className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link href="/"><ArrowLeft size={17} />ภาพรวม</Link></Button><Button asChild variant="secondary"><Link href={appUrl(`/records/${record.id}/edit`)}><NotePencil size={17} />แก้ไขข้อมูล</Link></Button><Button asChild><Link href={appUrl(`/records/${record.id}/document`)}><FileText size={18} weight="fill" />จัดเอกสารก่อนพิมพ์</Link></Button><Button asChild variant="outline"><a href={appUrl(`/records/${record.id}/browser-print`)} target="_blank" rel="noreferrer"><Printer size={18} />พิมพ์ / บันทึก PDF</a></Button></div>} />
+    <PageHeader title={record.subject} description={`สัปดาห์ ${record.week} | ${record.level} | ${record.tambon_relation?.name || record.tambon}`} action={<div className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link href="/"><ArrowLeft size={17} />ภาพรวม</Link></Button><Button asChild variant="secondary"><Link href={appUrl(`/records/${record.id}/edit`)}><NotePencil size={17} />แก้ไขข้อมูล</Link></Button><Button asChild><Link href={appUrl(`/records/${record.id}/document`)}><FileText size={18} weight="fill" />จัดเอกสารก่อนพิมพ์</Link></Button><Button asChild variant="outline"><a href={appUrl(`/records/${record.id}/browser-print`)} target="_blank" rel="noreferrer"><Printer size={18} />พิมพ์ / บันทึก PDF</a></Button>{canDelete && <Button type="button" variant="outline" className="text-destructive hover:bg-destructive hover:text-destructive-foreground hover:border-destructive" disabled={deleting} onClick={handleDelete} title="ลบบันทึกหลังสอน"><Trash size={17} />ลบบันทึก</Button>}</div>} />
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,.6fr)]">
       <div className="grid gap-6">
         <Card><CardHeader className="flex-row items-center justify-between"><CardTitle>รายละเอียดการสอน</CardTitle><Badge>{record.level}</Badge></CardHeader><CardContent><dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Detail label="ปี / ภาคเรียน" value={`${record.year} / ${record.semester}`} /><Detail label="สัปดาห์ / วันที่" value={`${record.week} / ${thaiDate(record.date)}`} /><Detail label="รหัสวิชา" value={record.subject_code} /><Detail label="กลุ่มเรียน" value={record.class_name || record.class_group_code} /><Detail label="ผู้เรียนทั้งหมด" value={`${number(record.total)} คน`} /><Detail label="มาเรียน" value={`${number(record.present)} คน`} /><Detail label="ขาดเรียน" value={`${number(record.total - record.present)} คน`} /><Detail label="รูปภาพ" value={`${record.images?.length || 0} รูป`} /></dl></CardContent></Card>
