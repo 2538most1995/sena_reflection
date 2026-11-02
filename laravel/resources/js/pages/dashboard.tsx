@@ -3,7 +3,7 @@ import { appRouter as router } from '@/lib/app-router'
 import { appFetch as fetch, appUrl } from '@/lib/app-url'
 import { actionAlert } from '@/lib/action-alert'
 import { Head, usePage } from '@inertiajs/react'
-import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, FilePdf, Funnel, MagnifyingGlass, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
+import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, Eye, FilePdf, Funnel, MagnifyingGlass, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
 import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
 import { AcademicTermNotice, type ActiveAcademicTerm } from '@/components/academic-term-notice'
@@ -580,8 +580,28 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                                       </td>
                                       <td className="px-3.5 py-2.5 text-right">
                                         <div className="flex justify-end gap-1">
-                                          <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-xs">
-                                            <Link href={`/records/${record.id}`}>ดู</Link>
+                                          <Button asChild variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground">
+                                            <Link href={`/records/${record.id}`}>
+                                              <Eye size={14} weight="regular" />
+                                              ดู
+                                            </Link>
+                                          </Button>
+                                          <Button
+                                            asChild
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-8 gap-1 px-2.5 text-xs font-medium border-border hover:bg-muted/70 hover:border-primary/40"
+                                            title={`พิมพ์ PDF ${record.level || ''}`}
+                                          >
+                                            <a
+                                              href={appUrl(`/records/${record.id}/browser-print`)}
+                                              target="_blank"
+                                              rel="noopener"
+                                              onClick={() => actionAlert.info('เปิดหน้าเตรียม PDF', 'กำลังเปิดหน้าพิมพ์ของระดับชั้นนี้ในแท็บใหม่')}
+                                            >
+                                              <FilePdf size={14} weight="regular" />
+                                              พิมพ์ PDF
+                                            </a>
                                           </Button>
                                           <Button asChild size="sm" className="h-8 gap-1 px-2.5 text-xs font-semibold">
                                             <Link href={`/records/${record.id}/document`}>
@@ -720,8 +740,22 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                           <div>รูปภาพ: <b className="font-semibold text-foreground">{record.images_count || 0} รูป</b></div>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border/50 pt-2.5">
-                          <Button asChild variant="outline" size="sm" className="h-8 flex-1 text-xs">
-                            <Link href={`/records/${record.id}`}>ดูข้อมูล</Link>
+                          <Button asChild variant="outline" size="sm" className="h-8 flex-1 gap-1 text-xs">
+                            <Link href={`/records/${record.id}`}>
+                              <Eye size={14} />
+                              ดูข้อมูล
+                            </Link>
+                          </Button>
+                          <Button asChild variant="outline" size="sm" className="h-8 flex-1 gap-1 text-xs font-medium border-border">
+                            <a
+                              href={appUrl(`/records/${record.id}/browser-print`)}
+                              target="_blank"
+                              rel="noopener"
+                              onClick={() => actionAlert.info('เปิดหน้าเตรียม PDF', 'กำลังเปิดหน้าพิมพ์ของระดับชั้นนี้ในแท็บใหม่')}
+                            >
+                              <FilePdf size={14} />
+                              พิมพ์ PDF
+                            </a>
                           </Button>
                           <Button asChild size="sm" className="h-8 gap-1 text-xs font-semibold">
                             <Link href={`/records/${record.id}/document`}>
