@@ -157,7 +157,8 @@ export function emptyTeachingDraft(defaults: TeachingWorkspaceProps['defaults'])
   }
 }
 
-export function selectedTeachingLevels(payload: TeachingDraftPayload) {
+export function selectedTeachingLevels(payload?: TeachingDraftPayload | null) {
+  if (!payload) return []
   const codes = payload.enabled_level_codes ?? teachingLevels.map((level) => level.code)
   return teachingLevels.filter((level) => codes.includes(level.code))
 }

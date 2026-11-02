@@ -34,7 +34,8 @@ export default function StudentApi({ integration: initial }: { integration: Inte
   const connect = async (mode: 'test' | 'save') => {
     if (operation.current) return
     setError(null); setTokenError(undefined); setCheck(null)
-    if (!integration.token_configured && !token.trim()) {
+    const cleanToken = (token || '').trim()
+    if (!integration.token_configured && !cleanToken) {
       const message = 'กรุณากรอก API token ของ SDL School ก่อนทดสอบหรือบันทึก'
       setTokenError(message)
       actionAlert.error('ยังไม่ได้ระบุ API token', message)
@@ -48,7 +49,7 @@ export default function StudentApi({ integration: initial }: { integration: Inte
       const response = await appFetch(`/admin/student-api${mode === 'test' ? '/test' : ''}`, {
         method: 'POST', signal: controller.signal,
         headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf },
-        body: JSON.stringify(token.trim() ? { token: token.trim() } : {}),
+        body: JSON.stringify(cleanToken ? { token: cleanToken } : {}),
       })
       const payload: ResponsePayload | null = await response.json().catch(() => null)
       if (!response.ok || !payload?.data) {

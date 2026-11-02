@@ -38,3 +38,12 @@ test('mount normalization accepts empty/root and rejects a URL or traversal as a
   assert.equal(normalizeAppBasePath(' /sena_reflection/ '), '/sena_reflection')
   for (const value of ['https://example.com', '/sena_reflection/../other', '/sena_reflection?x=1']) assert.throws(() => normalizeAppBasePath(value))
 })
+
+test('null and undefined inputs are safely handled', () => {
+  assert.equal(resolveAppUrl(null), '')
+  assert.equal(resolveAppUrl(undefined), '')
+  assert.equal(normalizeAppBasePath(null), '')
+  assert.equal(normalizeAppBasePath(undefined), '')
+  assert.equal(resolveAppPathname(null), '/')
+  assert.equal(resolveAppPathname(undefined), '/')
+})

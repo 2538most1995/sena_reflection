@@ -130,3 +130,30 @@ test('real imported roster errors identify the exact row and field without inven
   assert.match(attendanceRowIssues(rows, 'G1').find(issue => issue.field === 'student_id').message, /ซ้ำกับลำดับ 1/)
   assert.equal(teachingAttendanceReady(payload.levels['1']), false)
 })
+
+test('draft level readiness and review issues guard against null and undefined properties', () => {
+  assert.equal(teachingLevelReady(null), false)
+  assert.equal(teachingLevelReady(undefined), false)
+  assert.equal(teachingAttendanceReady(null), false)
+  assert.equal(teachingAttendanceReady(undefined), false)
+  assert.deepEqual(reviewIssues(null, []), [])
+  assert.deepEqual(teachingSaveSummary(null, []), [])
+
+  const nullishLevel = {
+    class_name: null,
+    class_group_code: null,
+    subject: null,
+    subject_code: null,
+    result: null,
+    attendance_mode: 'roster',
+    attendance: null,
+    image_ids: null,
+  }
+  assert.equal(teachingLevelReady(nullishLevel), false)
+  assert.equal(teachingAttendanceReady(nullishLevel), false)
+
+  const payload = fixture()
+  payload.levels['1'] = nullishLevel
+  assert.doesNotThrow(() => reviewIssues(payload, []))
+  assert.doesNotThrow(() => teachingSaveSummary(payload, []))
+})

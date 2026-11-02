@@ -1,7 +1,7 @@
 export const EXPORT_POLL_INTERVAL = 3000
 
-export function exportRetrySeconds(value: string | null, now = Date.now()): number {
-  if (value && /^\d+$/.test(value.trim())) return Math.max(1, Number(value))
+export function exportRetrySeconds(value?: string | null, now = Date.now()): number {
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Math.max(1, Number(value))
   const date = value ? Date.parse(value) : Number.NaN
   return Number.isFinite(date) ? Math.max(1, Math.ceil((date - now) / 1000)) : 10
 }

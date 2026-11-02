@@ -36,52 +36,80 @@ export function attendanceRowIssues(rows: WorkspaceAttendanceRow[], groupCode = 
   return issues
 }
 
-export function teachingAttendanceCounts(level: TeachingLevelDraft) {
+export function teachingAttendanceCounts(level?: TeachingLevelDraft | null) {
+  if (!level) return { total: 0, present: 0 }
   return level.attendance_mode === 'roster'
-    ? { total: level.attendance.length, present: level.attendance.filter(row => row.present).length }
-    : { total: level.total, present: level.present }
+    ? { total: (level.attendance || []).length, present: (level.attendance || []).filter(row => row.present).length }
+    : { total: Number(level.total) || 0, present: Number(level.present) || 0 }
 }
 
-export function teachingAttendanceReady(level: TeachingLevelDraft): boolean {
+export function teachingAttendanceReady(level?: TeachingLevelDraft | null): boolean {
+  if (!level) return false
   if (level.attendance_mode === 'counts') return Number.isInteger(level.total) && Number.isInteger(level.present) && level.total >= 0 && level.total <= 10000 && level.present >= 0 && level.present <= level.total
-  return level.attendance.length > 0 && level.attendance.length <= 2000 && attendanceRowIssues(level.attendance, level.class_group_code).length === 0
+  const attendance = Array.isArray(level.attendance) ? level.attendance : []
+  return attendance.length > 0 && attendance.length <= 2000 && attendanceRowIssues(attendance, scalarText(level.class_group_code)).length === 0
 }
 
-export function teachingLevelReady(level: TeachingLevelDraft, imageCount = level.image_ids.length): boolean {
-  return Boolean((level.class_name.trim() || level.class_group_code.trim()) && level.subject.trim() && level.result.trim() && teachingAttendanceReady(level) && [0, 2, 4].includes(imageCount))
+export function teachingLevelReady(level?: TeachingLevelDraft | null, imageCount?: number): boolean {
+  if (!level) return false
+  const actualImageCount = imageCount !== undefined ? imageCount : (Array.isArray(level.image_ids) ? level.image_ids.length : 0)
+  const className = scalarText(level.class_name)
+  const classGroupCode = scalarText(level.class_group_code)
+  const subject = scalarText(level.subject)
+  const result = scalarText(level.result)
+  return Boolean((className || classGroupCode) && subject && result && teachingAttendanceReady(level) && [0, 2, 4].includes(actualImageCount))
 }
 
 export function reviewIssues(payload: TeachingDraftPayload, images: TeachingDraftImage[]): LevelIssue[] {
+  if (!payload) return []
   const selectedLevels = selectedTeachingLevels(payload)
   const scopeLevel = selectedLevels[0]?.code || '1'
   const scopeIssues: LevelIssue[] = []
   if (!selectedLevels.length) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกระดับชั้นที่สอนอย่างน้อย 1 ระดับ', field: 'scope.levels' })
-  if (!payload.scope.tambon) scopeIssues.push({ levelCode: scopeLevel, message: 'ยังไม่ได้เลือกตำบลของชุดงาน', field: 'scope.tambon' })
-  if (!/^25\d{2}$/.test(payload.scope.year)) scopeIssues.push({ levelCode: scopeLevel, message: 'ระบุปีการศึกษาเป็น พ.ศ. 4 หลัก', field: 'scope.year' })
-  if (!['1', '2', '3'].includes(payload.scope.semester)) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกภาคเรียน', field: 'scope.semester' })
-  if (!payload.scope.week || !Number.isInteger(Number(payload.scope.week)) || Number(payload.scope.week) < 1 || Number(payload.scope.week) > 20) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกสัปดาห์ที่ 1-20', field: 'scope.week' })
-  if (!payload.scope.date) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกวันที่สอน', field: 'scope.date' })
+  if (!payload.scope?.tambon) scopeIssues.push({ levelCode: scopeLevel, message: 'ยังไม่ได้เลือกตำบลของชุดงาน', field: 'scope.tambon' })
+  if (!/^25\d{2}$/.test(String(payload.scope?.year || ''))) scopeIssues.push({ levelCode: scopeLevel, message: 'ระบุปีการศึกษาเป็น พ.ศ. 4 หลัก', field: 'scope.year' })
+  if (!['1', '2', '3'].includes(String(payload.scope?.semester || ''))) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกภาคเรียน', field: 'scope.semester' })
+  if (!payload.scope?.week || !Number.isInteger(Number(payload.scope?.week)) || Number(payload.scope?.week) < 1 || Number(payload.scope?.week) > 20) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกสัปดาห์ที่ 1-20', field: 'scope.week' })
+  if (!payload.scope?.date) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกวันที่สอน', field: 'scope.date' })
   return [...scopeIssues, ...selectedLevels.flatMap(({ code }) => {
-    const level = payload.levels[code]
+    const level = payload.levels?.[code]
+    if (!level) return []
     const issues: LevelIssue[] = []
-    if (!level.class_name.trim() && !level.class_group_code.trim()) issues.push({ levelCode: code, message: 'ยังไม่ได้เลือกกลุ่มเรียน', field: 'group' })
-    if (!level.subject.trim()) issues.push({ levelCode: code, message: 'ยังไม่ได้ระบุรายวิชา', field: 'subject' })
-    if (!level.result.trim()) issues.push({ levelCode: code, message: 'ยังไม่ได้บันทึกผลการจัดการเรียนรู้', field: 'result' })
+    const className = scalarText(level.class_name)
+    const classGroupCode = scalarText(level.class_group_code)
+    const subject = scalarText(level.subject)
+    const result = scalarText(level.result)
+    if (!className && !classGroupCode) issues.push({ levelCode: code, message: 'ยังไม่ได้เลือกกลุ่มเรียน', field: 'group' })
+    if (!subject) issues.push({ levelCode: code, message: 'ยังไม่ได้ระบุรายวิชา', field: 'subject' })
+    if (!result) issues.push({ levelCode: code, message: 'ยังไม่ได้บันทึกผลการจัดการเรียนรู้', field: 'result' })
     if (level.attendance_mode === 'counts' && !teachingAttendanceReady(level)) issues.push({ levelCode: code, message: 'ตรวจยอดผู้เรียนทั้งหมดและจำนวนมาเรียนให้ถูกต้อง', field: 'attendance' })
     if (level.attendance_mode === 'roster') {
-      if (!level.attendance.length) issues.push({ levelCode: code, message: 'ยังไม่มีรายชื่อนักศึกษา', field: 'attendance' })
-      if (level.attendance.length > 2000) issues.push({ levelCode: code, message: 'รายชื่อเกิน 2,000 คน กรุณาตรวจกลุ่มเรียน', field: 'attendance' })
-      for (const issue of attendanceRowIssues(level.attendance, level.class_group_code)) {
-        const row = level.attendance[issue.index]
-        issues.push({ levelCode: code, message: `ลำดับ ${issue.index + 1} (${scalarText(row.full_name) || scalarText(row.student_id) || 'ยังไม่มีชื่อ'}) — ${issue.message}`, field: `attendance.${issue.index}.${issue.field}` })
+      const attendance = Array.isArray(level.attendance) ? level.attendance : []
+      if (!attendance.length) issues.push({ levelCode: code, message: 'ยังไม่มีรายชื่อนักศึกษา', field: 'attendance' })
+      if (attendance.length > 2000) issues.push({ levelCode: code, message: 'รายชื่อเกิน 2,000 คน กรุณาตรวจกลุ่มเรียน', field: 'attendance' })
+      for (const issue of attendanceRowIssues(attendance, classGroupCode)) {
+        const row = attendance[issue.index]
+        issues.push({ levelCode: code, message: `ลำดับ ${issue.index + 1} (${scalarText(row?.full_name) || scalarText(row?.student_id) || 'ยังไม่มีชื่อ'}) — ${issue.message}`, field: `attendance.${issue.index}.${issue.field}` })
       }
     }
-    const imageCount = images.filter(image => image.level_code === code).length
+    const safeImages = Array.isArray(images) ? images : []
+    const imageCount = safeImages.filter(image => image?.level_code === code).length
     if (![0, 2, 4].includes(imageCount)) issues.push({ levelCode: code, message: `รูปภาพต้องมี 0, 2 หรือ 4 รูป (ขณะนี้ ${imageCount})`, field: 'images' })
     return issues
   })]
 }
 
 export function teachingSaveSummary(payload: TeachingDraftPayload, images: TeachingDraftImage[]) {
-  return selectedTeachingLevels(payload).map(level => ({ ...level, ...teachingAttendanceCounts(payload.levels[level.code]), subject: payload.levels[level.code].subject, group: payload.levels[level.code].class_name || payload.levels[level.code].class_group_code, images: images.filter(image => image.level_code === level.code).length }))
+  if (!payload) return []
+  const safeImages = Array.isArray(images) ? images : []
+  return selectedTeachingLevels(payload).map(level => {
+    const draftLevel = payload.levels?.[level.code]
+    return {
+      ...level,
+      ...teachingAttendanceCounts(draftLevel),
+      subject: draftLevel?.subject || '',
+      group: draftLevel?.class_name || draftLevel?.class_group_code || '',
+      images: safeImages.filter(image => image?.level_code === level.code).length,
+    }
+  })
 }

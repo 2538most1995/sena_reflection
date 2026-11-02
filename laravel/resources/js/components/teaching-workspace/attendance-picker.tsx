@@ -28,7 +28,7 @@ export function AttendancePicker({ rows, levelCode, groupCode, state, onChange, 
     window.addEventListener('sena-workspace-attendance-focus', focus)
     return () => window.removeEventListener('sena-workspace-attendance-focus', focus)
   }, [levelCode])
-  const normalizedSearch = search.trim().toLocaleLowerCase('th')
+  const normalizedSearch = (search || '').trim().toLocaleLowerCase('th')
   const visibleRows = useMemo(() => rows.map((row, index) => ({ row, index })).filter(({ row }) => {
     if (!normalizedSearch) return true
     return `${row.student_id} ${row.full_name}`.toLocaleLowerCase('th').includes(normalizedSearch)

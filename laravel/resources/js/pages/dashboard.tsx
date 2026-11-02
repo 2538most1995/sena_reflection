@@ -68,14 +68,34 @@ function DraftWorkList({ drafts }: { drafts?: Props['drafts'] }) {
 
   if (!items.length) return null
 
-  const completedLevels = (payload: TeachingDraftPayload) => selectedTeachingLevels(payload).filter(({ code }) => teachingLevelReady(payload.levels[code])).length
+  const completedLevels = (payload?: TeachingDraftPayload | null) => {
+    if (!payload || !payload.levels || typeof payload.levels !== 'object') return 0
+    try {
+      return selectedTeachingLevels(payload).filter(({ code }) => {
+        const level = payload.levels?.[code]
+        return level ? teachingLevelReady(level) : false
+      }).length
+    } catch {
+      return 0
+    }
+  }
 
   return <section className="mb-6 rounded-2xl border bg-card p-5 sm:p-6" aria-labelledby="draft-work-heading">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 id="draft-work-heading" className="flex items-center gap-2 font-semibold"><ClockCounterClockwise size={20} className="text-primary" />งานที่ทำค้างไว้</h2><p className="mt-1 text-xs text-muted-foreground">ร่างบันทึกบนเซิร์ฟเวอร์ กลับมาทำต่อจากอุปกรณ์เครื่องเดิมหรือเครื่องอื่นได้</p></div><Badge variant="outline">{items.length} ฉบับร่าง</Badge></div>
     <div className="mt-4 grid gap-3 lg:grid-cols-3">{items.slice(0, 6).map((draft) => {
       const scope = draft.scope || draft.payload?.scope || { tambon: '', year: '', semester: '', week: '', date: '' }
-      const completed = draft.progress?.completed_levels ?? (draft.payload ? completedLevels(draft.payload) : 0)
-      const totalLevels = draft.progress?.total_levels || (draft.payload ? selectedTeachingLevels(draft.payload).length : 3)
+      let completed = 0
+      try {
+        completed = draft.progress?.completed_levels ?? (draft.payload ? completedLevels(draft.payload) : 0)
+      } catch {
+        completed = 0
+      }
+      let totalLevels = 3
+      try {
+        totalLevels = draft.progress?.total_levels || (draft.payload ? selectedTeachingLevels(draft.payload).length : 3) || 3
+      } catch {
+        totalLevels = 3
+      }
       return <article key={draft.id} className="flex flex-col rounded-xl border bg-background p-4">
         <div className="flex items-start justify-between gap-3"><div><b className="text-sm">สัปดาห์ {scope.week || 'ยังไม่เลือก'}</b><p className="mt-0.5 text-xs text-muted-foreground">ปี {scope.year} · ภาคเรียน {scope.semester}</p></div><Badge variant={completed === totalLevels ? 'secondary' : 'outline'}>{completed}/{totalLevels} ระดับ</Badge></div>
         <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-muted" aria-label={`ทำเสร็จ ${completed} จาก ${totalLevels} ระดับ`}><div className="h-full rounded-full bg-primary transition-[width] duration-200" style={{ width: `${(completed / totalLevels) * 100}%` }} /></div>
