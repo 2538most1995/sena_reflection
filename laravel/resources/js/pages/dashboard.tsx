@@ -3,7 +3,7 @@ import { appRouter as router } from '@/lib/app-router'
 import { appFetch as fetch, appUrl } from '@/lib/app-url'
 import { actionAlert } from '@/lib/action-alert'
 import { Head, usePage } from '@inertiajs/react'
-import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, Eye, FileMagnifyingGlass, FilePdf, Funnel, MagnifyingGlass, NotePencil, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
+import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, Eye, FilePdf, Funnel, MagnifyingGlass, NotePencil, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
 import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
 import { AcademicTermNotice, type ActiveAcademicTerm } from '@/components/academic-term-notice'
@@ -597,24 +597,6 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
 
                                           <Button
                                             asChild
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8.5 p-0 rounded-lg bg-amber-50 border border-amber-200/90 text-amber-700 hover:bg-amber-100 hover:text-amber-800 dark:bg-amber-950/60 dark:border-amber-800 dark:text-amber-300 shadow-xs transition-colors"
-                                            title="ดูตัวอย่างเอกสารก่อนพิมพ์"
-                                          >
-                                            <a
-                                              href={appUrl(`/records/${record.id}/browser-print`)}
-                                              target="_blank"
-                                              rel="noopener"
-                                              onClick={() => actionAlert.info('เปิดหน้าเตรียม PDF', 'กำลังเปิดหน้าพิมพ์ของระดับชั้นนี้ในแท็บใหม่')}
-                                            >
-                                              <FileMagnifyingGlass size={17} weight="bold" />
-                                              <span className="sr-only">ดูตัวอย่างเอกสาร</span>
-                                            </a>
-                                          </Button>
-
-                                          <Button
-                                            asChild
                                             size="sm"
                                             className="h-8 gap-1.5 px-3 rounded-lg text-xs font-semibold bg-[#6366F1] hover:bg-[#4F46E5] text-white border-0 shadow-xs transition-colors"
                                             title={`พิมพ์ PDF ${record.level || ''}`}
@@ -795,24 +777,6 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                           </Button>
 
                           <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" aria-hidden="true" />
-
-                          <Button
-                            asChild
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8.5 p-0 rounded-lg bg-amber-50 border border-amber-200/90 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/60 dark:border-amber-800 dark:text-amber-300 shadow-xs"
-                            title="ดูตัวอย่างเอกสารก่อนพิมพ์"
-                          >
-                            <a
-                              href={appUrl(`/records/${record.id}/browser-print`)}
-                              target="_blank"
-                              rel="noopener"
-                              onClick={() => actionAlert.info('เปิดหน้าเตรียม PDF', 'กำลังเปิดหน้าพิมพ์ของระดับชั้นนี้ในแท็บใหม่')}
-                            >
-                              <FileMagnifyingGlass size={16} weight="bold" />
-                              <span className="sr-only">ดูตัวอย่างเอกสาร</span>
-                            </a>
-                          </Button>
 
                           <Button
                             asChild
