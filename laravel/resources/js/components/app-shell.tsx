@@ -65,8 +65,6 @@ export function AppShell({ children, wide = false }: { children: React.ReactNode
         <div className="hidden h-5 w-px bg-border xl:block" />
         <NavLinks />
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Button asChild size="sm" className="hidden lg:inline-flex"><Link href="/records/create"><Plus size={17} weight="bold" />สร้างบันทึก</Link></Button>
-          <Button asChild size="icon" className="lg:hidden"><Link href="/records/create" aria-label="สร้างบันทึกหลังสอน"><Plus size={19} weight="bold" /></Link></Button>
           <ThemeToggle />
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
