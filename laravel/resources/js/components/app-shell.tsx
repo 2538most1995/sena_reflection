@@ -2,9 +2,7 @@ import { AppLink as Link } from '@/components/app-link'
 import { appRouter as router } from '@/lib/app-router'
 import { usePage } from '@inertiajs/react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import * as Dialog from '@radix-ui/react-dialog'
-import { Buildings, CaretDown, ChartBar, FileText, List, Plus, SignOut, Student, UserCircle, UserList, X } from '@phosphor-icons/react'
-import { useState } from 'react'
+import { Buildings, CaretDown, ChartBar, FileText, Plus, SignOut, Student, UserCircle, UserList } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { FlashAlertBridge } from '@/components/flash-messages'
@@ -13,58 +11,72 @@ import { appPathname } from '@/lib/app-url'
 import type { SharedProps } from '@/types'
 
 const items = [
-  { href: '/', label: 'ภาพรวม', icon: ChartBar, match: (url: string) => url === '/' || url.startsWith('/records') },
+  { href: '/', label: 'ภาพรวม', icon: ChartBar, match: (url: string) => url === '/' || (url.startsWith('/records') && !url.startsWith('/records/create')) },
   { href: '/documents', label: 'เอกสาร', icon: FileText, match: (url: string) => url.startsWith('/documents') },
   { href: '/students', label: 'ข้อมูลนักศึกษา', icon: Student, match: (url: string) => url.startsWith('/students') },
   { href: '/attendance-analysis', label: 'การเข้าเรียน', icon: UserList, match: (url: string) => url.startsWith('/attendance-analysis') },
 ]
 
 function Brand() {
-  return <Link href="/" className="focus-ring flex shrink-0 items-center gap-2.5 rounded-lg" aria-label="SENA Reflection หน้าหลัก">
-    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-[13px] font-semibold tracking-tight text-primary-foreground">SR</span>
-    <span className="hidden min-w-0 leading-tight sm:block"><b className="block text-[13px] font-semibold tracking-[-0.02em]">SENA Reflection</b><small className="mt-0.5 block text-[10px] text-muted-foreground">ระบบบันทึกหลังการสอน</small></span>
+  return <Link href="/" className="focus-ring flex shrink-0 items-center gap-2 rounded-lg" aria-label="SENA Reflection หน้าหลัก">
+    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-[12px] font-semibold tracking-tight text-primary-foreground shadow-xs">SR</span>
+    <span className="min-w-0 leading-tight">
+      <b className="block text-[13px] font-semibold tracking-[-0.02em]">SENA Reflection</b>
+      <small className="hidden text-[10px] text-muted-foreground sm:block">ระบบบันทึกหลังการสอน</small>
+    </span>
   </Link>
 }
 
-function NavLinks({ mobile = false, close }: { mobile?: boolean; close?: () => void }) {
+function NavLinks({ className }: { className?: string }) {
   const { url, props } = usePage<SharedProps>()
   const pathname = appPathname(url)
   const links = props?.auth?.user?.role === 'district' ? [...items, { href: '/admin', label: 'จัดการระบบ', icon: Buildings, match: (value: string) => value.startsWith('/admin') }] : items
-  return <nav className={cn(mobile ? 'grid gap-1' : 'hidden min-w-0 items-center gap-0.5 xl:flex')} aria-label="เมนูหลัก">
-    {mobile && <Link href="/records/create" onClick={close} className="focus-ring mb-3 flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground"><Plus size={18} weight="bold" />สร้างบันทึกหลังสอน</Link>}
-    {links.map(({ href, label, icon: Icon, match }) => <Link key={href} href={href} onClick={close} aria-current={match(pathname) ? 'page' : undefined} className={cn('focus-ring flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors duration-150', mobile && 'py-3 text-sm', match(pathname) ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
-      <Icon size={17} weight="regular" />{label}
-    </Link>)}
+  return <nav className={cn('min-w-0 items-center gap-1', className)} aria-label="เมนูหลัก">
+    {links.map(({ href, label, icon: Icon, match }) => {
+      const active = match(pathname)
+      return <Link
+        key={href}
+        href={href}
+        aria-current={active ? 'page' : undefined}
+        className={cn(
+          'focus-ring flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-150',
+          active
+            ? 'bg-primary/10 text-primary font-semibold'
+            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+        )}
+      >
+        <Icon size={16} weight={active ? 'bold' : 'regular'} />
+        {label}
+      </Link>
+    })}
   </nav>
 }
 
 export function AppShell({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
-  const { props } = usePage<SharedProps>()
+  const { url, props } = usePage<SharedProps>()
+  const pathname = appPathname(url)
   const user = props?.auth?.user
-  const [open, setOpen] = useState(false)
   const logout = () => router.post('/logout')
+  const isCreatePage = pathname === '/records/create'
 
   return <div className="min-h-[100dvh] bg-background">
     <FlashAlertBridge />
     <a href="#main-content" className="fixed left-3 top-3 z-50 -translate-y-20 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background focus:translate-y-0">ข้ามไปยังเนื้อหา</a>
-    <header className="sticky top-0 z-30 border-b border-border bg-card">
-      <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-3 px-4 sm:px-6 lg:px-8">
-        <Dialog.Root open={open} onOpenChange={setOpen}>
-          <Dialog.Trigger asChild><Button variant="ghost" size="icon" className="xl:hidden" aria-label="เปิดเมนู"><List size={22} /></Button></Dialog.Trigger>
-          <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/30" />
-            <Dialog.Content className="fixed inset-y-0 left-0 z-50 w-[min(86vw,340px)] overflow-y-auto border-r bg-card p-5 shadow-xl outline-none">
-              <Dialog.Title className="sr-only">เมนูหลัก SENA Reflection</Dialog.Title>
-              <Dialog.Description className="sr-only">เลือกหน้าที่ต้องการใช้งาน หรือปิดเมนูเพื่อกลับไปหน้าปัจจุบัน</Dialog.Description>
-              <div className="mb-8 flex items-center justify-between"><Brand /><Dialog.Close asChild><Button variant="ghost" size="icon" aria-label="ปิดเมนู"><X size={20} /></Button></Dialog.Close></div>
-              <NavLinks mobile close={() => setOpen(false)} />
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
+    <header className="sticky top-0 z-30 border-b border-border bg-card shadow-xs">
+      <div className="mx-auto flex h-14 max-w-[1440px] items-center gap-3 px-4 sm:px-6 lg:h-16 lg:px-8">
         <Brand />
-        <div className="hidden h-5 w-px bg-border xl:block" />
-        <NavLinks />
-        <div className="ml-auto flex shrink-0 items-center gap-1">
+        <div className="hidden h-5 w-px bg-border lg:block" />
+        <NavLinks className="hidden lg:flex" />
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+          {!isCreatePage && (
+            <Button asChild size="sm" className="h-8 gap-1.5 px-3 text-xs font-semibold shadow-xs">
+              <Link href="/records/create">
+                <Plus size={15} weight="bold" />
+                <span className="hidden sm:inline">สร้างบันทึก</span>
+                <span className="sm:hidden">สร้าง</span>
+              </Link>
+            </Button>
+          )}
           <ThemeToggle />
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
@@ -83,6 +95,11 @@ export function AppShell({ children, wide = false }: { children: React.ReactNode
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+        </div>
+      </div>
+      <div className="border-t border-border/40 bg-card/95 lg:hidden">
+        <div className="mx-auto max-w-[1440px] px-2 sm:px-4">
+          <NavLinks className="flex overflow-x-auto no-scrollbar py-1.5" />
         </div>
       </div>
     </header>
