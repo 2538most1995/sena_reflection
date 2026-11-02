@@ -66,7 +66,6 @@ export function reviewIssues(payload: TeachingDraftPayload, images: TeachingDraf
   const scopeLevel = selectedLevels[0]?.code || '1'
   const scopeIssues: LevelIssue[] = []
   if (!selectedLevels.length) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกระดับชั้นที่สอนอย่างน้อย 1 ระดับ', field: 'scope.levels' })
-  if (!payload.scope?.tambon) scopeIssues.push({ levelCode: scopeLevel, message: 'ยังไม่ได้เลือกตำบลของชุดงาน', field: 'scope.tambon' })
   if (!/^25\d{2}$/.test(String(payload.scope?.year || ''))) scopeIssues.push({ levelCode: scopeLevel, message: 'ระบุปีการศึกษาเป็น พ.ศ. 4 หลัก', field: 'scope.year' })
   if (!['1', '2', '3'].includes(String(payload.scope?.semester || ''))) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกภาคเรียน', field: 'scope.semester' })
   if (!payload.scope?.week || !Number.isInteger(Number(payload.scope?.week)) || Number(payload.scope?.week) < 1 || Number(payload.scope?.week) > 20) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกสัปดาห์ที่ 1-20', field: 'scope.week' })

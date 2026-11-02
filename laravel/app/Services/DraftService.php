@@ -439,6 +439,9 @@ class DraftService
     {
         $scope = is_array($payload['scope'] ?? null) ? $payload['scope'] : [];
         $tambon = $user->isDistrict() ? trim((string) ($scope['tambon'] ?? '')) : (string) $user->tambon;
+        if ($tambon === '' && $user->isDistrict()) {
+            $tambon = (string) (Tambon::query()->orderBy('id')->value('id') ?? '');
+        }
         $normalizedLevels = [];
         foreach ((array) ($payload['levels'] ?? []) as $key => $entry) {
             if (! is_array($entry) || ! ($code = $this->levels->code($key))) {

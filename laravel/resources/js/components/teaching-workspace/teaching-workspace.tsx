@@ -102,9 +102,9 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const district = auth.user?.role === 'district'
   const fallbackPayload = useMemo(() => {
     const value = emptyTeachingDraft(defaults)
-    if (!district) value.scope.tambon = auth.user?.tambon || ''
+    value.scope.tambon = auth.user?.tambon || tambonOptions[0]?.id || ''
     return value
-  }, [auth.user?.tambon, defaults, district])
+  }, [auth.user?.tambon, defaults, tambonOptions])
   const initialDraft = workspace?.draft || null
   const [payload, setPayload] = useState<TeachingDraftPayload>(() => normalizeDraftPayload(initialDraft?.payload, fallbackPayload))
   const [draft, setDraft] = useState<TeachingDraft | null>(initialDraft)
@@ -329,7 +329,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   useEffect(() => {
     if (changeVersion <= savedVersionRef.current || conflicted.current || bootstrapping || finalizingRef.current) return
     const scope = payload.scope
-    if (!scope.year || !scope.semester || !scope.week || !scope.date || (district && !scope.tambon)) return
+    if (!scope.year || !scope.semester || !scope.week || !scope.date) return
     const timer = window.setTimeout(() => { void saveNow().catch(() => undefined) }, 900)
     return () => window.clearTimeout(timer)
   }, [bootstrapping, changeVersion, district, payload.scope, saveNow])
@@ -404,13 +404,13 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }, [previewLevel, markChanged])
 
   const refreshSubjects = useCallback((forceRefresh = false) => {
-    if ((!district && !payload.scope.tambon) || !/^25\d{2}$/.test(payload.scope.year) || !payload.scope.semester) {
+    if (!/^25\d{2}$/.test(payload.scope.year) || !payload.scope.semester) {
       setSubjectsLoading(false)
       if (optionsContext !== loadedSubjectContext.current) {
         setAvailableSubjects([])
         loadedSubjectContext.current = optionsContext
         setSubjectOptionsContext(optionsContext)
-        setSubjectCatalog({ source: 'unavailable', error: 'เลือกตำบล ปีการศึกษา และภาคเรียนเพื่อโหลดรายวิชา', term: null })
+        setSubjectCatalog({ source: 'unavailable', error: 'เลือกปีการศึกษา และภาคเรียนเพื่อโหลดรายวิชา', term: null })
       }
       return Promise.resolve()
     }
@@ -809,8 +809,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
 
     <Card className="mb-5">
       <CardHeader className="gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle>ข้อมูลร่วมของสัปดาห์</CardTitle><p className="mt-1 text-sm text-muted-foreground">ใช้กับบันทึกระดับชั้นที่เลือก</p></div><div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">{saveState === 'saving' ? <CloudArrowUp size={18} className="animate-pulse text-primary" /> : saveState === 'saved' ? <CloudCheck size={18} className="text-primary" weight="fill" /> : <FloppyDisk size={17} />}<span>{saveState === 'saving' ? 'กำลังบันทึก...' : saveState === 'error' ? 'บันทึกไม่สำเร็จ กรุณาลองใหม่' : saveState === 'conflict' ? 'พบการแก้ไขจากอีกหน้าต่าง' : !draft && !payload.scope.week ? 'เลือกสัปดาห์เพื่อเริ่มเก็บร่าง' : saveState === 'idle' && changeVersion > savedVersionRef.current ? 'มีการแก้ไข รอบันทึก' : savedAtLabel(lastSavedAt)}</span>{saveState !== 'saving' && saveState !== 'conflict' && <Button type="button" variant="ghost" size="sm" disabled={finalizing || imageBusy} onClick={() => void saveDraftManually()}>เก็บร่างตอนนี้</Button>}</div></CardHeader>
-      <CardContent><fieldset id="workspace-scope" disabled={finalizing} className={`grid min-w-0 scroll-mt-28 grid-cols-2 gap-4 ${district ? 'sm:grid-cols-3 lg:grid-cols-5' : 'sm:grid-cols-2 lg:grid-cols-4'}`}>
-        {district && <FormField label="ตำบล *"><NativeSelect data-workspace-field="scope.tambon" disabled={finalizing} value={payload.scope.tambon} onChange={(event) => changeTambon(event.target.value)}><option value="">เลือกตำบล</option>{tambonOptions.map((tambon) => <option key={tambon.id} value={tambon.id}>{tambon.name}</option>)}</NativeSelect></FormField>}
+      <CardContent><fieldset id="workspace-scope" disabled={finalizing} className="grid min-w-0 scroll-mt-28 grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <FormField label="ปีการศึกษา (พ.ศ.) *"><NativeSelect data-workspace-field="scope.year" value={payload.scope.year} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, year: event.target.value } }))}>{!/^25\d{2}$/.test(payload.scope.year) && <option value={payload.scope.year} disabled>{payload.scope.year ? `${payload.scope.year} · ปีเดิมไม่ถูกต้อง กรุณาเลือกใหม่` : 'เลือกปีการศึกษา'}</option>}{Array.from({ length: 100 }, (_, index) => String(2500 + index)).map(year => <option key={year} value={year}>{year}</option>)}</NativeSelect></FormField>
         <FormField label="ภาคเรียน *"><NativeSelect data-workspace-field="scope.semester" value={payload.scope.semester} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, semester: event.target.value } }))}>{['1', '2', '3'].map((term) => <option key={term} value={term}>ภาคเรียน {term}</option>)}</NativeSelect></FormField>
         <FormField label="สัปดาห์ *"><NativeSelect data-workspace-field="scope.week" value={payload.scope.week} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, week: event.target.value } }))}><option value="">เลือกสัปดาห์</option>{Array.from({ length: 20 }, (_, index) => index + 1).map((week) => <option key={week} value={week}>สัปดาห์ {week}</option>)}</NativeSelect></FormField>
@@ -854,7 +853,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
 
     {showIssues && <WorkspaceIssues issues={issues} onFix={fixReviewIssue} />}
     <RecordSaveConfirmation open={confirmationOpen} onOpenChange={setConfirmationOpen} payload={payload} images={images} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} error={pageError} onConfirm={finalize} onReturnFocus={() => { if (confirmationOrigin.current?.isConnected) confirmationOrigin.current.focus({ preventScroll: true }) }} />
-    {editorMode === 'review' ? <RecordReview payload={payload} previewLevel={previewLevel} previewUrl={previewUrl} previewing={previewing} previewStale={previewStale} previewFormat={previewFormats[previewLevel]} rendererUnavailable={rendererUnavailable} onBrowserPreview={() => previewPdf('browser')} onBrowserPreviewLoaded={browserPreviewLoaded} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} onBack={() => setEditorMode('edit')} onPreviewLevel={setPreviewLevel} onPreview={previewPdf} onEditDocument={editDocument} onSave={requestConfirmation} /> : <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-5 xl:grid-cols-[220px_minmax(0,1fr)] 2xl:grid-cols-[230px_minmax(0,1fr)_260px]">
+    {editorMode === 'review' ? <RecordReview payload={payload} previewLevel={previewLevel} previewUrl={previewUrl} previewing={previewing} previewStale={previewStale} previewFormat={previewFormats[previewLevel]} rendererUnavailable={rendererUnavailable} onBrowserPreview={() => previewPdf('browser')} onBrowserPreviewLoaded={browserPreviewLoaded} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} onBack={() => setEditorMode('edit')} onPreviewLevel={setPreviewLevel} onPreview={previewPdf} onEditDocument={editDocument} onSave={requestConfirmation} /> : <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-5 xl:grid-cols-[200px_minmax(0,1fr)] 2xl:grid-cols-[220px_minmax(0,1fr)_260px]">
       <aside className="rounded-xl border bg-card p-3 xl:sticky xl:top-24"><p className="mb-3 px-2 text-xs font-semibold text-muted-foreground">เลือกระดับชั้น</p><WeeklyLevelNavigation activeLevel={activeLevel} levels={payload.levels} enabledLevelCodes={payload.enabled_level_codes ?? ['1', '2', '3']} onChange={setActiveLevel} /><Button type="button" className="mt-3 w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={requestConfirmation}>บันทึก<CheckCircle size={18} /></Button></aside>
       <Card className="min-w-0"><CardContent className="p-4 sm:p-6"><TeachingDetailsForm key={activeLevel} levelCode={activeLevel} value={payload.levels[activeLevel]} groups={availableGroups} subjects={availableSubjects} subjectsLoading={subjectsLoading || subjectOptionsContext !== optionsContext} subjectSource={subjectCatalog.source} subjectError={subjectCatalog.error} subjectTerm={subjectCatalog.term} subjectContext={optionsContext} loadState={loadStates[activeLevel]} images={images.filter((image) => image.level_code === activeLevel).sort((a, b) => a.sort_order - b.sort_order)} imageBusy={imageBusy} term={`${payload.scope.semester}/${payload.scope.year}`} sourceLabel={sourceLabel(loadStates[activeLevel].source)} onChange={(value) => editLevel(activeLevel, value)} onSelectGroup={(group) => loadStudents(activeLevel, group)} onUploadImages={(files) => uploadImages(activeLevel, files)} onDeleteImage={(image) => mutateImages('DELETE', activeLevel, image.id)} onReorderImages={(imageIds) => mutateImages('PATCH', activeLevel, undefined, imageIds)} onRefreshSubjects={() => void refreshSubjects(true)} /></CardContent></Card>
       <aside className="grid gap-4 rounded-xl border bg-card p-4 xl:col-span-2 2xl:sticky 2xl:top-24 2xl:col-span-1"><WorkspaceSummary payload={payload} images={images} activeLevel={activeLevel} onSelectLevel={setActiveLevel} /><div className="border-t pt-4"><Button type="button" size="lg" className="w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={requestConfirmation}>บันทึก {totalSelectedLevels} ระดับ<CheckCircle size={19} /></Button><p className="mt-2 text-center text-[11px] leading-5 text-muted-foreground">{issues.length ? `ยังมี ${issues.length} จุดให้ตรวจ กดบันทึกเพื่อไปแก้ไข` : 'ข้อมูลพร้อมบันทึก'}</p><Button type="button" variant="outline" className="mt-3 w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={() => { setPreviewLevel(activeLevel); setEditorMode('review') }}>ดูตัวอย่าง PDF</Button></div></aside>

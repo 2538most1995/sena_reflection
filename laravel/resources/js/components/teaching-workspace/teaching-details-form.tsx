@@ -138,13 +138,13 @@ export function TeachingDetailsForm({
             </div>
           ) : (
             <FormField label="เลือกรายวิชา *">
-              <div className="grid gap-2 sm:grid-cols-[135px_minmax(0,1fr)]">
+              <div className="grid gap-2">
                 <Input
                   type="search"
                   value={subjectQuery}
                   onChange={(event) => setSubjectQuery(event.target.value)}
                   disabled={subjectsLoading}
-                  placeholder="ค้นหาวิชา..."
+                  placeholder="พิมพ์ค้นหารหัสหรือชื่อวิชา..."
                   className="text-xs"
                 />
                 <NativeSelect
