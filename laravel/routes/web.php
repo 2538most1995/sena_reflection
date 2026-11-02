@@ -25,6 +25,8 @@ Route::middleware('guest')->group(function () {
     Route::post('/login', [AuthController::class, 'store'])->middleware('throttle:login');
 });
 
+Route::redirect('/records', '/');
+
 Route::middleware('auth')->group(function () {
     Route::get('/', DashboardController::class)->name('dashboard');
     Route::post('/weekly-submissions', [WeeklySubmissionController::class, 'store'])->name('weekly-submissions.store');

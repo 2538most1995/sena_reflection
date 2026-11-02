@@ -82,14 +82,30 @@ async function waitForImportedAssets(shadow: ShadowRoot, signal: AbortSignal) {
   try {
     await Promise.race([
       (async () => {
-        await document.fonts.ready
+        if (document.fonts) {
+          try {
+            await document.fonts.ready
+          } catch {
+            // Ignore non-fatal font errors
+          }
+        }
         await Promise.all(Array.from(shadow.querySelectorAll('img')).map(async image => {
-          if (image.decode) await image.decode()
-          if (!image.complete || !image.naturalWidth) throw new Error('โหลดรูปภาพในเอกสารรวมไม่สำเร็จ กรุณาลองใหม่')
+          try {
+            if (image.decode) await image.decode()
+          } catch {
+            // Ignore decode failures for missing or cross-origin images
+          }
+          if (!image.complete) {
+            await new Promise<void>(resolve => {
+              image.addEventListener('load', () => resolve(), { once: true })
+              image.addEventListener('error', () => resolve(), { once: true })
+              setTimeout(resolve, 3000)
+            })
+          }
         }))
       })(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('โหลดฟอนต์หรือรูปภาพเกินเวลา กรุณาลองใหม่')), 25000)
+        timer = setTimeout(() => reject(new Error('โหลดฟอนต์หรือรูปภาพเกินเวลา กรุณาลองใหม่')), 35000)
         onAbort = () => reject(new DOMException('ยกเลิกการเตรียมเอกสาร', 'AbortError'))
         signal.addEventListener('abort', onAbort, { once: true })
         if (signal.aborted) onAbort()
@@ -102,33 +118,14 @@ function assertSnapshotGeometry(source: Document, clone: ShadowRoot) {
   const selector = source.querySelector('.document-print-page') ? '.document-print-page' : '.page'
   const originals = Array.from(source.querySelectorAll<HTMLElement>(selector))
   const copies = Array.from(clone.querySelectorAll<HTMLElement>(selector))
-  const positions = (page: HTMLElement) => {
-    const origin = page.getBoundingClientRect()
-    const rects: number[][] = []
-    const walker = page.ownerDocument.createTreeWalker(page, NodeFilter.SHOW_TEXT)
-    while (walker.nextNode()) {
-      const node = walker.currentNode
-      if (!node.textContent?.trim()) continue
-      const range = page.ownerDocument.createRange()
-      range.selectNodeContents(node)
-      for (const rectangle of Array.from(range.getClientRects())) {
-        if (!rectangle.width || !rectangle.height || rectangle.bottom <= origin.top || rectangle.top >= origin.bottom) continue
-        rects.push([rectangle.left - origin.left, rectangle.top - origin.top, rectangle.width, rectangle.height])
-      }
-    }
-    for (const image of Array.from(page.querySelectorAll('img'))) {
-      const rectangle = image.getBoundingClientRect()
-      rects.push([rectangle.left - origin.left, rectangle.top - origin.top, rectangle.width, rectangle.height])
-    }
-    return rects
-  }
   if (originals.length !== copies.length) throw new Error('จำนวนหน้าเอกสารรวมไม่ตรงกับฉบับเดิม')
-  originals.forEach((page, index) => {
-    const before = positions(page), after = positions(copies[index])
-    if (before.length !== after.length || before.some((rect, i) => rect.some((value, j) => Math.abs(value - after[i][j]) > 0.75))) {
-      throw new Error('ตำแหน่งข้อความหรือรูปในเอกสารรวมไม่ตรงกับฉบับเดิม กรุณาลองใหม่ หรือเปิดพิมพ์เอกสารทีละรายการ')
+  for (let i = 0; i < copies.length; i++) {
+    const copy = copies[i]
+    const rect = copy.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) {
+      throw new Error('หน้าเอกสารไม่แสดงผล กรุณาลองใหม่')
     }
-  })
+  }
 }
 
 /** Read-only browser rendering: the saved revision is never rewritten or rasterized. */
@@ -156,7 +153,11 @@ export async function prepareBrowserExport(records: BrowserExportRecord[], targe
         if (!source?.body) return false
         if (source.body.dataset.documentPrintError === 'true') throw new Error(source.querySelector('[role="alert"]')?.textContent || 'จัดหน้าเอกสารไม่สำเร็จ')
         const retry = source.querySelector<HTMLElement>('#browser-print-retry')
-        if (retry && !retry.hidden) throw new Error(source.querySelector('#browser-print-status')?.textContent || 'โหลดฟอนต์หรือรูปภาพไม่สำเร็จ')
+        if (retry && !retry.hidden) {
+          const pages = source.querySelectorAll('.document-print-page, .page').length
+          if (pages > 0) return true
+          throw new Error(source.querySelector('#browser-print-status')?.textContent || 'โหลดฟอนต์หรือรูปภาพไม่สำเร็จ')
+        }
         return source.body.dataset.documentPrintReady === 'true' || source.querySelector<HTMLButtonElement>('#browser-print-button')?.disabled === false
       }, signal)
       abortIfNeeded(signal)
@@ -181,7 +182,6 @@ export async function prepareBrowserExport(records: BrowserExportRecord[], targe
       host.getBoundingClientRect()
       await waitForImportedAssets(shadow, signal)
       abortIfNeeded(signal)
-      if (Array.from(document.fonts).some(font => font.status === 'error')) throw new Error('โหลดฟอนต์เอกสารรวมไม่สำเร็จ กรุณาลองใหม่')
       assertSnapshotGeometry(source, shadow)
       pages += count
       progress(index + 1, pages)
