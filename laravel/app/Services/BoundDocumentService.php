@@ -100,6 +100,41 @@ class BoundDocumentService
             ? $this->snapshotForPrint($document) : null;
     }
 
+    public function ensureForRecordWithSnapshot(User $user, TeachingRecord $record, array $sourceSnapshot): ?array
+    {
+        if (! Schema::hasTable('documents')) {
+            return null;
+        }
+
+        $document = Document::query()->where('binding_key', 'record:'.$record->id)->first();
+        if ($document && ($document->binding_snapshot['source_fingerprint'] ?? '') === $this->recordFingerprint($record)) {
+            return $this->snapshotForPrint($document);
+        }
+
+        return DB::transaction(function () use ($user, $record, $sourceSnapshot): ?array {
+            $record = TeachingRecord::query()->whereKey($record->id)->lockForUpdate()->firstOrFail();
+            $document = Document::query()->where('binding_key', 'record:'.$record->id)->lockForUpdate()->first();
+            $fingerprint = $this->recordFingerprint($record);
+            if ($document && ($document->binding_snapshot['source_fingerprint'] ?? '') === $fingerprint) {
+                return $this->snapshotForPrint($document);
+            }
+
+            $cleanSnapshot = $this->sourceSnapshot($sourceSnapshot);
+            if ($document) {
+                $refreshed = $this->rebase($document, $user, $cleanSnapshot, $fingerprint);
+
+                return $this->snapshotForPrint($refreshed);
+            }
+
+            $seeded = $this->seed($user, 'record:'.$record->id, $cleanSnapshot, [
+                'kind' => 'record', 'record_id' => $record->id,
+                'source_fingerprint' => $fingerprint,
+            ]);
+
+            return $this->snapshotForPrint($seeded);
+        }, 3);
+    }
+
     public function attachDraftSnapshot(array $snapshot, string $draftId, string $levelCode): array
     {
         if (! Schema::hasTable('documents')) {

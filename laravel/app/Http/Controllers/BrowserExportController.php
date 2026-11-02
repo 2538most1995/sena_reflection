@@ -6,11 +6,13 @@ use App\Models\ExportJob;
 use App\Models\RecordRevision;
 use App\Models\TeachingRecord;
 use App\Models\User;
+use App\Services\BoundDocumentService;
 use App\Services\LegacyPrintService;
 use App\Services\RecordRevisionService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\URL;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
@@ -92,7 +94,22 @@ class BrowserExportController extends Controller
         abort_unless(TeachingRecord::query()->visibleTo($request->user())->whereKey($revision->record_id)->exists(), 403);
         abort_unless((string) ($revision->snapshot['record']['id'] ?? '') === (string) $revision->record_id, 409, 'ฉบับเอกสารไม่ตรงกับบันทึก');
 
-        return response($print->browserSnapshotHtml($revision->snapshot, $request->user(), route('records.show', $revision->record_id)), 200, [
+        $snapshot = $revision->snapshot;
+        if (! isset($snapshot['advanced_document']) && Schema::hasTable('documents')) {
+            $record = TeachingRecord::query()->find($revision->record_id);
+            if ($record) {
+                try {
+                    $advanced = app(BoundDocumentService::class)->ensureForRecordWithSnapshot($request->user(), $record, $snapshot);
+                    if ($advanced) {
+                        $snapshot['advanced_document'] = $advanced;
+                    }
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
+        }
+
+        return response($print->browserSnapshotHtml($snapshot, $request->user(), route('records.show', $revision->record_id)), 200, [
             'Content-Type' => 'text/html; charset=UTF-8',
             'Cache-Control' => 'private, no-store',
             'X-Content-Type-Options' => 'nosniff',

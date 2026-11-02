@@ -96,6 +96,23 @@ class BrowserPrintTest extends TestCase
             ->assertInternalServerError()->assertHeaderMissing('Location');
     }
 
+    public function test_unopened_record_automatically_creates_bound_document_and_prints_using_modern_engine(): void
+    {
+        [$teacher, $record] = $this->record();
+        $this->assertDatabaseMissing('documents', ['binding_key' => 'record:'.$record->id]);
+
+        $response = $this->actingAs($teacher)->get(route('records.browser-print', $record));
+
+        $response->assertOk()
+            ->assertHeader('Content-Type', 'text/html; charset=UTF-8')
+            ->assertSee('<meta name="sena-document-snapshot" content="1">', false)
+            ->assertSee('id="document-snapshot-root"', false)
+            ->assertSee('id="document-snapshot-data"', false)
+            ->assertDontSee('ตรวจเอกสารก่อนพิมพ์');
+
+        $this->assertDatabaseHas('documents', ['binding_key' => 'record:'.$record->id]);
+    }
+
     /** @return array{User, TeachingRecord} */
     private function record(): array
     {

@@ -2849,7 +2849,7 @@ $sig1Content = '
         'prefix_setting' => 'sig1_sign_prefix',
         'suffix_setting' => 'sig1_sign_suffix',
     ]), $sig1_line_offset_x, $sig1_line_offset_y, 'sig-box-line-tight') . '
-    ' . buildShiftedSignaturePart('( ' . preprintEditableHtml('sig1_name', $sig1DisplayName) . ' )', $sig1_name_offset_x, $sig1_name_offset_y, 'sig-box-line') . '
+    ' . buildShiftedSignaturePart('<span style="white-space: nowrap; display: inline-block;">( ' . preprintEditableHtml('sig1_name', $sig1DisplayName) . ' )</span>', $sig1_name_offset_x, $sig1_name_offset_y, 'sig-box-line') . '
     ' . buildShiftedSignaturePart(preprintEditableHtml('sig1_pos', escapeTextPreserveSpacesAllowBr($sig1_pos !== '' ? $sig1_pos : 'ครูผู้สอน'), true), $sig1_pos_offset_x, $sig1_pos_offset_y, 'sig-box-line') . '
 ';
 
@@ -2859,7 +2859,7 @@ $sig2Content = '
         'prefix_offset_y' => $sig2_sign_label_offset_y,
         'prefix_setting' => 'sig2_sign_label',
     ]), $sig2_line_offset_x, $sig2_line_offset_y, 'sig-box-line-tight') . '
-    ' . buildShiftedSignaturePart('( ' . preprintEditableHtml('sig2_name', $sig2DisplayName) . ' )', $sig2_name_offset_x, $sig2_name_offset_y, 'sig-box-line-tight') . '
+    ' . buildShiftedSignaturePart('<span style="white-space: nowrap; display: inline-block;">( ' . preprintEditableHtml('sig2_name', $sig2DisplayName) . ' )</span>', $sig2_name_offset_x, $sig2_name_offset_y, 'sig-box-line-tight') . '
     ' . buildShiftedSignaturePart(preprintEditableHtml('sig2_pos', escapeTextPreserveSpacesAllowBr($sig2_pos), true), $sig2_pos_offset_x, $sig2_pos_offset_y, 'sig-box-line') . '
 ';
 
@@ -2869,7 +2869,7 @@ $sig3Content = '
         'prefix_offset_y' => $sig3_sign_label_offset_y,
         'prefix_setting' => 'sig3_sign_label',
     ]), $sig3_line_offset_x, $sig3_line_offset_y, 'sig-box-line-tight') . '
-    ' . buildShiftedSignaturePart('( ' . preprintEditableHtml('sig3_name', $sig3DisplayName) . ' )', $sig3_name_offset_x, $sig3_name_offset_y, 'sig-box-line-tight') . '
+    ' . buildShiftedSignaturePart('<span style="white-space: nowrap; display: inline-block;">( ' . preprintEditableHtml('sig3_name', $sig3DisplayName) . ' )</span>', $sig3_name_offset_x, $sig3_name_offset_y, 'sig-box-line-tight') . '
     ' . buildShiftedSignaturePart(preprintEditableHtml('sig3_pos', escapeTextPreserveSpacesAllowBr($sig3_pos), true), $sig3_pos_offset_x, $sig3_pos_offset_y, 'sig-box-line') . '
 ';
 
