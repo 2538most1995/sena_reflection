@@ -9,7 +9,7 @@ import { browserExportQuery, type BrowserExportFilters as Filters } from '@/lib/
 
 type ExportTask = { id: string; status: 'queued' | 'processing' | 'ready' | 'failed'; total: number; completed: number; error: string | null; download_url: string | null; filters: Filters & { scope: string }; created_at: string }
 
-export function ExportPanel({ filters }: { filters: Filters }) {
+export function ExportPanel({ filters, availableWeeks }: { filters: Filters; availableWeeks?: number[] }) {
   const [items, setItems] = useState<ExportTask[]>([])
   useEffect(() => {
     const controller = new AbortController()
@@ -30,21 +30,43 @@ export function ExportPanel({ filters }: { filters: Filters }) {
     poller.refresh()
     return () => { controller.abort(); poller.dispose(); document.removeEventListener('visibilitychange', visibilityChanged) }
   }, [])
+
+  const effectiveWeek = filters.week ?? (availableWeeks && availableWeeks.length > 0 ? availableWeeks[availableWeeks.length - 1] : null)
+  const effectiveFilters: Filters = effectiveWeek !== null && effectiveWeek !== undefined ? { ...filters, week: effectiveWeek } : filters
+  const canExportWeek = Boolean(filters.year && filters.semester && effectiveWeek)
+
   const printUrl = (scope: 'week' | 'all') => {
-    const query = browserExportQuery(scope, filters)
+    const query = browserExportQuery(scope, scope === 'week' ? effectiveFilters : filters)
     return appUrl(`/exports/browser-print?${query}`)
   }
-  const canExportWeek = filters.year && filters.semester && filters.week
   const openingPdf = () => actionAlert.info('เปิดหน้าเตรียม PDF', 'รอจนเอกสารพร้อม แล้วกด “พิมพ์ / บันทึก PDF” ในแท็บใหม่ หากแท็บไม่เปิด กรุณาอนุญาตป๊อปอัปของเว็บไซต์นี้')
   return <section className="mb-5 rounded-xl border border-border bg-card p-4 sm:p-5 shadow-none" aria-label="สร้างและดาวน์โหลดเอกสาร">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h3 className="text-sm font-semibold text-foreground">สร้างเอกสารตามตัวกรอง</h3>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{canExportWeek ? `สัปดาห์ ${filters.week} / ภาคเรียน ${filters.semester} / ปี ${filters.year}` : 'เลือกปี ภาคเรียน และสัปดาห์ เพื่อสร้าง PDF รายสัปดาห์'} เปิดหน้าพิมพ์ แล้วเลือก Save as PDF รวมเป็นไฟล์เดียว</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          {canExportWeek
+            ? `สัปดาห์ ${effectiveWeek}${filters.week ? '' : ' (ล่าสุด)'} / ภาคเรียน ${filters.semester} / ปี ${filters.year}`
+            : 'เลือกปี ภาคเรียน และสัปดาห์ เพื่อสร้าง PDF รายสัปดาห์'}
+          {' '}เปิดหน้าพิมพ์ แล้วเลือก Save as PDF รวมเป็นไฟล์เดียว
+        </p>
       </div>
       <div className="flex shrink-0 flex-wrap gap-2">
-        <Button asChild variant="outline" size="sm" disabled={!canExportWeek} className="h-9 rounded-lg gap-1.5 px-3.5 text-xs font-medium border-border hover:bg-muted/70 hover:border-primary/40">
-          <a href={canExportWeek ? printUrl('week') : undefined} aria-disabled={!canExportWeek} target="_blank" rel="noopener" onClick={event => { if (!canExportWeek) event.preventDefault(); else openingPdf() }}>
+        <Button asChild variant="outline" size="sm" className="h-9 rounded-lg gap-1.5 px-3.5 text-xs font-medium border-border hover:bg-muted/70 hover:border-primary/40">
+          <a
+            href={canExportWeek ? printUrl('week') : undefined}
+            aria-disabled={!canExportWeek}
+            target="_blank"
+            rel="noopener"
+            onClick={event => {
+              if (!canExportWeek) {
+                event.preventDefault()
+                actionAlert.info('ไม่พบข้อมูลสัปดาห์', 'ไม่พบบันทึกการสอนในภาคเรียนนี้ หรือโปรดเลือกสัปดาห์ในตัวกรองก่อนพิมพ์')
+              } else {
+                openingPdf()
+              }
+            }}
+          >
             <FilePdf size={16} weight="regular" />PDF รายสัปดาห์
           </a>
         </Button>

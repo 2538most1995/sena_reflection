@@ -1,8 +1,9 @@
 import { AppLink as Link } from '@/components/app-link'
 import { appRouter as router } from '@/lib/app-router'
-import { appFetch as fetch } from '@/lib/app-url'
+import { appFetch as fetch, appUrl } from '@/lib/app-url'
+import { actionAlert } from '@/lib/action-alert'
 import { Head, usePage } from '@inertiajs/react'
-import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, Funnel, MagnifyingGlass, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
+import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, FilePdf, Funnel, MagnifyingGlass, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
 import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
 import { AcademicTermNotice, type ActiveAcademicTerm } from '@/components/academic-term-notice'
@@ -478,26 +479,48 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                       {group.totalImages} รูป
                     </td>
                     <td className="px-4 py-3.5 text-right">
-                      <Button
-                        type="button"
-                        variant={isExpanded ? 'secondary' : 'outline'}
-                        size="sm"
-                        className="h-8 gap-1.5 rounded-lg text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          toggleExpand(group.key)
-                        }}
-                      >
-                        {isExpanded ? (
-                          <>
-                            <CaretUp size={14} /> ซ่อนระดับชั้น
-                          </>
-                        ) : (
-                          <>
-                            <CaretDown size={14} /> ดูระดับชั้น ({group.records.length})
-                          </>
-                        )}
-                      </Button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          asChild
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1.5 rounded-lg px-2.5 text-xs font-medium border-border hover:bg-muted/70 hover:border-primary/40"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            actionAlert.info('เปิดหน้าเตรียม PDF', 'รอจนเอกสารพร้อม แล้วกด “พิมพ์ / บันทึก PDF” ในแท็บใหม่')
+                          }}
+                          title={`พิมพ์ PDF สัปดาห์ที่ ${group.week}`}
+                        >
+                          <a
+                            href={appUrl(`/exports/browser-print?scope=week&year=${group.year}&semester=${group.semester}&week=${group.week}${group.records[0]?.tambon ? `&tambon=${group.records[0].tambon}` : ''}`)}
+                            target="_blank"
+                            rel="noopener"
+                          >
+                            <FilePdf size={14} weight="regular" />
+                            PDF สัปดาห์นี้
+                          </a>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={isExpanded ? 'secondary' : 'outline'}
+                          size="sm"
+                          className="h-8 gap-1.5 rounded-lg text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleExpand(group.key)
+                          }}
+                        >
+                          {isExpanded ? (
+                            <>
+                              <CaretUp size={14} /> ซ่อนระดับชั้น
+                            </>
+                          ) : (
+                            <>
+                              <CaretDown size={14} /> ดูระดับชั้น ({group.records.length})
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </td>
                   </tr>
 
@@ -626,19 +649,41 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                     {group.tambonName} {group.date ? `· ${thaiDate(group.date)}` : ''}
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant={isExpanded ? 'secondary' : 'outline'}
-                  size="sm"
-                  className="shrink-0 gap-1 h-8 px-2 text-xs"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    toggleExpand(group.key)
-                  }}
-                >
-                  {isExpanded ? <CaretUp size={14} /> : <CaretDown size={14} />}
-                  {isExpanded ? 'ซ่อน' : `ดูระดับชั้น (${group.records.length})`}
-                </Button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 rounded-lg px-2 text-xs font-medium border-border"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      actionAlert.info('เปิดหน้าเตรียม PDF', 'รอจนเอกสารพร้อม แล้วกด “พิมพ์ / บันทึก PDF” ในแท็บใหม่')
+                    }}
+                    title={`พิมพ์ PDF สัปดาห์ที่ ${group.week}`}
+                  >
+                    <a
+                      href={appUrl(`/exports/browser-print?scope=week&year=${group.year}&semester=${group.semester}&week=${group.week}${group.records[0]?.tambon ? `&tambon=${group.records[0].tambon}` : ''}`)}
+                      target="_blank"
+                      rel="noopener"
+                    >
+                      <FilePdf size={14} weight="regular" />
+                      PDF
+                    </a>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={isExpanded ? 'secondary' : 'outline'}
+                    size="sm"
+                    className="shrink-0 gap-1 h-8 px-2 text-xs"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleExpand(group.key)
+                    }}
+                  >
+                    {isExpanded ? <CaretUp size={14} /> : <CaretDown size={14} />}
+                    {isExpanded ? 'ซ่อน' : `ระดับชั้น (${group.records.length})`}
+                  </Button>
+                </div>
               </div>
 
               <div className="mt-3 flex flex-wrap gap-1">
@@ -812,7 +857,7 @@ export default function Dashboard(props: Props) {
           />
         </CardHeader>
         <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
-          <ExportPanel filters={props.filters} />
+          <ExportPanel filters={props.filters} availableWeeks={props.availableWeeks} />
           <RecordsList records={props.records} />
         </CardContent>
       </Card>

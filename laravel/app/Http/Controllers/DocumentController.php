@@ -147,9 +147,9 @@ class DocumentController extends Controller
 
     private function listing(Request $request): array
     {
-        return Document::query()->visibleTo($request->user())->orderByDesc('updated_at')->limit(100)->get(['id', 'title', 'revision', 'updated_at', 'source_record_id', 'binding_key', 'binding_snapshot'])->map(static fn (Document $document): array => [
+        return Document::query()->visibleTo($request->user())->orderByDesc('updated_at')->limit(60)->get(['id', 'title', 'revision', 'updated_at', 'source_record_id', 'binding_key'])->map(static fn (Document $document): array => [
             'id' => $document->id, 'title' => $document->title, 'revision' => $document->revision, 'updatedAt' => $document->updated_at->toIso8601String(), 'sourceRecordId' => $document->source_record_id,
-            'bound' => (bool) $document->binding_key, 'isBound' => (bool) $document->binding_key, 'editorContext' => $document->binding_key ? app(BoundDocumentService::class)->context($document) : null,
+            'bound' => (bool) $document->binding_key, 'isBound' => (bool) $document->binding_key, 'editorContext' => null,
         ])->all();
     }
 }

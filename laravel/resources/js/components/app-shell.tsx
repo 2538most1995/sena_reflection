@@ -37,6 +37,7 @@ function NavLinks({ className }: { className?: string }) {
       return <Link
         key={href}
         href={href}
+        prefetch="hover"
         aria-current={active ? 'page' : undefined}
         className={cn(
           'focus-ring flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] transition-colors duration-150',

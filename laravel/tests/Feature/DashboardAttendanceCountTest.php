@@ -27,8 +27,10 @@ class DashboardAttendanceCountTest extends TestCase
 
     private function record(string $id, array $attributes = []): TeachingRecord
     {
+        $active = app(\App\Services\ActiveAcademicTermService::class)->resolve();
+
         return TeachingRecord::create([
-            'id' => $id, 'tambon' => 'own', 'year' => '2569', 'semester' => '1', 'week' => 1,
+            'id' => $id, 'tambon' => 'own', 'year' => $active['year'], 'semester' => $active['semester'], 'week' => 1,
             'date' => '2026-10-24', 'level' => 'secondary', 'subject' => 'Online', 'subject_code' => 'ON01',
             'total' => 26, 'present' => 4, 'created_by' => $this->teacher->id, ...$attributes,
         ]);
@@ -71,13 +73,16 @@ class DashboardAttendanceCountTest extends TestCase
 
     public function test_count_respects_all_filters_and_tambon_users_cannot_expand_scope(): void
     {
+        $active = app(\App\Services\ActiveAcademicTermService::class)->resolve();
+        $otherSemester = $active['semester'] === '1' ? '2' : '1';
+
         $this->attendance($this->record('match'), '0001');
         $this->attendance($this->record('year', ['year' => '2568']), '0002');
-        $this->attendance($this->record('term', ['semester' => '2']), '0003');
+        $this->attendance($this->record('term', ['semester' => $otherSemester]), '0003');
         $this->attendance($this->record('week', ['week' => 2]), '0004');
         $this->attendance($this->record('subject', ['subject' => 'Other', 'subject_code' => 'XX']), '0005');
         $this->attendance($this->record('hidden', ['tambon' => 'other']), '0006');
-        $filters = ['year' => '2569', 'semester' => '1', 'week' => 1, 'search' => 'ON01'];
+        $filters = ['year' => $active['year'], 'semester' => $active['semester'], 'week' => 1, 'search' => 'ON01'];
         $this->assertCountFor($this->teacher, 1, [...$filters, 'tambon' => 'other']);
         $district = User::create(['id' => 'district', 'name' => 'District', 'username' => 'district', 'password' => Hash::make('fixture-only'), 'role' => 'district']);
         $this->assertCountFor($district, 2, $filters);
