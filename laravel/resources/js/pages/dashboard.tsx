@@ -3,7 +3,7 @@ import { appRouter as router } from '@/lib/app-router'
 import { appFetch as fetch, appUrl } from '@/lib/app-url'
 import { actionAlert } from '@/lib/action-alert'
 import { Head, usePage } from '@inertiajs/react'
-import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, Eye, FilePdf, Funnel, MagnifyingGlass, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
+import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, Eye, FileMagnifyingGlass, FilePdf, Funnel, MagnifyingGlass, NotePencil, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
 import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
 import { AcademicTermNotice, type ActiveAcademicTerm } from '@/components/academic-term-notice'
@@ -579,18 +579,44 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                                         {record.images_count || 0} รูป
                                       </td>
                                       <td className="px-3.5 py-2.5 text-right">
-                                        <div className="flex justify-end gap-1">
-                                          <Button asChild variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground">
-                                            <Link href={`/records/${record.id}`}>
-                                              <Eye size={14} weight="regular" />
-                                              ดู
-                                            </Link>
-                                          </Button>
+                                        <div className="flex items-center justify-end gap-1.5">
                                           <Button
                                             asChild
-                                            variant="outline"
+                                            variant="ghost"
                                             size="sm"
-                                            className="h-8 gap-1 px-2.5 text-xs font-medium border-border hover:bg-muted/70 hover:border-primary/40"
+                                            className="h-8 w-8.5 p-0 rounded-lg bg-teal-50 border border-teal-200/90 text-teal-700 hover:bg-teal-100 hover:text-teal-800 dark:bg-teal-950/60 dark:border-teal-800 dark:text-teal-300 shadow-xs transition-colors"
+                                            title="ดูรายละเอียดบันทึก"
+                                          >
+                                            <Link href={`/records/${record.id}`}>
+                                              <Eye size={17} weight="bold" />
+                                              <span className="sr-only">ดูรายละเอียด</span>
+                                            </Link>
+                                          </Button>
+
+                                          <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" aria-hidden="true" />
+
+                                          <Button
+                                            asChild
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8.5 p-0 rounded-lg bg-amber-50 border border-amber-200/90 text-amber-700 hover:bg-amber-100 hover:text-amber-800 dark:bg-amber-950/60 dark:border-amber-800 dark:text-amber-300 shadow-xs transition-colors"
+                                            title="ดูตัวอย่างเอกสารก่อนพิมพ์"
+                                          >
+                                            <a
+                                              href={appUrl(`/records/${record.id}/browser-print`)}
+                                              target="_blank"
+                                              rel="noopener"
+                                              onClick={() => actionAlert.info('เปิดหน้าเตรียม PDF', 'กำลังเปิดหน้าพิมพ์ของระดับชั้นนี้ในแท็บใหม่')}
+                                            >
+                                              <FileMagnifyingGlass size={17} weight="bold" />
+                                              <span className="sr-only">ดูตัวอย่างเอกสาร</span>
+                                            </a>
+                                          </Button>
+
+                                          <Button
+                                            asChild
+                                            size="sm"
+                                            className="h-8 gap-1.5 px-3 rounded-lg text-xs font-semibold bg-[#6366F1] hover:bg-[#4F46E5] text-white border-0 shadow-xs transition-colors"
                                             title={`พิมพ์ PDF ${record.level || ''}`}
                                           >
                                             <a
@@ -599,26 +625,40 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                                               rel="noopener"
                                               onClick={() => actionAlert.info('เปิดหน้าเตรียม PDF', 'กำลังเปิดหน้าพิมพ์ของระดับชั้นนี้ในแท็บใหม่')}
                                             >
-                                              <FilePdf size={14} weight="regular" />
+                                              <FilePdf size={15} weight="bold" />
                                               พิมพ์ PDF
                                             </a>
                                           </Button>
-                                          <Button asChild size="sm" className="h-8 gap-1 px-2.5 text-xs font-semibold">
+
+                                          <Button
+                                            asChild
+                                            size="sm"
+                                            className="h-8 gap-1.5 px-3 rounded-lg text-xs font-semibold bg-[#2563EB] hover:bg-[#1D4ED8] text-white border-0 shadow-xs transition-colors"
+                                            title="จัดเอกสารก่อนพิมพ์"
+                                          >
                                             <Link href={`/records/${record.id}/document`}>
-                                              <Printer size={14} />จัดเอกสาร
+                                              <Printer size={15} weight="bold" />
+                                              จัดเอกสาร
                                             </Link>
                                           </Button>
-                                          <Button asChild variant="outline" size="sm" className="h-8 px-2 text-xs">
+
+                                          <Button
+                                            asChild
+                                            size="sm"
+                                            className="h-8 gap-1.5 px-3 rounded-lg text-xs font-semibold bg-[#16A34A] hover:bg-[#15803D] text-white border-0 shadow-xs transition-colors"
+                                            title="แก้ไขบันทึก"
+                                          >
                                             <Link href={`/records/${record.id}/edit`}>
+                                              <NotePencil size={15} weight="bold" />
                                               แก้ไข
                                             </Link>
                                           </Button>
+
                                           {canDelete && (
                                             <Button
                                               type="button"
-                                              variant="outline"
                                               size="sm"
-                                              className="h-8 px-2 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
+                                              className="h-8 gap-1.5 px-3 rounded-lg text-xs font-semibold bg-[#EF4444] hover:bg-[#DC2626] text-white border-0 shadow-xs transition-colors"
                                               disabled={deletingId === record.id}
                                               onClick={(e) => {
                                                 e.stopPropagation()
@@ -626,7 +666,8 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                                               }}
                                               title="ลบบันทึกหลังสอน"
                                             >
-                                              <Trash size={14} />ลบ
+                                              <Trash size={15} weight="bold" />
+                                              ลบ
                                             </Button>
                                           )}
                                         </div>
@@ -739,43 +780,89 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                           <div>มาเรียน: <b className="font-semibold text-foreground">{number(record.present)}/{number(record.total)} คน</b></div>
                           <div>รูปภาพ: <b className="font-semibold text-foreground">{record.images_count || 0} รูป</b></div>
                         </div>
-                        <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border/50 pt-2.5">
-                          <Button asChild variant="outline" size="sm" className="h-8 flex-1 gap-1 text-xs">
+                        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/50 pt-2.5">
+                          <Button
+                            asChild
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8.5 p-0 rounded-lg bg-teal-50 border border-teal-200/90 text-teal-700 hover:bg-teal-100 dark:bg-teal-950/60 dark:border-teal-800 dark:text-teal-300 shadow-xs"
+                            title="ดูรายละเอียดบันทึก"
+                          >
                             <Link href={`/records/${record.id}`}>
-                              <Eye size={14} />
-                              ดูข้อมูล
+                              <Eye size={16} weight="bold" />
+                              <span className="sr-only">ดูรายละเอียด</span>
                             </Link>
                           </Button>
-                          <Button asChild variant="outline" size="sm" className="h-8 flex-1 gap-1 text-xs font-medium border-border">
+
+                          <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" aria-hidden="true" />
+
+                          <Button
+                            asChild
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8.5 p-0 rounded-lg bg-amber-50 border border-amber-200/90 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/60 dark:border-amber-800 dark:text-amber-300 shadow-xs"
+                            title="ดูตัวอย่างเอกสารก่อนพิมพ์"
+                          >
                             <a
                               href={appUrl(`/records/${record.id}/browser-print`)}
                               target="_blank"
                               rel="noopener"
                               onClick={() => actionAlert.info('เปิดหน้าเตรียม PDF', 'กำลังเปิดหน้าพิมพ์ของระดับชั้นนี้ในแท็บใหม่')}
                             >
-                              <FilePdf size={14} />
+                              <FileMagnifyingGlass size={16} weight="bold" />
+                              <span className="sr-only">ดูตัวอย่างเอกสาร</span>
+                            </a>
+                          </Button>
+
+                          <Button
+                            asChild
+                            size="sm"
+                            className="h-8 flex-1 gap-1 px-2.5 rounded-lg text-xs font-semibold bg-[#6366F1] hover:bg-[#4F46E5] text-white shadow-xs"
+                          >
+                            <a
+                              href={appUrl(`/records/${record.id}/browser-print`)}
+                              target="_blank"
+                              rel="noopener"
+                              onClick={() => actionAlert.info('เปิดหน้าเตรียม PDF', 'กำลังเปิดหน้าพิมพ์ของระดับชั้นนี้ในแท็บใหม่')}
+                            >
+                              <FilePdf size={14} weight="bold" />
                               พิมพ์ PDF
                             </a>
                           </Button>
-                          <Button asChild size="sm" className="h-8 gap-1 text-xs font-semibold">
+
+                          <Button
+                            asChild
+                            size="sm"
+                            className="h-8 flex-1 gap-1 px-2.5 rounded-lg text-xs font-semibold bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-xs"
+                          >
                             <Link href={`/records/${record.id}/document`}>
-                              <Printer size={14} />จัดเอกสาร
+                              <Printer size={14} weight="bold" />
+                              จัดเอกสาร
                             </Link>
                           </Button>
-                          <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                            <Link href={`/records/${record.id}/edit`}>แก้ไข</Link>
+
+                          <Button
+                            asChild
+                            size="sm"
+                            className="h-8 gap-1 px-2.5 rounded-lg text-xs font-semibold bg-[#16A34A] hover:bg-[#15803D] text-white shadow-xs"
+                          >
+                            <Link href={`/records/${record.id}/edit`}>
+                              <NotePencil size={14} weight="bold" />
+                              แก้ไข
+                            </Link>
                           </Button>
+
                           {canDelete && (
                             <Button
                               type="button"
-                              variant="outline"
                               size="sm"
-                              className="h-8 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
+                              className="h-8 gap-1 px-2.5 rounded-lg text-xs font-semibold bg-[#EF4444] hover:bg-[#DC2626] text-white shadow-xs"
                               disabled={deletingId === record.id}
                               onClick={() => handleDelete(record)}
                               title="ลบบันทึกหลังสอน"
                             >
-                              <Trash size={14} />ลบ
+                              <Trash size={14} weight="bold" />
+                              ลบ
                             </Button>
                           )}
                         </div>

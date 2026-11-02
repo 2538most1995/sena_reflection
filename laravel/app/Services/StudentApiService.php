@@ -206,6 +206,7 @@ class StudentApiService
         $configuration = $this->configuration();
         $sourceFingerprint = hash('sha256', json_encode($configuration, JSON_THROW_ON_ERROR));
         $cacheKey = 'student-source:v1:'.hash('sha256', json_encode([$sourceFingerprint, $filters, $allPages], JSON_THROW_ON_ERROR));
+        $staleCacheKey = $cacheKey.':stale';
         if (! $refresh && is_array($cached = Cache::get($cacheKey))) {
             $this->rememberLatestTerm($cached['meta']['latest_term'] ?? null, $configuration);
 
@@ -243,13 +244,18 @@ class StudentApiService
                 }
                 $meta = [...$meta, 'latest_term' => $sourceTerm, 'selected_term' => $selectedTerm, 'driver' => $sdl ? 'sdl' : 'legacy'];
                 $rows = $rows->values();
-                Cache::put($cacheKey, ['items' => $rows->all(), 'meta' => $meta], 300);
+                Cache::put($cacheKey, ['items' => $rows->all(), 'meta' => $meta], 1800);
+                Cache::put($staleCacheKey, ['items' => $rows->all(), 'meta' => $meta], 86400);
                 $this->rememberLatestTerm($sourceTerm, $configuration);
 
                 return [$rows, $meta];
             } catch (\Throwable $exception) {
                 $lastException = $exception;
             }
+        }
+
+        if (is_array($cached = Cache::get($staleCacheKey))) {
+            return [collect($cached['items']), array_merge($cached['meta'], ['stale' => true])];
         }
 
         throw $lastException ?? new RuntimeException('Student API unavailable');
@@ -277,8 +283,8 @@ class StudentApiService
         $meta = [];
         $pagesFetched = 0;
         do {
-            $request = Http::acceptJson()->withoutRedirecting()->connectTimeout(3)->timeout(12)
-                ->retry(2, 250, fn ($exception) => $exception instanceof ConnectionException);
+            $request = Http::acceptJson()->withoutRedirecting()->connectTimeout(2)->timeout(5)
+                ->retry(1, 100, fn ($exception) => $exception instanceof ConnectionException);
             $request = $sdl ? $request->withToken($credential)->withHeader('X-Student-Data-Token', $credential) : $request->withHeader('X-API-Key', $credential);
             $response = $request->get($url, [...$params, 'page' => $page, ...($sdl ? [] : ['api_key' => $credential])]);
             $payload = $response->json();
@@ -326,7 +332,7 @@ class StudentApiService
                 'name' => (string) ($row['name'] ?? $row['display_name'] ?? ''),
                 'assigned_groups' => array_values(array_filter(is_array($row['assigned_groups'] ?? null) ? $row['assigned_groups'] : [], 'is_string')),
             ])->values();
-            Cache::put($cacheKey, $rows->all(), 300);
+            Cache::put($cacheKey, $rows->all(), 3600);
 
             return $rows;
         } catch (\Throwable $exception) {
