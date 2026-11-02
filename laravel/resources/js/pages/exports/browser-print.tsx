@@ -15,41 +15,33 @@ export default function BrowserPrint({ records, title }: { records: BrowserExpor
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     const controller = new AbortController()
-    let finished = false
-    let alertId: string | undefined
     setReady(false); setError(null); setCompleted(0); setPages(0)
     delete document.body.dataset.browserExportReady
     delete document.body.dataset.browserExportError
     const beforePrint = () => { document.body.dataset.browserExportPrinting = 'true' }
     const afterPrint = () => {
       delete document.body.dataset.browserExportPrinting
-      actionAlert.info('กลับจากหน้าต่างพิมพ์แล้ว', 'หากเลือก Save as PDF ให้ตรวจไฟล์ในตำแหน่งที่เลือกบันทึก คุณสามารถเปิดพิมพ์อีกครั้งได้จากหน้านี้')
     }
     window.addEventListener('beforeprint', beforePrint)
     window.addEventListener('afterprint', afterPrint)
     if (!controller.signal.aborted && records.length && target.current) {
-      alertId = actionAlert.loading('กำลังเตรียม PDF', `กำลังจัดหน้า ${records.length} บันทึก และตรวจฟอนต์กับรูปภาพ กรุณารอสักครู่`)
       prepareBrowserExport(records, target.current, controller.signal, (done, count) => { setCompleted(done); setPages(count) })
         .then(count => {
           if (controller.signal.aborted) return
-          finished = true
           document.body.dataset.browserExportReady = 'true'
           document.body.dataset.browserExportSections = String(count)
           setReady(true)
-          actionAlert.success('เอกสารพร้อมพิมพ์แล้ว', `เตรียมครบ ${records.length} บันทึก กด “พิมพ์ / บันทึก PDF” แล้วเลือก Save as PDF เพื่อบันทึกไฟล์`, alertId)
         }).catch(issue => {
           if (controller.signal.aborted) return
-          finished = true
           document.body.dataset.browserExportError = 'true'
           const message = issue instanceof Error ? issue.message : 'เตรียมเอกสารไม่สำเร็จ'
           setError(message)
-          actionAlert.error('เตรียม PDF ไม่สำเร็จ', message, alertId)
+          actionAlert.error('เตรียม PDF ไม่สำเร็จ', message)
         })
     }
     else if (!records.length) actionAlert.info('ไม่พบบันทึกสำหรับสร้าง PDF', 'กลับไปเลือกรายการหรือตัวกรองที่มีข้อมูล แล้วลองอีกครั้ง')
     return () => {
       controller.abort()
-      if (alertId && !finished) actionAlert.dismiss(alertId)
       window.removeEventListener('beforeprint', beforePrint)
       window.removeEventListener('afterprint', afterPrint)
       for (const key of ['browserExportReady', 'browserExportError', 'browserExportSections', 'browserExportPrinting']) delete document.body.dataset[key]

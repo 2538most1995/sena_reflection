@@ -39,7 +39,6 @@ export function ExportPanel({ filters, availableWeeks }: { filters: Filters; ava
     const query = browserExportQuery(scope, scope === 'week' ? effectiveFilters : filters)
     return appUrl(`/exports/browser-print?${query}`)
   }
-  const openingPdf = () => actionAlert.info('เปิดหน้าเตรียม PDF', 'รอจนเอกสารพร้อม แล้วกด “พิมพ์ / บันทึก PDF” ในแท็บใหม่ หากแท็บไม่เปิด กรุณาอนุญาตป๊อปอัปของเว็บไซต์นี้')
   return <section className="mb-5 rounded-xl border border-border bg-card p-4 sm:p-5 shadow-none" aria-label="สร้างและดาวน์โหลดเอกสาร">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
@@ -62,8 +61,6 @@ export function ExportPanel({ filters, availableWeeks }: { filters: Filters; ava
               if (!canExportWeek) {
                 event.preventDefault()
                 actionAlert.info('ไม่พบข้อมูลสัปดาห์', 'ไม่พบบันทึกการสอนในภาคเรียนนี้ หรือโปรดเลือกสัปดาห์ในตัวกรองก่อนพิมพ์')
-              } else {
-                openingPdf()
               }
             }}
           >
@@ -71,7 +68,7 @@ export function ExportPanel({ filters, availableWeeks }: { filters: Filters; ava
           </a>
         </Button>
         <Button asChild variant="outline" size="sm" className="h-9 rounded-lg gap-1.5 px-3.5 text-xs font-medium border-border hover:bg-muted/70 hover:border-primary/40">
-          <a href={printUrl('all')} target="_blank" rel="noopener" onClick={openingPdf}>
+          <a href={printUrl('all')} target="_blank" rel="noopener">
             <FilePdf size={16} weight="regular" />PDF ตามตัวกรอง
           </a>
         </Button>
@@ -82,7 +79,7 @@ export function ExportPanel({ filters, availableWeeks }: { filters: Filters; ava
       <div className="min-w-0 flex-1"><p className="text-sm font-medium text-foreground">{item.filters.scope === 'week' ? `PDF สัปดาห์ ${item.filters.week}` : 'ZIP บันทึกตามตัวกรอง'} <span className="text-xs text-muted-foreground font-normal">({item.completed}/{item.total} บันทึก)</span></p>{item.error && <p className="text-xs text-destructive">{item.error}</p>}{item.status === 'queued' && <p className="text-xs text-muted-foreground">รอสร้างเอกสาร</p>}</div>
       <Badge variant={item.status === 'ready' ? 'success' : 'outline'}>{({ queued: 'รอคิว', processing: 'กำลังสร้าง', ready: 'พร้อมดาวน์โหลด', failed: 'ลองใหม่ได้' })[item.status]}</Badge>
       {item.download_url && <Button asChild size="sm" className="h-8 rounded-lg text-xs"><a href={appUrl(item.download_url)} onClick={() => actionAlert.info('ส่งคำขอดาวน์โหลดแล้ว', 'ตรวจสถานะและไฟล์ในรายการดาวน์โหลดของเบราว์เซอร์ ระยะเวลาขึ้นอยู่กับขนาดไฟล์และการเชื่อมต่อ')}><DownloadSimple size={15} />ดาวน์โหลด</a></Button>}
-      {item.status !== 'ready' && <Button asChild size="sm" variant="outline" className="h-8 rounded-lg text-xs"><a href={appUrl(`/exports/${item.id}/browser-print`)} target="_blank" rel="noopener" onClick={openingPdf}><FilePdf size={15} weight="regular" />เปิดพิมพ์ฉบับนี้</a></Button>}
+      {item.status !== 'ready' && <Button asChild size="sm" variant="outline" className="h-8 rounded-lg text-xs"><a href={appUrl(`/exports/${item.id}/browser-print`)} target="_blank" rel="noopener"><FilePdf size={15} weight="regular" />เปิดพิมพ์ฉบับนี้</a></Button>}
     </div>)}</div>}
   </section>
 }

@@ -1,7 +1,6 @@
 import { AppLink as Link } from '@/components/app-link'
 import { appRouter as router } from '@/lib/app-router'
 import { appFetch as fetch, appUrl } from '@/lib/app-url'
-import { actionAlert } from '@/lib/action-alert'
 import { Head, usePage } from '@inertiajs/react'
 import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, Eye, FilePdf, Funnel, MagnifyingGlass, NotePencil, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
 import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
@@ -487,7 +486,6 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                           className="h-8 gap-1.5 rounded-lg px-2.5 text-xs font-medium border-border hover:bg-muted/70 hover:border-primary/40"
                           onClick={(e) => {
                             e.stopPropagation()
-                            actionAlert.info('เปิดหน้าเตรียม PDF', 'รอจนเอกสารพร้อม แล้วกด “พิมพ์ / บันทึก PDF” ในแท็บใหม่')
                           }}
                           title={`พิมพ์ PDF สัปดาห์ที่ ${group.week}`}
                         >
@@ -605,7 +603,6 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                                               href={appUrl(`/records/${record.id}/browser-print`)}
                                               target="_blank"
                                               rel="noopener"
-                                              onClick={() => actionAlert.info('เปิดหน้าเตรียม PDF', 'กำลังเปิดหน้าพิมพ์ของระดับชั้นนี้ในแท็บใหม่')}
                                             >
                                               <FilePdf size={15} weight="bold" />
                                               พิมพ์ PDF
@@ -700,7 +697,6 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                     className="h-8 gap-1 rounded-lg px-2 text-xs font-medium border-border"
                     onClick={(e) => {
                       e.stopPropagation()
-                      actionAlert.info('เปิดหน้าเตรียม PDF', 'รอจนเอกสารพร้อม แล้วกด “พิมพ์ / บันทึก PDF” ในแท็บใหม่')
                     }}
                     title={`พิมพ์ PDF สัปดาห์ที่ ${group.week}`}
                   >
@@ -787,7 +783,6 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                               href={appUrl(`/records/${record.id}/browser-print`)}
                               target="_blank"
                               rel="noopener"
-                              onClick={() => actionAlert.info('เปิดหน้าเตรียม PDF', 'กำลังเปิดหน้าพิมพ์ของระดับชั้นนี้ในแท็บใหม่')}
                             >
                               <FilePdf size={14} weight="bold" />
                               พิมพ์ PDF
