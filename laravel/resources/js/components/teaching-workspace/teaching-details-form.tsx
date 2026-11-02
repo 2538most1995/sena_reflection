@@ -87,68 +87,143 @@ export function TeachingDetailsForm({
 
       <div className="grid gap-4 rounded-xl border bg-muted/15 p-4 md:grid-cols-2">
         <div className="grid content-start gap-3">
-          <div className="flex items-center justify-between gap-2"><b className="text-sm">กลุ่มเรียน</b><Button type="button" variant="ghost" size="sm" onClick={() => setManualGroup((current) => !current)}>{manualGroup ? 'เลือกจากระบบ' : 'กรอกรหัสกลุ่ม'}</Button></div>
-          {manualGroup ? <div className="grid gap-3 sm:grid-cols-2"><FormField label="รหัสกลุ่ม"><Input data-workspace-field="group" maxLength={50} value={value.class_group_code} onChange={(event) => editGroup({ class_group_code: event.target.value })} /></FormField><FormField label="ชื่อกลุ่มเรียน"><Input maxLength={255} value={value.class_name} onChange={(event) => editGroup({ class_name: event.target.value })} /></FormField></div> : <FormField label="เลือกกลุ่มเรียน"><NativeSelect data-workspace-field="group" value={groupIndex >= 0 ? String(groupIndex) : ''} onChange={(event) => { if (!event.target.value) return; const group = levelGroups[Number(event.target.value)]; if (group) void onSelectGroup(group) }}><option value="">{levelGroups.length ? 'เลือกกลุ่มเรียน' : 'ไม่พบกลุ่ม กรอกรหัสกลุ่มได้ด้านบน'}</option>{levelGroups.map((group, index) => <option key={`${group.group_code}|${group.class_name}`} value={index}>{group.class_name} ({group.group_code})</option>)}</NativeSelect></FormField>}
-          {value.class_group_code && <Button type="button" variant="outline" size="sm" disabled={loadState.loading} onClick={() => void onSelectGroup(selectedGroup)}>{loadState.loading ? 'กำลังโหลดรายชื่อ...' : value.attendance.length ? 'อัปเดตรายชื่อจากกลุ่มนี้' : 'ดึงรายชื่อจากรหัสกลุ่มนี้'}</Button>}
+          <div className="flex items-center justify-between gap-2">
+            <b className="text-sm">กลุ่มเรียน</b>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setManualGroup((current) => !current)}>
+              {manualGroup ? 'เลือกจากระบบ' : 'กรอกรหัสกลุ่ม'}
+            </Button>
+          </div>
+          {manualGroup ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="รหัสกลุ่ม">
+                <Input data-workspace-field="group" maxLength={50} value={value.class_group_code} onChange={(event) => editGroup({ class_group_code: event.target.value })} placeholder="เช่น 210007" />
+              </FormField>
+              <FormField label="ชื่อกลุ่มเรียน">
+                <Input maxLength={255} value={value.class_name} onChange={(event) => editGroup({ class_name: event.target.value })} placeholder="ชื่อกลุ่มเรียน" />
+              </FormField>
+            </div>
+          ) : (
+            <FormField label="เลือกกลุ่มเรียน">
+              <NativeSelect data-workspace-field="group" value={groupIndex >= 0 ? String(groupIndex) : ''} onChange={(event) => { if (!event.target.value) return; const group = levelGroups[Number(event.target.value)]; if (group) void onSelectGroup(group) }}>
+                <option value="">{levelGroups.length ? 'เลือกกลุ่มเรียน' : 'ไม่พบกลุ่ม กรอกรหัสกลุ่มได้ด้านบน'}</option>
+                {levelGroups.map((group, index) => <option key={`${group.group_code}|${group.class_name}`} value={index}>{group.class_name} ({group.group_code})</option>)}
+              </NativeSelect>
+            </FormField>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {value.class_group_code && (
+              <Button type="button" variant="outline" size="sm" disabled={loadState.loading} onClick={() => void onSelectGroup(selectedGroup)} className="gap-1.5 text-xs">
+                <UsersThree size={14} />
+                {loadState.loading ? 'กำลังโหลดรายชื่อ...' : value.attendance.length ? 'อัปเดตรายชื่อจากกลุ่มนี้' : 'ดึงรายชื่อจากรหัสกลุ่มนี้'}
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="grid content-start gap-3">
           <div className="flex items-center justify-between gap-2">
             <b className="text-sm">รายวิชา</b>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {onRefreshSubjects && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={subjectsLoading}
-                  onClick={() => void onRefreshSubjects()}
-                  title="ดึงข้อมูลรายวิชาล่าสุดจากระบบ SDL School"
-                  className="gap-1 text-xs"
-                >
-                  <ArrowClockwise size={13} className={subjectsLoading ? 'animate-spin' : ''} />
-                  {subjectsLoading ? 'กำลังอัปเดต...' : 'อัปเดตรายวิชา'}
-                </Button>
-              )}
-              {levelSubjects.length > 0 && subjects.length > levelSubjects.length && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowAllSubjects((current) => !current)}
-                  className="text-xs text-muted-foreground"
-                >
-                  {showAllSubjects ? `เฉพาะ${level.name}` : 'วิชาทั้งหมด'}
-                </Button>
-              )}
-              <Button type="button" variant="ghost" size="sm" onClick={() => setManualSubject((current) => !current)}>
-                {manualSubject ? 'เลือกจากระบบ' : 'กรอกรายวิชาเอง'}
-              </Button>
-            </div>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setManualSubject((current) => !current)}>
+              {manualSubject ? 'เลือกจากระบบ' : 'กรอกรายวิชาเอง'}
+            </Button>
           </div>
-          <p className="text-xs leading-5 text-muted-foreground" role="status">{subjectsLoading ? 'กำลังโหลดรายวิชาสำหรับภาคเรียนนี้...' : subjectSource === 'sdl' ? `รายวิชา${level.name}จาก SDL School · ภาคเรียน ${subjectTerm || term}` : subjectSource === 'history' ? `รายวิชาจากประวัติบันทึก${subjectTerm ? ` · ภาคเรียน ${subjectTerm}` : ''}` : 'ยังไม่มีรายวิชาให้เลือกจากระบบ'}</p>
-          {subjectError && <p role="status" className="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-200"><WarningCircle size={16} className="mt-0.5 shrink-0" />{subjectError}</p>}
-          {manualSubject || (!subjectsLoading && !selectableSubjects.length) ? <>
-            {!manualSubject && <p className="text-xs leading-5 text-muted-foreground">ยังไม่มีรายวิชาในระบบ สามารถกรอกชื่อและรหัสวิชาเองได้ โดยข้อมูลเดิมยังอยู่</p>}
-            <div className="grid gap-3 sm:grid-cols-2"><FormField label="ชื่อรายวิชา *"><Input data-workspace-field="subject" maxLength={150} value={value.subject} onChange={(event) => onChange({ ...value, subject: event.target.value })} /></FormField><FormField label="รหัสวิชา"><Input maxLength={50} value={value.subject_code} onChange={(event) => onChange({ ...value, subject_code: event.target.value })} /></FormField></div>
-          </> : <>
-            {levelSubjects.length === 0 && selectableSubjects.length > 0 && !manualSubject && (
-              <p className="text-xs leading-5 text-muted-foreground">
-                ยังไม่พบวิชาที่ระบุระดับ{level.name}โดยตรง แสดงรายวิชาทั้งหมดจากระบบ ({selectableSubjects.length} วิชา) สามารถเลือกวิชาด้านล่าง หรือกด "กรอกรายวิชาเอง"
-              </p>
+          {manualSubject || (!subjectsLoading && !selectableSubjects.length) ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="ชื่อรายวิชา *">
+                <Input data-workspace-field="subject" maxLength={150} value={value.subject} onChange={(event) => onChange({ ...value, subject: event.target.value })} placeholder="ระบุชื่อวิชา" />
+              </FormField>
+              <FormField label="รหัสวิชา">
+                <Input maxLength={50} value={value.subject_code} onChange={(event) => onChange({ ...value, subject_code: event.target.value })} placeholder="เช่น ทช11002" />
+              </FormField>
+            </div>
+          ) : (
+            <FormField label="เลือกรายวิชา *">
+              <div className="grid gap-2 sm:grid-cols-[135px_minmax(0,1fr)]">
+                <Input
+                  type="search"
+                  value={subjectQuery}
+                  onChange={(event) => setSubjectQuery(event.target.value)}
+                  disabled={subjectsLoading}
+                  placeholder="ค้นหาวิชา..."
+                  className="text-xs"
+                />
+                <NativeSelect
+                  data-workspace-field="subject"
+                  disabled={subjectsLoading || !matchingSubjects.length}
+                  value={subjectIndex >= 0 ? String(subjectIndex) : ''}
+                  onChange={(event) => {
+                    if (!event.target.value || subjectsLoading) return
+                    const subject = selectableSubjects[Number(event.target.value)]
+                    if (subject) onChange({ ...value, subject: subject.subject, subject_code: subject.subject_code })
+                  }}
+                >
+                  <option value="">{subjectsLoading ? 'กำลังโหลดรายวิชา...' : !matchingSubjects.length ? 'ไม่พบรายวิชาที่ค้นหา' : 'เลือกรายวิชา'}</option>
+                  {selectedSubject && !matchingSubjects.includes(selectedSubject) && (
+                    <option hidden value={subjectIndex}>
+                      {selectedSubject.subject_code ? `${selectedSubject.subject_code} - ` : ''}
+                      {selectedSubject.subject}
+                    </option>
+                  )}
+                  {(['sdl', 'history'] as const).map((source) => {
+                    const items = matchingSubjects.filter((subject) => (subject.source || 'history') === source)
+                    return (
+                      items.length > 0 && (
+                        <optgroup key={source} label={source === 'sdl' ? 'SDL School' : 'ประวัติบันทึก'}>
+                          {items.map((subject) => (
+                            <option
+                              key={`${subject.level}|${subject.subject_code}|${subject.subject}`}
+                              value={selectableSubjects.indexOf(subject)}
+                            >
+                              {subject.subject_code ? `${subject.subject_code} - ` : ''}
+                              {subject.subject}
+                              {(showAllSubjects || levelSubjects.length === 0) && subject.level ? ` (${subject.level})` : ''}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )
+                    )
+                  })}
+                </NativeSelect>
+              </div>
+            </FormField>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {onRefreshSubjects && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={subjectsLoading}
+                onClick={() => void onRefreshSubjects()}
+                title="ดึงข้อมูลรายวิชาล่าสุดจากระบบ SDL School"
+                className="gap-1.5 text-xs"
+              >
+                <ArrowClockwise size={13} className={subjectsLoading ? 'animate-spin' : ''} />
+                {subjectsLoading ? 'กำลังอัปเดต...' : 'อัปเดตรายวิชา'}
+              </Button>
             )}
-            {selectableSubjects.length > 0 && <FormField label="ค้นหารายวิชา"><Input type="search" value={subjectQuery} onChange={(event) => setSubjectQuery(event.target.value)} disabled={subjectsLoading} placeholder="ค้นหารหัสหรือชื่อรายวิชา" /></FormField>}
-            <FormField label="เลือกรายวิชา *" hint="เลือกครั้งเดียว ระบบจะใส่รหัสและชื่อวิชาให้"><NativeSelect data-workspace-field="subject" disabled={subjectsLoading || !matchingSubjects.length} value={subjectIndex >= 0 ? String(subjectIndex) : ''} onChange={(event) => { if (!event.target.value || subjectsLoading) return; const subject = selectableSubjects[Number(event.target.value)]; if (subject) onChange({ ...value, subject: subject.subject, subject_code: subject.subject_code }) }}>
-              <option value="">{subjectsLoading ? 'กำลังโหลดรายวิชา...' : !matchingSubjects.length ? 'ไม่พบรายวิชาที่ค้นหา' : 'เลือกรายวิชา'}</option>
-              {selectedSubject && !matchingSubjects.includes(selectedSubject) && <option hidden value={subjectIndex}>{selectedSubject.subject_code ? `${selectedSubject.subject_code} - ` : ''}{selectedSubject.subject}</option>}
-              {(['sdl', 'history'] as const).map(source => {
-                const items = matchingSubjects.filter(subject => (subject.source || 'history') === source)
-                return items.length > 0 && <optgroup key={source} label={source === 'sdl' ? 'SDL School' : 'ประวัติบันทึก'}>{items.map(subject => <option key={`${subject.level}|${subject.subject_code}|${subject.subject}`} value={selectableSubjects.indexOf(subject)}>{subject.subject_code ? `${subject.subject_code} - ` : ''}{subject.subject}{(showAllSubjects || levelSubjects.length === 0) && subject.level ? ` (${subject.level})` : ''}</option>)}</optgroup>
-              })}
-            </NativeSelect></FormField>
-            {value.subject && <p className="rounded-lg border bg-background/70 px-3 py-2 text-xs leading-5"><span className="text-muted-foreground">วิชาที่ใช้ในบันทึก: </span>{value.subject_code ? `${value.subject_code} · ` : ''}{value.subject}</p>}
-          </>}
+            {levelSubjects.length > 0 && subjects.length > levelSubjects.length && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAllSubjects((current) => !current)}
+                className="text-xs text-muted-foreground"
+              >
+                {showAllSubjects ? `เฉพาะ${level.name}` : `วิชาทั้งหมด (${subjects.length})`}
+              </Button>
+            )}
+            {levelSubjects.length === 0 && selectableSubjects.length > 0 && !manualSubject && (
+              <span className="text-xs text-muted-foreground">แสดงวิชาทั้งหมด {selectableSubjects.length} วิชา</span>
+            )}
+          </div>
         </div>
+        {subjectError && (
+          <div role="status" className="col-span-full flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
+            <WarningCircle size={15} className="shrink-0" />
+            <span>{subjectError}</span>
+          </div>
+        )}
       </div>
     </section>
 
