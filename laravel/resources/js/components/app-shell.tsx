@@ -29,7 +29,7 @@ function Brand() {
 function NavLinks({ mobile = false, close }: { mobile?: boolean; close?: () => void }) {
   const { url, props } = usePage<SharedProps>()
   const pathname = appPathname(url)
-  const links = props.auth.user?.role === 'district' ? [...items, { href: '/admin', label: 'จัดการระบบ', icon: Buildings, match: (value: string) => value.startsWith('/admin') }] : items
+  const links = props?.auth?.user?.role === 'district' ? [...items, { href: '/admin', label: 'จัดการระบบ', icon: Buildings, match: (value: string) => value.startsWith('/admin') }] : items
   return <nav className={cn(mobile ? 'grid gap-1' : 'hidden min-w-0 items-center gap-0.5 xl:flex')} aria-label="เมนูหลัก">
     {mobile && <Link href="/records/create" onClick={close} className="focus-ring mb-3 flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground"><Plus size={18} weight="bold" />สร้างบันทึกหลังสอน</Link>}
     {links.map(({ href, label, icon: Icon, match }) => <Link key={href} href={href} onClick={close} aria-current={match(pathname) ? 'page' : undefined} className={cn('focus-ring flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors duration-150', mobile && 'py-3 text-sm', match(pathname) ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
@@ -40,7 +40,7 @@ function NavLinks({ mobile = false, close }: { mobile?: boolean; close?: () => v
 
 export function AppShell({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   const { props } = usePage<SharedProps>()
-  const user = props.auth.user
+  const user = props?.auth?.user
   const [open, setOpen] = useState(false)
   const logout = () => router.post('/logout')
 

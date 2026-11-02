@@ -4,6 +4,7 @@ import { createInertiaApp } from '@inertiajs/react'
 import type { ComponentType } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ActionAlertHost } from '@/components/action-alert'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 createInertiaApp({
   title: (title) => (title ? `${title} | SENA Reflection` : 'SENA Reflection'),
@@ -15,7 +16,12 @@ createInertiaApp({
   },
   setup({ el, App, props }) {
     if (!el) throw new Error('ไม่พบ Inertia root element')
-    createRoot(el).render(<><App {...props} /><ActionAlertHost /></>)
+    createRoot(el).render(
+      <ErrorBoundary>
+        <App {...props} />
+        <ActionAlertHost />
+      </ErrorBoundary>
+    )
   },
   progress: {
     color: '#17766e',

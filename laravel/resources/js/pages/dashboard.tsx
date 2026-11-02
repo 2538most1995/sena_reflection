@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import { cn, number, thaiDate } from '@/lib/utils'
+import { groupRecordsByWeek, toRecordArray, type WeekGroup } from '@/lib/dashboard-records'
 import type { Paginated, RecordRow, SharedProps, Tambon } from '@/types'
 import type { LevelCode, TeachingDraftPayload } from '@/components/teaching-workspace/types'
 import { selectedTeachingLevels } from '@/components/teaching-workspace/types'
@@ -101,73 +102,14 @@ function Filters({ filters, weeks, tambons, district, current }: { filters: Prop
   </form>
 }
 
-type WeekGroup = {
-  key: string
-  week: number
-  year: string
-  semester: string
-  tambon: string
-  tambonName: string
-  date: string | null
-  records: RecordRow[]
-  totalStudents: number
-  totalPresent: number
-  totalImages: number
-}
-
-function groupRecordsByWeek(records: RecordRow[]): WeekGroup[] {
-  const groupMap = new Map<string, WeekGroup>()
-  const levelOrder: Record<string, number> = {
-    'ประถมศึกษา': 1,
-    'มัธยมศึกษาตอนต้น': 2,
-    'มัธยมศึกษาตอนปลาย': 3,
-  }
-
-  for (const record of records) {
-    const key = record.weekly_submission_id
-      ? `sub-${record.weekly_submission_id}`
-      : `${record.year}-${record.semester}-${record.week}-${record.tambon}`
-
-    let group = groupMap.get(key)
-    if (!group) {
-      group = {
-        key,
-        week: record.week,
-        year: record.year,
-        semester: record.semester,
-        tambon: record.tambon,
-        tambonName: record.tambon_relation?.name || record.tambon,
-        date: record.date,
-        records: [],
-        totalStudents: 0,
-        totalPresent: 0,
-        totalImages: 0,
-      }
-      groupMap.set(key, group)
-    }
-
-    group.records.push(record)
-    group.totalStudents += Number(record.total) || 0
-    group.totalPresent += Number(record.present) || 0
-    group.totalImages += Number(record.images_count) || 0
-    if (!group.date && record.date) {
-      group.date = record.date
-    }
-  }
-
-  return Array.from(groupMap.values()).map(group => {
-    group.records.sort((a, b) => (levelOrder[a.level || ''] || 99) - (levelOrder[b.level || ''] || 99))
-    return group
-  })
-}
-
-function RecordsList({ records }: { records: Paginated<RecordRow> }) {
+function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
   const { auth } = usePage<SharedProps>().props
-  const district = auth.user?.role === 'district'
+  const district = auth?.user?.role === 'district'
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({})
 
-  const groups = useMemo(() => groupRecordsByWeek(records.data), [records.data])
+  const recordList = useMemo(() => toRecordArray(records?.data), [records?.data])
+  const groups = useMemo(() => groupRecordsByWeek(recordList), [recordList])
 
   const toggleExpand = (key: string) => {
     setExpandedKeys(prev => ({ ...prev, [key]: !prev[key] }))
@@ -196,12 +138,22 @@ function RecordsList({ records }: { records: Paginated<RecordRow> }) {
     })
   }
 
-  if (!records.data.length) return <div className="grid min-h-52 place-items-center rounded-xl border border-dashed bg-muted/20 px-6 text-center"><div><Books size={34} className="mx-auto text-muted-foreground" /><b className="mt-3 block">ไม่พบรายการบันทึก</b><p className="mt-1 text-sm text-muted-foreground">เปลี่ยนตัวกรองหรือสร้างบันทึกรายสัปดาห์ใหม่</p></div></div>
+  if (!recordList.length) {
+    return (
+      <div className="grid min-h-52 place-items-center rounded-xl border border-dashed bg-muted/20 px-6 text-center">
+        <div>
+          <Books size={34} className="mx-auto text-muted-foreground" />
+          <b className="mt-3 block">ไม่พบรายการบันทึก</b>
+          <p className="mt-1 text-sm text-muted-foreground">เปลี่ยนตัวกรองหรือสร้างบันทึกรายสัปดาห์ใหม่</p>
+        </div>
+      </div>
+    )
+  }
 
   return <>
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
       <div>
-        แสดงรายการรายสัปดาห์: <b className="text-foreground">{groups.length}</b> สัปดาห์ (บันทึกรวม <b className="text-foreground">{records.data.length}</b> ระดับชั้น)
+        แสดงรายการรายสัปดาห์: <b className="text-foreground">{groups.length}</b> สัปดาห์ (บันทึกรวม <b className="text-foreground">{recordList.length}</b> ระดับชั้น)
       </div>
       <Button
         type="button"
@@ -317,7 +269,7 @@ function RecordsList({ records }: { records: Paginated<RecordRow> }) {
                             </thead>
                             <tbody>
                               {group.records.map((record) => {
-                                const canDelete = district || record.tambon === auth.user?.tambon
+                                const canDelete = district || (record.tambon && record.tambon === auth?.user?.tambon)
                                 return (
                                   <tr key={record.id} className="border-b last:border-0 hover:bg-muted/20">
                                     <td className="px-3.5 py-2.5 whitespace-nowrap">
@@ -440,7 +392,7 @@ function RecordsList({ records }: { records: Paginated<RecordRow> }) {
                   ระดับชั้นที่บันทึก ({group.records.length} ระดับชั้น)
                 </h4>
                 {group.records.map((record) => {
-                  const canDelete = district || record.tambon === auth.user?.tambon
+                  const canDelete = district || (record.tambon && record.tambon === auth?.user?.tambon)
                   return (
                     <div key={record.id} className="rounded-lg border bg-muted/20 p-3">
                       <div className="flex items-start justify-between gap-2">
@@ -488,32 +440,101 @@ function RecordsList({ records }: { records: Paginated<RecordRow> }) {
       })}
     </div>
 
-    {records.last_page > 1 && <nav className="mt-5 flex flex-wrap justify-center gap-1" aria-label="แบ่งหน้า">{records.links.map((link, index) => link.url ? <Button key={index} asChild variant={link.active ? 'default' : 'outline'} size="sm"><Link href={link.url} preserveScroll dangerouslySetInnerHTML={{ __html: link.label }} /></Button> : <Button key={index} variant="outline" size="sm" disabled dangerouslySetInnerHTML={{ __html: link.label }} />)}</nav>}
+    {Boolean(records?.last_page && records.last_page > 1 && Array.isArray(records?.links)) && (
+      <nav className="mt-5 flex flex-wrap justify-center gap-1" aria-label="แบ่งหน้า">
+        {records!.links.map((link, index) =>
+          link.url ? (
+            <Button key={index} asChild variant={link.active ? 'default' : 'outline'} size="sm">
+              <Link href={link.url} preserveScroll dangerouslySetInnerHTML={{ __html: link.label }} />
+            </Button>
+          ) : (
+            <Button key={index} variant="outline" size="sm" disabled dangerouslySetInnerHTML={{ __html: link.label }} />
+          )
+        )}
+      </nav>
+    )}
   </>
 }
 
 export default function Dashboard(props: Props) {
   const { auth } = usePage<SharedProps>().props
-  const district = auth.user?.role === 'district'
-  const rate = props.summary.total_students > 0 ? (props.summary.total_present / props.summary.total_students) * 100 : 0
-  return <AppShell>
-    <Head title="ภาพรวม" />
-    <PageHeader title="บันทึกหลังการสอน" description="ติดตามรายการ ตรวจสอบการเข้าเรียน และส่งออกเอกสาร" action={<Button asChild size="lg"><Link href="/records/create"><Plus size={19} />สร้างบันทึกหลังสอน</Link></Button>} />
-    <FlashMessages />
-    <AcademicTermNotice active={props.activeTerm} filters={props.filters} district={district} olderCount={props.olderRecordCount} />
-    <DraftWorkList drafts={props.drafts} />
-    <section className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="สรุปข้อมูล">
-      <Metric label="รายการที่แสดง" value={number(props.summary.record_count)} unit="บันทึก" icon={Books} />
-      <Metric label="จำนวนสัปดาห์" value={number(props.summary.week_count)} unit="สัปดาห์" icon={CalendarBlank} />
-      <Metric label="ผู้มาเรียน (ไม่ซ้ำ)" value={number(props.summary.unique_present_students)} unit="คน" icon={UsersThree} detail="นับรหัสผู้เรียนคนละ 1 ครั้ง" />
-      <Metric emphasized label="อัตรามาเรียน" value={`${rate.toFixed(1)}%`} unit="ของผู้เรียน" icon={CheckCircle} detail={`${number(props.summary.total_present)} คน จาก ${number(props.summary.total_students)} คน`} />
-    </section>
-    <Card>
-      <CardHeader className="gap-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle>รายการบันทึก</CardTitle><p className="mt-1 text-sm text-muted-foreground">ค้นหา ตรวจสอบ แก้ไข และพิมพ์ข้อมูล</p></div><Badge variant="outline">{number(props.records.total)} รายการ</Badge></div><Filters filters={props.filters} weeks={props.availableWeeks} tambons={props.tambonOptions} district={district} current={props.activeTerm} /></CardHeader>
-      <CardContent>
-        <ExportPanel filters={props.filters} />
-        <RecordsList records={props.records} />
-      </CardContent>
-    </Card>
-  </AppShell>
+  const district = auth?.user?.role === 'district'
+  const summary = props.summary || {
+    record_count: 0,
+    week_count: 0,
+    total_students: 0,
+    total_present: 0,
+    unique_present_students: 0,
+  }
+  const totalStudents = Number(summary.total_students) || 0
+  const totalPresent = Number(summary.total_present) || 0
+  const rate = totalStudents > 0 ? (totalPresent / totalStudents) * 100 : 0
+  const totalRecords = Number(props.records?.total) || 0
+
+  return (
+    <AppShell>
+      <Head title="ภาพรวม" />
+      <PageHeader
+        title="บันทึกหลังการสอน"
+        description="ติดตามรายการ ตรวจสอบการเข้าเรียน และส่งออกเอกสาร"
+        action={
+          <Button asChild size="lg">
+            <Link href="/records/create">
+              <Plus size={19} />
+              สร้างบันทึกหลังสอน
+            </Link>
+          </Button>
+        }
+      />
+      <FlashMessages />
+      <AcademicTermNotice
+        active={props.activeTerm}
+        filters={props.filters}
+        district={district}
+        olderCount={props.olderRecordCount}
+      />
+      <DraftWorkList drafts={props.drafts} />
+      <section className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="สรุปข้อมูล">
+        <Metric label="รายการที่แสดง" value={number(summary.record_count)} unit="บันทึก" icon={Books} />
+        <Metric label="จำนวนสัปดาห์" value={number(summary.week_count)} unit="สัปดาห์" icon={CalendarBlank} />
+        <Metric
+          label="ผู้มาเรียน (ไม่ซ้ำ)"
+          value={number(summary.unique_present_students)}
+          unit="คน"
+          icon={UsersThree}
+          detail="นับรหัสผู้เรียนคนละ 1 ครั้ง"
+        />
+        <Metric
+          emphasized
+          label="อัตรามาเรียน"
+          value={`${rate.toFixed(1)}%`}
+          unit="ของผู้เรียน"
+          icon={CheckCircle}
+          detail={`${number(totalPresent)} คน จาก ${number(totalStudents)} คน`}
+        />
+      </section>
+      <Card>
+        <CardHeader className="gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>รายการบันทึก</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">ค้นหา ตรวจสอบ แก้ไข และพิมพ์ข้อมูล</p>
+            </div>
+            <Badge variant="outline">{number(totalRecords)} รายการ</Badge>
+          </div>
+          <Filters
+            filters={props.filters}
+            weeks={props.availableWeeks || []}
+            tambons={props.tambonOptions || []}
+            district={district}
+            current={props.activeTerm}
+          />
+        </CardHeader>
+        <CardContent>
+          <ExportPanel filters={props.filters} />
+          <RecordsList records={props.records} />
+        </CardContent>
+      </Card>
+    </AppShell>
+  )
 }

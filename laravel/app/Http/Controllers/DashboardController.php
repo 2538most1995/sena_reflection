@@ -67,6 +67,7 @@ class DashboardController extends Controller
 
                 return $payload;
             });
+        $records->setCollection($records->getCollection()->values());
 
         $availableWeeks = TeachingRecord::query()->visibleTo($user)
             ->when($filters['year'] ?? null, fn (Builder $q, $year) => $q->where('year', $year))
