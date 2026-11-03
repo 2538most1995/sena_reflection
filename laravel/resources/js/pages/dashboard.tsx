@@ -338,9 +338,13 @@ function Filters({ filters, weeks, tambons, district, current }: { filters: Prop
               ล้างค่า
             </Button>
           )}
-          <Button type="submit" variant="secondary" size="sm" className="h-9 gap-1.5 px-4 text-xs font-semibold">
-            <Funnel size={15} weight="regular" />
-            แสดงผล
+          <Button
+            type="submit"
+            size="sm"
+            className="h-9 gap-1.5 px-4 text-xs font-semibold bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-xs transition-colors"
+          >
+            <MagnifyingGlass size={15} weight="bold" />
+            ค้นหา
           </Button>
         </div>
       </form>
