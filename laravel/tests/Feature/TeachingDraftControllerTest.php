@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Exceptions\DocumentRuntimeUnavailableException;
+use App\Models\Document;
 use App\Models\RecordAttendance;
 use App\Models\RecordDocumentLayout;
 use App\Models\RecordImage;
@@ -20,6 +21,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -50,6 +52,39 @@ class TeachingDraftControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.draft.payload.levels.1.subject', 'ภาษาไทยฉบับแก้ไข');
         $this->assertDatabaseHas('teaching_drafts', ['id' => $draftId, 'user_id' => 'u1', 'lock_version' => 2]);
+    }
+
+    public function test_finalizes_orientation_without_requiring_or_inventing_a_subject_code(): void
+    {
+        $user = $this->createTeacher('u1', 't1');
+        $payload = $this->draftPayload();
+        $payload['enabled_level_codes'] = ['1'];
+        $payload['levels']['1']['subject'] = 'ปฐมนิเทศ';
+        $payload['levels']['1']['subject_code'] = '';
+        $id = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $payload])->json('data.draft.id');
+
+        $response = $this->postJson(route('teaching-drafts.finalize', $id), [
+            'lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true,
+        ])->assertOk()->assertJsonCount(1, 'data.record_ids');
+
+        $this->assertDatabaseHas('records', ['id' => $response->json('data.record_ids.0'), 'subject' => 'ปฐมนิเทศ', 'subject_code' => '']);
+        $this->assertDatabaseCount('records', 1);
+    }
+
+    public function test_resuming_a_finalized_draft_returns_to_its_saved_week_without_opening_an_editing_draft(): void
+    {
+        $user = $this->createTeacher('u1', 't1');
+        $payload = $this->draftPayload();
+        $draftId = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $payload])->json('data.draft.id');
+        $this->postJson(route('teaching-drafts.finalize', $draftId), [
+            'lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true,
+        ])->assertOk();
+
+        $this->get(route('records.create', ['draft' => $draftId]))
+            ->assertRedirect(route('dashboard', ['year' => $payload['scope']['year'], 'semester' => $payload['scope']['semester'], 'week' => $payload['scope']['week']]));
+
+        $this->assertDatabaseCount('records', 3);
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $draftId, 'status' => 'finalized']);
     }
 
     public function test_returns_409_and_latest_draft_when_autosave_version_is_stale(): void
@@ -290,31 +325,163 @@ class TeachingDraftControllerTest extends TestCase
             ->assertHeader('content-type', 'application/pdf');
     }
 
-    public function test_editing_a_week_moves_all_three_levels_and_preserves_record_ids(): void
+    public function test_changing_the_week_of_a_source_draft_creates_new_records_and_preserves_the_previous_week(): void
     {
+        Http::preventStrayRequests();
+        Storage::fake('local');
+        Storage::fake('public');
         $user = $this->createTeacher('u1', 't1');
         $created = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $this->draftPayload()]);
         $confirmed = $this->postJson(route('teaching-drafts.finalize', $created->json('data.draft.id')), [
             'lock_version' => 1, 'idempotency_key' => (string) Str::uuid(),
         ])->assertOk();
         $ids = $confirmed->json('data.record_ids');
+        $source = TeachingRecord::query()->findOrFail($ids[0]);
+        $source->update(['total' => 2, 'present' => 1]);
+        foreach ([true, false] as $index => $present) {
+            RecordAttendance::create([
+                'record_id' => $source->id, 'student_id' => 'S'.$index, 'full_name' => 'ผู้เรียน '.$index,
+                'group_code' => 'G1', 'present' => $present, 'learning_method' => $present ? 'ออนไลน์' : null,
+            ]);
+            $path = 'records/source-'.$index.'.jpg';
+            $file = UploadedFile::fake()->image('source.jpg');
+            Storage::disk('public')->put($path, file_get_contents($file->getRealPath()));
+            RecordImage::create(['record_id' => $source->id, 'file_path' => 'storage/'.$path]);
+        }
+        $source->documentLayout->update(['settings' => ['pdf_margin_left_px' => '120']]);
+        $document = Document::factory()->create([
+            'user_id' => $user->id, 'source_record_id' => $source->id, 'title' => 'เอกสารต้นฉบับที่จัดไว้',
+            'binding_key' => 'record:'.$source->id, 'binding_snapshot' => ['kind' => 'record', 'record_id' => $source->id],
+        ]);
+        $originalDocument = $document->fresh()->attributesToArray();
+        $originalFingerprint = app(DraftService::class)->sourceFingerprint($source);
+        $originalImageHashes = $source->images()->get()->mapWithKeys(fn (RecordImage $image): array => [
+            $image->file_path => hash('sha256', Storage::disk('public')->get(substr($image->file_path, 8))),
+        ])->all();
         $editing = $this->postJson(route('teaching-drafts.store'), ['source_record_id' => $ids[0]])->assertCreated();
         $draftId = $editing->json('data.draft.id');
         $payload = $editing->json('data.draft.payload');
         $payload['scope']['week'] = 11;
-        $payload['levels']['1']['result'] = 'ผลการสอนฉบับปรับปรุง';
+        $payload['levels']['1']['result'] = 'ผลการสอนสัปดาห์ใหม่';
         $this->patchJson(route('teaching-drafts.update', $draftId), ['lock_version' => 1, 'payload' => $payload])->assertOk();
+        $key = (string) Str::uuid();
 
-        $this->postJson(route('teaching-drafts.finalize', $draftId), [
-            'lock_version' => 2, 'idempotency_key' => (string) Str::uuid(),
-        ])->assertOk()->assertJsonPath('data.record_ids', $ids);
+        $next = $this->postJson(route('teaching-drafts.finalize', $draftId), [
+            'lock_version' => 2, 'idempotency_key' => $key, 'confirmed' => true,
+        ])->assertOk()->assertJsonCount(3, 'data.record_ids');
 
-        $this->assertDatabaseCount('records', 3);
-        $this->assertDatabaseCount('weekly_submissions', 1);
-        $this->assertDatabaseHas('weekly_submissions', ['id' => $confirmed->json('data.submission_id'), 'week' => 11]);
+        $this->assertDatabaseCount('records', 6);
+        $this->assertDatabaseCount('weekly_submissions', 2);
+        $this->assertDatabaseHas('weekly_submissions', ['id' => $confirmed->json('data.submission_id'), 'week' => 10]);
+        $this->assertNotSame($confirmed->json('data.submission_id'), $next->json('data.submission_id'));
+        foreach ($ids as $id) {
+            $this->assertDatabaseHas('records', ['id' => $id, 'week' => 10, 'result' => 'เรียนรู้ตามแผน']);
+            $this->assertNotContains($id, $next->json('data.record_ids'));
+        }
         $this->assertSame(3, TeachingRecord::query()->where('week', 11)->count());
-        $this->assertDatabaseHas('records', ['id' => $ids[0], 'result' => 'ผลการสอนฉบับปรับปรุง']);
+        $this->assertDatabaseHas('records', ['id' => $next->json('data.record_ids.0'), 'result' => 'ผลการสอนสัปดาห์ใหม่']);
         $this->assertDatabaseCount('record_revisions', 6);
+        $this->assertSame($originalFingerprint, app(DraftService::class)->sourceFingerprint($source->fresh()));
+        $this->assertSame($originalDocument, $document->fresh()->attributesToArray());
+        foreach ($originalImageHashes as $path => $hash) {
+            Storage::disk('public')->assertExists(substr($path, 8));
+            $this->assertSame($hash, hash('sha256', Storage::disk('public')->get(substr($path, 8))));
+        }
+        $newRecord = TeachingRecord::query()->findOrFail($next->json('data.record_ids.0'));
+        $this->assertSame(2, $newRecord->images()->count());
+        $this->assertSame(2, $newRecord->attendance()->count());
+        $this->assertSame(1, $newRecord->present);
+        $this->assertSame('120', $newRecord->documentLayout->settings['pdf_margin_left_px']);
+        $this->assertDatabaseHas('record_attendance', ['record_id' => $newRecord->id, 'student_id' => 'S0', 'present' => true, 'learning_method' => 'ออนไลน์']);
+        $this->assertDatabaseHas('record_attendance', ['record_id' => $newRecord->id, 'student_id' => 'S1', 'present' => false, 'learning_method' => null]);
+        $this->postJson(route('teaching-drafts.finalize', $draftId), [
+            'lock_version' => 2, 'idempotency_key' => $key, 'confirmed' => true,
+        ])->assertOk()->assertJsonPath('data.record_ids', $next->json('data.record_ids'));
+        $this->getJson(route('teaching-drafts.index'))->assertOk()->assertJsonCount(0, 'data.drafts');
+        $this->assertDatabaseCount('records', 6);
+    }
+
+    #[DataProvider('changedSourceScopes')]
+    public function test_changing_the_source_term_or_tambon_creates_a_separate_submission(array $scopeChanges): void
+    {
+        Http::preventStrayRequests();
+        $teacher = $this->createTeacher('u1', 't1');
+        $this->createTeacher('u2', 't2');
+        $district = User::query()->create([
+            'id' => 'district', 'name' => 'ผู้ดูแล', 'username' => 'district',
+            'password' => Hash::make('secret'), 'role' => 'district', 'tambon' => null,
+        ]);
+        $payload = $this->draftPayload();
+        $payload['enabled_level_codes'] = ['1'];
+        $draftId = $this->actingAs($teacher)->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->json('data.draft.id');
+        $original = $this->postJson(route('teaching-drafts.finalize', $draftId), [
+            'lock_version' => 1, 'confirmed' => true, 'idempotency_key' => (string) Str::uuid(),
+        ])->assertOk();
+        $source = TeachingRecord::query()->findOrFail($original->json('data.record_ids.0'));
+        $fingerprint = app(DraftService::class)->sourceFingerprint($source);
+        $editing = $this->actingAs($district)->postJson(route('teaching-drafts.store'), ['source_record_id' => $source->id])->assertCreated();
+        $editId = $editing->json('data.draft.id');
+        $editPayload = $editing->json('data.draft.payload');
+        $editPayload['scope'] = [...$editPayload['scope'], ...$scopeChanges];
+        $this->patchJson(route('teaching-drafts.update', $editId), ['lock_version' => 1, 'payload' => $editPayload])->assertOk();
+
+        $saved = $this->postJson(route('teaching-drafts.finalize', $editId), [
+            'lock_version' => 2, 'confirmed' => true, 'idempotency_key' => (string) Str::uuid(),
+        ])->assertOk()->assertJsonCount(1, 'data.record_ids');
+
+        $this->assertDatabaseCount('records', 2);
+        $this->assertDatabaseCount('weekly_submissions', 2);
+        $this->assertNotSame($source->id, $saved->json('data.record_ids.0'));
+        $this->assertSame($fingerprint, app(DraftService::class)->sourceFingerprint($source->fresh()));
+        $this->assertDatabaseHas('records', ['id' => $saved->json('data.record_ids.0'), ...$scopeChanges]);
+    }
+
+    /** @return array<string, array{array<string, string>}> */
+    public static function changedSourceScopes(): array
+    {
+        return [
+            'semester' => [['semester' => '2']],
+            'year' => [['year' => '2570']],
+            'tambon' => [['tambon' => 't2']],
+        ];
+    }
+
+    public function test_returns_422_without_overwriting_a_target_week_when_a_legacy_source_draft_changes_week(): void
+    {
+        Http::preventStrayRequests();
+        $user = $this->createTeacher('u1', 't1');
+        $payload = $this->draftPayload();
+        $payload['scope']['week'] = 11;
+        $payload['enabled_level_codes'] = ['1'];
+        $id = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->json('data.draft.id');
+        $target = $this->postJson(route('teaching-drafts.finalize', $id), [
+            'lock_version' => 1, 'confirmed' => true, 'idempotency_key' => (string) Str::uuid(),
+        ])->assertOk();
+        $targetRecord = TeachingRecord::query()->findOrFail($target->json('data.record_ids.0'));
+        $source = TeachingRecord::create([
+            'id' => 'legacy-original', 'tambon' => 't1', 'week' => 10, 'date' => '2026-10-16',
+            'level' => 'ประถมศึกษา', 'semester' => '1', 'year' => '2569', 'subject' => 'ต้นฉบับเดิม',
+            'class_group_code' => 'G1', 'class_name' => 'กลุ่ม 1', 'total' => 2, 'present' => 1,
+            'result' => 'เนื้อหาที่ต้องรักษา', 'created_by' => $user->id,
+        ]);
+        $sourceFingerprint = app(DraftService::class)->sourceFingerprint($source);
+        $targetFingerprint = app(DraftService::class)->sourceFingerprint($targetRecord);
+        $editing = $this->postJson(route('teaching-drafts.store'), ['source_record_id' => $source->id])->assertCreated();
+        $editId = $editing->json('data.draft.id');
+        $editPayload = $editing->json('data.draft.payload');
+        $editPayload['scope']['week'] = 11;
+        $this->patchJson(route('teaching-drafts.update', $editId), ['lock_version' => 1, 'payload' => $editPayload])->assertOk();
+
+        $rejected = $this->postJson(route('teaching-drafts.finalize', $editId), [
+            'lock_version' => 2, 'confirmed' => true, 'idempotency_key' => (string) Str::uuid(),
+        ])->assertUnprocessable()->assertJsonValidationErrors('payload.scope.week');
+
+        $this->assertSame('ระดับชั้นที่เลือกมีบันทึกในสัปดาห์นี้แล้ว กรุณาเปิดรายการเดิมเพื่อแก้ไข', $rejected->json('errors')['payload.scope.week'][0]);
+        $this->assertDatabaseCount('records', 2);
+        $this->assertDatabaseCount('weekly_submissions', 1);
+        $this->assertSame($sourceFingerprint, app(DraftService::class)->sourceFingerprint($source->fresh()));
+        $this->assertSame($targetFingerprint, app(DraftService::class)->sourceFingerprint($targetRecord->fresh()));
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $editId, 'status' => 'active', 'lock_version' => 2]);
     }
 
     public function test_returns_409_when_source_changes_and_can_start_a_fresh_draft_without_losing_the_old_one(): void

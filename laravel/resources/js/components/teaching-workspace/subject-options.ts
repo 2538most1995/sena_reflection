@@ -12,3 +12,9 @@ export function searchSubjects(subjects: SubjectOption[], query?: string | null)
     return terms.every(term => text.includes(term))
   })
 }
+
+/** Orientation is a local activity available even when SDL has no course catalog. */
+export function withOrientationSubject(subjects: SubjectOption[], levelCode: string): SubjectOption[] {
+  if (subjects.some(subject => subject.subject.trim() === 'ปฐมนิเทศ' && !subject.subject_code.trim())) return subjects
+  return [{ subject: 'ปฐมนิเทศ', subject_code: '', level: levelCode, source: 'activity' }, ...subjects]
+}

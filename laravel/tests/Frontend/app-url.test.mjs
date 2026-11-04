@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeAppBasePath, resolveAppPathname, resolveAppUrl } from '../../resources/js/lib/app-url.ts'
+import { normalizeAppBasePath, resolveAppPathname, resolveAppUrl, safeAppHistoryUrl } from '../../resources/js/lib/app-url.ts'
 
 test('root installation keeps existing navigation and relative asset URLs', () => {
   assert.equal(resolveAppUrl('/login'), '/login')
@@ -46,4 +46,13 @@ test('null and undefined inputs are safely handled', () => {
   assert.equal(normalizeAppBasePath(undefined), '')
   assert.equal(resolveAppPathname(null), '/')
   assert.equal(resolveAppPathname(undefined), '/')
+})
+
+test('back navigation retains the preceding application filters and rejects other sites, mounts and login', () => {
+  const current = 'https://example.test/sena_reflection/exports/browser-print?week=3'
+  assert.equal(safeAppHistoryUrl('/sena_reflection/?week=3&year=2569#records', current, '/sena_reflection'), '/sena_reflection/?week=3&year=2569#records')
+  for (const unsafe of [current, 'https://other.test/sena_reflection/', '/SDL_school/', '/sena_reflection2/', '/sena_reflection/login', '/sena_reflection/logout', 'javascript:alert(1)']) {
+    assert.equal(safeAppHistoryUrl(unsafe, current, '/sena_reflection'), null)
+  }
+  assert.equal(safeAppHistoryUrl('/records/r1', 'https://example.test/documents/d1/edit'), '/records/r1')
 })

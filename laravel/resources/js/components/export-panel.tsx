@@ -61,7 +61,7 @@ export function ExportPanel({ filters, availableWeeks }: { filters?: Filters; av
             )}
             {item.status !== 'ready' && (
               <Button asChild size="sm" variant="outline" className="h-8 rounded-lg text-xs">
-                <a href={appUrl(`/exports/${item.id}/browser-print`)} target="_blank" rel="noopener">
+                <a href={appUrl(`/exports/${item.id}/browser-print`)} rel="noopener">
                   <FilePdf size={15} weight="regular" />เปิดพิมพ์ฉบับนี้
                 </a>
               </Button>

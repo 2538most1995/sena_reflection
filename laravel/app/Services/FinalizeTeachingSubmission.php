@@ -103,7 +103,8 @@ class FinalizeTeachingSubmission
                 $sourceRecord = $lockedDraft->source_record_id
                     ? TeachingRecord::query()->visibleTo($user)->whereKey($lockedDraft->source_record_id)->lockForUpdate()->first()
                     : null;
-                $sourceSubmission = $sourceRecord?->weekly_submission_id
+                $updatesSource = $sourceRecord && $this->matchesSourceScope($sourceRecord, $tambon, $scope);
+                $sourceSubmission = $updatesSource && $sourceRecord->weekly_submission_id
                     ? WeeklySubmission::query()->whereKey($sourceRecord->weekly_submission_id)->lockForUpdate()->first()
                     : null;
                 if ($targetSubmission && $sourceSubmission && $targetSubmission->id !== $sourceSubmission->id) {
@@ -121,6 +122,9 @@ class FinalizeTeachingSubmission
                         'บันทึกต้นฉบับถูกแก้ไขหลังเปิดร่างนี้ กรุณาเปิดฉบับล่าสุดก่อนยืนยันอีกครั้ง',
                         'source_record_conflict',
                     );
+                }
+                if (! $updatesSource) {
+                    $sourceRecord = null;
                 }
                 $submission = $sourceSubmission ?? $targetSubmission;
                 if ($submission) {
@@ -290,6 +294,15 @@ class FinalizeTeachingSubmission
             Storage::disk('public')->delete($copiedPaths);
             throw $exception;
         }
+    }
+
+    /** @param array<string, mixed> $scope */
+    private function matchesSourceScope(TeachingRecord $source, string $tambon, array $scope): bool
+    {
+        return (string) $source->tambon === $tambon
+            && (int) $source->week === (int) ($scope['week'] ?? 0)
+            && (string) $source->semester === (string) ($scope['semester'] ?? '')
+            && (string) $source->year === (string) ($scope['year'] ?? '');
     }
 
     /** @param array<string, mixed> $payload @return array<string, array<string, mixed>> */

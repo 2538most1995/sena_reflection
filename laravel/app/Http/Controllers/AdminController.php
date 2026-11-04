@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Setting;
 use App\Models\Tambon;
+use App\Models\TeachingDraft;
 use App\Models\TeachingRecord;
 use App\Models\User;
 use App\Services\LegacyPrintService;
@@ -103,6 +104,9 @@ class AdminController extends Controller
         if ($user->id === $request->user()->id || $user->role === 'district') {
             return back()->withErrors(['user' => 'ไม่สามารถลบบัญชีนี้ได้']);
         }
+        if (TeachingDraft::query()->where('user_id', $user->id)->whereIn('status', ['active', 'paused'])->exists()) {
+            return back()->withErrors(['user' => 'บัญชีนี้ยังมีร่างที่กำลังใช้งานหรือพักไว้ จึงลบไม่ได้']);
+        }
         $user->delete();
 
         return back()->with('success', 'ลบผู้ใช้แล้ว');
@@ -128,9 +132,11 @@ class AdminController extends Controller
     public function destroyTambon(Request $request, Tambon $tambon): RedirectResponse
     {
         $this->district($request);
-        if (User::where('tambon', $tambon->id)->exists() || TeachingRecord::where('tambon', $tambon->id)->exists()) {
-            return back()->withErrors(['tambon' => 'ตำบลนี้ยังมีผู้ใช้หรือบันทึก จึงลบไม่ได้']);
-        } $tambon->delete();
+        if (User::where('tambon', $tambon->id)->exists() || TeachingRecord::where('tambon', $tambon->id)->exists()
+            || TeachingDraft::query()->where('tambon', $tambon->id)->whereIn('status', ['active', 'paused'])->exists()) {
+            return back()->withErrors(['tambon' => 'ตำบลนี้ยังมีผู้ใช้ บันทึก หรือร่างที่ใช้งานหรือพักไว้ จึงลบไม่ได้']);
+        }
+        $tambon->delete();
 
         return back()->with('success', 'ลบตำบลแล้ว');
     }
@@ -138,9 +144,10 @@ class AdminController extends Controller
     public function settings(Request $request): RedirectResponse
     {
         $this->district($request);
-        foreach ($this->validatedSettings($request) as $key => $value) {
-            Setting::query()->updateOrCreate(['setting_key' => $key], ['setting_value' => $value]);
-        }
+        $settings = $this->validatedSettings($request);
+        Setting::query()->upsert(collect($settings)->map(fn (string $value, string $key): array => [
+            'setting_key' => $key, 'setting_value' => $value,
+        ])->values()->all(), ['setting_key'], ['setting_value']);
         Cache::forget('pdf:settings');
         Cache::forget('pdf:settings:v2');
 

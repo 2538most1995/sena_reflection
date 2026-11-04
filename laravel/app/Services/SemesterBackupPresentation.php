@@ -120,8 +120,11 @@ class SemesterBackupPresentation
         try {
             fwrite($stream, "\xEF\xBB\xBF");
             foreach ([$headers, ...$rows] as $row) {
-                $cells = array_map(static function (mixed $value): string {
+                $cells = array_map(function (mixed $value): string {
                     $text = (string) $value;
+                    if (strlen($text) > self::MAX_BYTES) {
+                        $this->tooLarge();
+                    }
 
                     return preg_match('/^[\s\x00-\x1f]*[=+@-]/u', $text) ? "'".$text : $text;
                 }, $row);

@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import type { GroupOption, LevelCode, SubjectOption, TeachingDraftImage, TeachingLevelDraft, WorkspaceLoadState } from './types'
 import { teachingLevels } from './types'
-import { searchSubjects, subjectsForLevel } from './subject-options'
+import { searchSubjects, subjectsForLevel, withOrientationSubject } from './subject-options'
 
 type Props = {
   levelCode: LevelCode
@@ -63,10 +63,8 @@ export function TeachingDetailsForm({
   const levelSubjects = useMemo(() => subjectsForLevel(subjects, levelCode, level.name), [level.name, levelCode, subjects])
   const [showAllSubjects, setShowAllSubjects] = useState(false)
   const selectableSubjects = useMemo(() => {
-    if (showAllSubjects) return subjects
-    if (levelSubjects.length > 0) return levelSubjects
-    return subjects
-  }, [showAllSubjects, levelSubjects, subjects])
+    return withOrientationSubject(showAllSubjects ? subjects : levelSubjects, levelCode)
+  }, [showAllSubjects, levelSubjects, levelCode, subjects])
 
   const groupIndex = levelGroups.findIndex((group) => group.group_code === value.class_group_code && group.class_name === value.class_name)
   const subjectIndex = selectableSubjects.findIndex((subject) => subject.subject === value.subject && subject.subject_code === value.subject_code)
@@ -189,14 +187,15 @@ export function TeachingDetailsForm({
                   ref={triggerRef}
                   type="button"
                   data-workspace-field="subject"
-                  disabled={subjectsLoading || !selectableSubjects.length}
+                  disabled={!selectableSubjects.length}
                   onClick={() => setDropdownOpen((open) => !open)}
+                  aria-label="เลือกรายวิชา"
                   aria-expanded={dropdownOpen}
                   aria-haspopup="listbox"
                   className={cn(
                     'flex h-11 w-full items-center justify-between rounded-lg border border-input bg-card px-3.5 text-left text-sm text-foreground transition-[border-color,box-shadow] duration-150',
                     'hover:border-primary/50 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
-                    (subjectsLoading || !selectableSubjects.length) && 'cursor-not-allowed opacity-50 bg-muted'
+                    (!selectableSubjects.length) && 'cursor-not-allowed opacity-50 bg-muted'
                   )}
                 >
                   <span className={cn('truncate', !value.subject && 'text-muted-foreground')}>
@@ -233,6 +232,7 @@ export function TeachingDetailsForm({
 
                 {dropdownOpen && (
                   <div
+                    role="listbox" aria-label="รายวิชาหรือกิจกรรม"
                     className={cn(
                       'absolute left-0 z-50 w-full min-w-[280px] rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl',
                       openUpwards ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
@@ -270,13 +270,13 @@ export function TeachingDetailsForm({
                           ไม่พบรายวิชาที่ค้นหา &ldquo;{subjectQuery}&rdquo;
                         </div>
                       ) : (
-                        (['sdl', 'history'] as const).map((source) => {
+                        (['activity', 'sdl', 'history'] as const).map((source) => {
                           const items = matchingSubjects.filter((subject) => (subject.source || 'history') === source)
                           if (!items.length) return null
                           return (
                             <div key={source} className="mb-2 last:mb-0">
                               <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground">
-                                {source === 'sdl' ? 'SDL School' : 'ประวัติบันทึก'} ({items.length})
+                                {source === 'activity' ? 'กิจกรรม' : source === 'sdl' ? 'SDL School' : 'ประวัติบันทึก'} ({items.length})
                               </div>
                               <div className="space-y-0.5">
                                 {items.map((subject) => {
@@ -285,6 +285,7 @@ export function TeachingDetailsForm({
                                     <button
                                       key={`${subject.level}|${subject.subject_code}|${subject.subject}`}
                                       type="button"
+                                      role="option" aria-selected={isSelected} aria-label={[subject.subject_code, subject.subject].filter(Boolean).join(' - ')}
                                       onClick={() => {
                                         onChange({ ...value, subject: subject.subject, subject_code: subject.subject_code })
                                         setDropdownOpen(false)

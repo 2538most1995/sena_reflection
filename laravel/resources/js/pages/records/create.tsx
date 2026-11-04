@@ -6,5 +6,5 @@ type Props = Omit<TeachingWorkspaceProps, 'mode' | 'sourceRecord'> & {
 }
 
 export default function CreateRecord(props: Props) {
-  return <TeachingWorkspace {...props} mode={props.workspace?.mode === 'edit' ? 'edit' : 'create'} sourceRecord={null} />
+  return <TeachingWorkspace key={props.workspace?.draft?.id || 'new-record'} {...props} mode={props.workspace?.mode === 'edit' ? 'edit' : 'create'} sourceRecord={null} />
 }

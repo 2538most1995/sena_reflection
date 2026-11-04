@@ -26,6 +26,9 @@ class RecordCreateController extends Controller
         $draft = null;
         if ($request->filled('draft')) {
             $owned = $drafts->owned($request->user(), (string) $request->query('draft'));
+            if ($owned->status === 'finalized') {
+                return redirect()->route('dashboard', ['year' => $owned->year, 'semester' => $owned->semester, 'week' => $owned->week]);
+            }
             if ($owned->status === 'paused') {
                 return redirect()->route('teaching-drafts.manage')->with('error', 'ร่างนี้พักไว้ กรุณานำร่างกลับมาแก้ไขจากหน้าจัดการร่าง');
             }

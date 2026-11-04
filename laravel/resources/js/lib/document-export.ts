@@ -252,7 +252,7 @@ async function inlineChildren(node: JSONContent, context: Context): Promise<Para
   return output
 }
 
-function objectFloating(object: DocumentObject): IFloating | undefined {
+function objectFloating(object: DocumentObject, afterText = false): IFloating | undefined {
   if (object.wrap === 'inline') return undefined
   return {
     horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, offset: mmToEmu(object.x) },
@@ -262,13 +262,13 @@ function objectFloating(object: DocumentObject): IFloating | undefined {
     },
     allowOverlap: true, lockAnchor: true, layoutInCell: false,
     zIndex: Math.max(0, object.zIndex),
-    wrap: { type: object.wrap === 'top-bottom' ? TextWrappingType.TOP_AND_BOTTOM : TextWrappingType.SQUARE, side: TextWrappingSide.BOTH_SIDES },
+    wrap: { type: afterText ? TextWrappingType.NONE : object.wrap === 'top-bottom' ? TextWrappingType.TOP_AND_BOTTOM : TextWrappingType.SQUARE, side: TextWrappingSide.BOTH_SIDES },
     margins: { top: mmToEmu(1), right: mmToEmu(1), bottom: mmToEmu(1), left: mmToEmu(1) },
   }
 }
 
-async function objectRun(object: DocumentObject, context: Context, forceInline = false): Promise<ParagraphChild> {
-  const floating = forceInline ? undefined : objectFloating(object)
+async function objectRun(object: DocumentObject, context: Context, forceInline = false, afterText = false): Promise<ParagraphChild> {
+  const floating = forceInline ? undefined : objectFloating(object, afterText)
   if (object.type === 'image') {
     const source = object.src || context.model.assets.find(asset => asset.id === object.assetId)?.url
     if (!source) throw new Error('รูปภาพไม่มีไฟล์ต้นฉบับ กรุณาอัปโหลดภาพอีกครั้งก่อนส่งออก')
@@ -327,9 +327,13 @@ async function paragraph(node: JSONContent, context: Context, list?: ListContext
     attached.push(...context.objectsByPage.get(context.pagination.explicitPage) || [])
     context.pagination.pageHasAnchor = true
   }
+  let photoExtent = 0
   for (const object of attached) {
     if (context.placedObjects.has(object.id)) continue
-    runs.push(await objectRun(object, context))
+    const afterText = context.recordTemplate && isTitle && object.type === 'image' && object.id.startsWith('record-image-')
+      && object.wrap !== 'inline' && object.anchor.kind === 'paragraph' && object.anchor.id === attrs.id
+    if (afterText && object.anchor.kind === 'paragraph') photoExtent = Math.max(photoExtent, Math.max(0, object.anchor.offsetY || 0) + object.height)
+    runs.push(await objectRun(object, context, false, afterText))
     context.placedObjects.add(object.id)
   }
   const heading = node.type === 'heading' ? [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4, HeadingLevel.HEADING_5, HeadingLevel.HEADING_6][Math.max(0, Math.min(5, numberValue(attrs.level, 1) - 1))] : undefined
@@ -346,7 +350,7 @@ async function paragraph(node: JSONContent, context: Context, list?: ListContext
     children: runs, heading, alignment,
     spacing: {
       before: Math.max(0, numberValue(attrs.spaceBefore, numberValue(defaults.spacing?.before) / 20)) * 20,
-      after: Math.max(0, numberValue(attrs.spaceAfter, isTitle ? 6 : isSignaturePart ? 0 : numberValue(defaults.spacing?.after, 160) / 20)) * 20,
+      after: Math.max(mmToTwips(photoExtent), Math.max(0, numberValue(attrs.spaceAfter, isTitle ? 6 : isSignaturePart ? 0 : numberValue(defaults.spacing?.after, 160) / 20)) * 20),
       line: attrs.lineHeight ? Math.round(Math.max(0.5, numberValue(attrs.lineHeight, 1.5)) * 240) : defaultLine,
       lineRule: attrs.lineHeight || isTitle ? LineRuleType.AUTO : defaults.spacing?.lineRule || LineRuleType.AUTO,
     },
@@ -354,6 +358,7 @@ async function paragraph(node: JSONContent, context: Context, list?: ListContext
     numbering: list?.first ? { reference: list.reference, level: Math.min(8, list.level) } : undefined,
     border: attrs.recordLine ? { ...defaults.border, bottom: dottedBorder } : defaults.border,
     widowControl: true,
+    ...(photoExtent > 0 ? { keepLines: true } : {}),
   }
   if (list) list.first = false
   return new Paragraph(options)

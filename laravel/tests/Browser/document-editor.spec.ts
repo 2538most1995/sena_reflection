@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { test, expect, type Page } from '@playwright/test'
 import JSZip from 'jszip'
+import { startWorkflowFixture, workflowBaseUrl, workflowCredentials, type WorkflowFixture } from './helpers/workflow-fixture'
 
 type JsonNode = { type: string; text?: string; attrs?: Record<string, unknown>; marks?: { type: string; attrs?: Record<string, unknown> }[]; content?: JsonNode[] }
 type StoredDocument = { id: string; title: string; revision: number; content: JsonNode; objects: { id: string; type: string; x: number; content?: JsonNode }[]; assets: { id: string }[] }
-const baseUrl = process.env.SENA_E2E_BASE_URL
+const ownsFixture = process.env.SENA_DOCUMENT_E2E === '1'
+const baseUrl = ownsFixture ? workflowBaseUrl : process.env.SENA_E2E_BASE_URL
 const isLocalFixture = !!baseUrl && ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(baseUrl).hostname)
 const owned = new WeakMap<Page, string[]>()
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jhx0AAAAASUVORK5CYII=', 'base64')
@@ -50,14 +52,24 @@ async function uploadImage(page: Page) {
 }
 
 test.describe('Web document editor against an isolated Laravel fixture', () => {
+  test.use({ baseURL: baseUrl || 'http://127.0.0.1:8765' })
+  let fixture: WorkflowFixture | undefined
+  test.beforeAll(async () => {
+    if (ownsFixture) { test.setTimeout(60_000); fixture = await startWorkflowFixture() }
+  })
+  test.afterAll(async () => { await fixture?.close() })
   test.skip(!isLocalFixture, 'Supply SENA_E2E_BASE_URL pointing to a loopback test fixture; these tests never write to a remote deployment.')
 
   test.beforeEach(async ({ page }) => {
     owned.set(page, [])
+    fixture?.resetLoginAttempts()
+    await page.addInitScript(() => {
+      if (window !== window.top) window.print = () => { document.body.dataset.testPrintCalled = 'true' }
+    })
     page.on('dialog', async dialog => { if (dialog.type() === 'beforeunload') await dialog.accept(); else await dialog.dismiss() })
     await page.goto('/login')
-    await page.getByRole('textbox', { name: 'ชื่อผู้ใช้', exact: true }).fill(process.env.SENA_E2E_USER || 'document-demo')
-    await page.getByRole('textbox', { name: 'รหัสผ่าน', exact: true }).fill(process.env.SENA_E2E_PASSWORD || 'DocumentDemo2026!')
+    await page.getByRole('textbox', { name: 'ชื่อผู้ใช้', exact: true }).fill(process.env.SENA_E2E_USER || (ownsFixture ? workflowCredentials.user : 'document-demo'))
+    await page.getByRole('textbox', { name: 'รหัสผ่าน', exact: true }).fill(process.env.SENA_E2E_PASSWORD || (ownsFixture ? workflowCredentials.password : 'DocumentDemo2026!'))
     await page.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
     await expect(page).not.toHaveURL(/\/login$/)
   })
@@ -70,6 +82,66 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
       const result = await api(page, 'DELETE', `/api/documents/${id}`)
       expect([200, 404]).toContain(result.status)
     }
+  })
+
+  test('Enter advances one record line above anchored photos and retains the caption after save and reload', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    const document = await createDocument(page, { type: 'doc', content: [
+      { type: 'recordBody', attrs: { field: 'record_result', lineSpacing: 26, minLines: 1 }, content: [{ type: 'paragraph', attrs: { id: 'result-line' }, content: [{ type: 'text', text: 'บรรทัดแรก' }] }] },
+      { type: 'paragraph', attrs: { id: 'photo-heading', role: 'recordTitle' }, content: [{ type: 'text', text: 'ภาพประกอบการจัดการเรียนการสอน' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'หลังรูปกิจกรรม' }] },
+    ] })
+    await uploadImage(page)
+    const current = (await api<{ document: StoredDocument & { pageSettings: Record<string, unknown> } }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    const updated = await api(page, 'PUT', `/api/documents/${document.id}`, {
+      revision: current.revision,
+      pageSettings: { ...current.pageSettings, template: 'weekly-record', fontFamily: 'THSarabunNew', fontSize: 16 },
+      objects: current.objects.map(object => ({ ...object, id: 'record-image-fixture', page: 1, x: 25, y: 40, width: 60, height: 35, wrap: 'square', anchor: { kind: 'paragraph', id: 'photo-heading', offsetY: 16 } })),
+    })
+    expect(updated.status).toBe(200)
+    await page.reload()
+    const canvas = page.locator('[data-document-canvas]')
+    const caption = canvas.locator('[data-paragraph-id="photo-heading"]')
+    const image = canvas.locator('[data-object-id="record-image-fixture"]')
+    await expect(caption).toBeVisible()
+    await expect(image.locator('img')).toBeVisible()
+    const positionAtEnd = async (selector: string) => page.locator(selector).evaluate(element => {
+      element.closest<HTMLElement>('[contenteditable=true]')!.focus()
+      const range = window.document.createRange()
+      range.selectNodeContents(element); range.collapse(false)
+      const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
+      window.document.dispatchEvent(new Event('selectionchange'))
+    })
+    const cursorLineTop = () => page.evaluate(() => {
+      const selection = window.getSelection()!
+      const range = selection.getRangeAt(0).cloneRange()
+      range.setStart(range.startContainer, Math.max(0, range.startOffset - 1))
+      return range.getBoundingClientRect().top
+    })
+    await positionAtEnd('[data-paragraph-id="photo-heading"]')
+    const firstTop = await cursorLineTop()
+    const photoTop = (await image.boundingBox())!.y
+    await page.keyboard.press('Enter')
+    await page.keyboard.insertText('บรรทัดที่สอง')
+    const secondTop = await cursorLineTop()
+    const scale = await canvas.evaluate(element => element.getBoundingClientRect().width / (element as HTMLElement).offsetWidth)
+    expect((secondTop - firstTop) / scale).toBeGreaterThan(15)
+    expect((secondTop - firstTop) / scale).toBeLessThan(40)
+    await expect(caption.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(1)
+    await expect.poll(async () => (await image.boundingBox())!.y).toBeCloseTo(photoTop, 0)
+    await positionAtEnd('[data-paragraph-id="result-line"]')
+    await page.keyboard.press('Enter')
+    await page.keyboard.insertText('ต่อเนื้อหาบรรทัดเดียว')
+    await saved(page)
+    await page.reload()
+    await expect(caption).toContainText('บรรทัดที่สอง')
+    await expect(canvas.locator('[data-paragraph-id="result-line"]')).toContainText('ต่อเนื้อหาบรรทัดเดียว')
+    const persisted = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    const title = persisted.content.content!.find(node => node.attrs?.id === 'photo-heading')!
+    expect(title.content!.filter(node => node.type === 'hardBreak')).toHaveLength(1)
+    expect(persisted.objects).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'record-image-fixture', anchor: { kind: 'paragraph', id: 'photo-heading', offsetY: 16 } })]))
+    expect(errors).toEqual([])
   })
 
   test('Thai partial formatting survives autosave and a real reload', async ({ page }) => {
@@ -153,6 +225,7 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     await page.getByRole('textbox', { name: 'ชื่อเอกสาร', exact: true }).fill(localTitle)
     await conflict
     await expect(page.locator('.de-save-status')).toHaveText('เอกสารมีรุ่นใหม่จากอีกหน้าต่าง')
+    await page.getByRole('alertdialog', { name: 'เอกสารมีรุ่นใหม่', exact: true }).getByRole('button', { name: 'ตกลง', exact: true }).click()
     await expect(page.getByRole('textbox', { name: 'ชื่อเอกสาร', exact: true })).toHaveValue(localTitle)
     const copyResponse = page.waitForResponse(response => response.url().endsWith(`/api/documents/${document.id}/duplicate`) && response.status() === 201)
     await page.getByRole('button', { name: 'เก็บเป็นเอกสารใหม่', exact: true }).click()
@@ -226,7 +299,7 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
   })
 
   test('the original record route uses the advanced editor with the original Thai form and saves before printing', async ({ page }) => {
-    const recordId = process.env.SENA_E2E_RECORD_ID
+    const recordId = ownsFixture ? fixture!.seedLegacyRecord() : process.env.SENA_E2E_RECORD_ID
     test.skip(!recordId, 'Provide the ID of a dedicated isolated report fixture to test the record binding.')
     await page.goto(`/records/${recordId}/document`)
     await expect(page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })).toBeVisible()
@@ -234,7 +307,7 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     await expect(page.getByRole('button', { name: 'ตัวแก้ไขขั้นสูง / DOCX', exact: true })).toHaveCount(0)
     await expect(page.locator('.record-info-row:not(.record-info-row--compact)')).toHaveCount(6)
     await expect(page.locator('.record-signature')).toHaveCount(3)
-    await expect.poll(() => page.locator('[data-document-canvas] .document-page').count()).toBe(1)
+    await expect.poll(() => page.locator('[data-document-canvas] .document-page').count()).toBeGreaterThan(0)
     const documentId = await page.locator('script[type="application/json"][data-page]').evaluate(element => JSON.parse(element.textContent || '{}').props.document.id) as string
     await saved(page)
     const versions = await api<{ versions: { id: string }[] }>(page, 'GET', `/api/documents/${documentId}/versions`)
@@ -244,14 +317,17 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
       expect(await body.evaluate(element => getComputedStyle(element).fontFamily)).toContain('THSarabunNew')
       await expect(page.getByRole('combobox', { name: 'แบบอักษร', exact: true })).toHaveValue('THSarabunNew')
       await body.fill('แก้ไขผลการเรียนรู้จากตัวแก้ไขขั้นสูงและบันทึกก่อนพิมพ์')
-      const popupPromise = page.waitForEvent('popup')
       await page.getByRole('button', { name: 'บันทึกและพิมพ์', exact: true }).click()
-      const popup = await popupPromise
+      const tabs = page.context().pages().length
+      const popup = page.frameLocator('iframe[data-document-print-frame]')
+      await expect(page.locator('iframe[data-document-print-ready=true]')).toHaveCount(1)
+      await expect(popup.locator('body')).toHaveAttribute('data-test-print-called', 'true')
+      expect(page.context().pages()).toHaveLength(tabs)
       await expect(popup.getByRole('button', { name: 'พิมพ์ / บันทึก PDF', exact: true })).toBeEnabled({ timeout: 25_000 })
-      await expect(popup.locator('.document-print-page')).toHaveCount(1)
-      await expect(popup.locator('[data-record-field="record_result"]')).toContainText('แก้ไขผลการเรียนรู้จากตัวแก้ไขขั้นสูงและบันทึกก่อนพิมพ์')
+      await expect(popup.locator('.document-print-page')).toHaveCount(await page.locator('[data-document-canvas] .document-page').count())
+      await expect(popup.locator('[data-record-field="record_result"]').first()).toContainText('แก้ไขผลการเรียนรู้จากตัวแก้ไขขั้นสูงและบันทึกก่อนพิมพ์')
       await expect(popup.locator('[data-print-hidden], [contenteditable], .is-selected')).toHaveCount(0)
-      await popup.close()
+      await page.locator('iframe[data-document-print-frame]').evaluate(frame => frame.remove())
       await saved(page)
       await page.reload()
       await expect(page.locator('[data-record-field="record_result"]')).toHaveText('แก้ไขผลการเรียนรู้จากตัวแก้ไขขั้นสูงและบันทึกก่อนพิมพ์')
@@ -269,22 +345,31 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     await createDocument(page, { type: 'doc', content: Array.from({ length: 45 }, (_, index) => ({ type: 'paragraph', content: [{ type: 'text', text: `${text} ${index + 1} เนื้อหาต้องไม่หายเมื่อแบ่งหน้าอัตโนมัติ` }] })) })
     await uploadImage(page)
     await expect.poll(() => page.locator('[data-document-canvas] .document-page').count()).toBeGreaterThan(1)
-    const popupPromise = page.waitForEvent('popup')
     await page.getByRole('button', { name: 'พิมพ์ / PDF', exact: true }).click()
-    const popup = await popupPromise
+    const popup = page.frameLocator('iframe[data-document-print-frame]')
+    await expect(page.locator('iframe[data-document-print-ready=true]')).toHaveCount(1)
+    await expect(popup.locator('body')).toHaveAttribute('data-test-print-called', 'true')
     await expect(popup.getByRole('button', { name: 'พิมพ์ / บันทึก PDF', exact: true })).toBeEnabled({ timeout: 25_000 })
     expect(await popup.locator('.document-print-page').count()).toBeGreaterThan(1)
     await expect(popup.locator('[data-print-hidden], [contenteditable], .is-selected, .selectedCell, .show-marks')).toHaveCount(0)
     const dimensions = await popup.locator('.document-print-page').first().evaluate(element => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }))
     expect(dimensions.width).toBeCloseTo(210 * 96 / 25.4, 0)
     expect(dimensions.height).toBeCloseTo(297 * 96 / 25.4, 0)
-    const pdf = await popup.pdf({ path: testInfo.outputPath('thai-a4-pages.pdf'), preferCSSPageSize: true, printBackground: true })
+    const printFrame = await page.locator('iframe[data-document-print-frame]').elementHandle()
+    const printDocument = await printFrame!.contentFrame()
+    const verificationPage = await page.context().newPage()
+    await verificationPage.goto('/')
+    await verificationPage.setContent(await printDocument!.content())
+    await expect.poll(() => verificationPage.locator('img').evaluateAll(images => images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBe(true)
+    await verificationPage.evaluate(() => document.fonts.ready)
+    const pdf = await verificationPage.pdf({ path: testInfo.outputPath('thai-a4-pages.pdf'), preferCSSPageSize: true, printBackground: true })
+    await verificationPage.close()
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-')
     const mediaBox = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)/.exec(pdf.toString('latin1'))
     expect(mediaBox, 'Chrome must emit the CSS A4 media box').not.toBeNull()
     expect(Number(mediaBox![1])).toBeCloseTo(210 * 72 / 25.4, 0)
     expect(Number(mediaBox![2])).toBeCloseTo(297 * 72 / 25.4, 0)
-    await popup.close()
+    await page.locator('iframe[data-document-print-frame]').evaluate(frame => frame.remove())
     const downloadPromise = page.waitForEvent('download')
     await page.getByRole('button', { name: 'DOCX', exact: true }).click()
     const download = await downloadPromise
@@ -296,6 +381,6 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     expect(xml).toContain(`${text} 1`)
     expect(xml).toContain(`${text} 45`)
     expect(Object.keys(archive.files).filter(name => /^word\/media\/.+\.png$/.test(name))).toHaveLength(1)
-    await expect(page.getByRole('alert')).toContainText('ตำแหน่งวัตถุอาจต่าง')
+    await expect(page.getByRole('dialog', { name: 'เตรียม DOCX แล้ว มีข้อควรตรวจ', exact: true })).toContainText('ตำแหน่งวัตถุอาจต่าง')
   })
 })

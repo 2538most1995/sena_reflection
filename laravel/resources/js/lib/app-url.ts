@@ -36,3 +36,18 @@ export function appPathname(value?: string | null): string {
 export function appFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   return globalThis.fetch(typeof input === 'string' ? appUrl(input) : input, init)
 }
+
+/** Only return to a real previous entry in this application, never another site or login. */
+export function safeAppHistoryUrl(candidate: string | null | undefined, current: string, basePath = ''): string | null {
+  if (!candidate) return null
+  try {
+    const here = new URL(current)
+    const previous = new URL(candidate, here)
+    const mount = basePath.replace(/\/$/, '')
+    if (previous.origin !== here.origin || previous.href === here.href) return null
+    if (mount && previous.pathname !== mount && !previous.pathname.startsWith(`${mount}/`)) return null
+    const path = mount ? previous.pathname.slice(mount.length) : previous.pathname
+    if (/^\/(?:login|logout)(?:\/|$)/.test(path)) return null
+    return previous.pathname + previous.search + previous.hash
+  } catch { return null }
+}

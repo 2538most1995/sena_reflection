@@ -1,3 +1,4 @@
+import { goBackInApp } from '@/lib/app-navigation'
 import { appFetch as fetch, appUrl } from '@/lib/app-url'
 import { AppLink as Link } from '@/components/app-link'
 import { appRouter as router } from '@/lib/app-router'
@@ -37,6 +38,7 @@ import { WeeklyLevelNavigation } from './weekly-level-navigation'
 type DraftEnvelope = { message?: string; code?: string; errors?: Record<string, string[]>; data?: { draft?: TeachingDraft; image?: TeachingDraftImage; images?: TeachingDraftImage[]; lock_version?: number; last_saved_at?: string; redirect_url?: string } }
 
 class DraftConflictError extends Error {}
+const finalizedDraftIds = new Set<string>()
 
 function csrfToken(): string {
   return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || ''
@@ -106,6 +108,9 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     return value
   }, [auth.user?.tambon, defaults])
   const initialDraft = workspace?.draft || null
+  useEffect(() => {
+    if (initialDraft && finalizedDraftIds.has(initialDraft.id)) router.visit('/', { replace: true, preserveState: false })
+  }, [initialDraft?.id])
   const [payload, setPayload] = useState<TeachingDraftPayload>(() => normalizeDraftPayload(initialDraft?.payload, fallbackPayload))
   const [draft, setDraft] = useState<TeachingDraft | null>(initialDraft)
   const [images, setImages] = useState<TeachingDraftImage[]>(initialDraft?.images || [])
@@ -143,6 +148,12 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const [rendererUnavailable, setRendererUnavailable] = useState(false)
   const browserPreviewRequests = useRef<Record<string, string>>({})
   const [changeVersion, setChangeVersion] = useState(0)
+  const mounted = useRef(true)
+  const subjectController = useRef<AbortController | null>(null)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; subjectController.current?.abort(); teachingLevels.forEach(({ code }) => { requestSerial.current[code] += 1 }) }
+  }, [])
   const payloadRef = useRef(payload)
   const draftRef = useRef(draft)
   const imagesRef = useRef(images)
@@ -249,8 +260,10 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       const envelope = await parseError(response)
       const created = envelope.data?.draft
       if (!response.ok || !created) throw new Error(envelope.message || 'สร้างฉบับร่างไม่สำเร็จ')
-      applyDraftMeta(created, fromRecord)
-      rememberDraftUrl(created.id)
+      if (mounted.current) {
+        applyDraftMeta(created, fromRecord)
+        rememberDraftUrl(created.id)
+      }
       return created
     })().finally(() => { createPromise.current = null })
 
@@ -302,6 +315,20 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     }
   }, [persistSnapshot])
 
+  const leaveWorkspace = async () => {
+    if (finalizingRef.current || imageBusy || Object.values(loadStates).some(state => state.loading)) {
+      actionAlert.info('กำลังบันทึกหรือโหลดข้อมูล', 'กรุณารอให้ข้อมูลพร้อมก่อนย้อนกลับ')
+      return
+    }
+    const latest = payloadRef.current
+    const hasContent = Boolean(latest.scope.week) || Object.values(latest.levels).some(level => level.subject || level.result || level.problem || level.suggestion || level.attendance.length || level.image_ids.length)
+    if (hasContent && changeVersionRef.current > savedVersionRef.current) {
+      try { await saveNow() }
+      catch (error) { actionAlert.error('เก็บร่างก่อนย้อนกลับไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่'); return }
+    }
+    goBackInApp(sourceRecord ? `/records/${sourceRecord.id}` : '/', true)
+  }
+
   const saveDraftManually = async () => {
     if (manualSaveRef.current) return
     manualSaveRef.current = true
@@ -333,6 +360,12 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     const timer = window.setTimeout(() => { void saveNow().catch(() => undefined) }, 900)
     return () => window.clearTimeout(timer)
   }, [bootstrapping, changeVersion, district, payload.scope, saveNow])
+
+  useEffect(() => {
+    const flush = () => { if (!finalizingRef.current && changeVersionRef.current > savedVersionRef.current) void saveNow().catch(() => undefined) }
+    window.addEventListener('popstate', flush)
+    return () => window.removeEventListener('popstate', flush)
+  }, [saveNow])
 
   useEffect(() => {
     const warnUnsaved = (event: BeforeUnloadEvent) => {
@@ -373,6 +406,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }
 
   const requestConfirmation = () => {
+    if (Object.values(loadStates).some(state => state.loading)) { actionAlert.info('กำลังโหลดรายชื่อนักศึกษา', 'กรุณารอให้โหลดรายชื่อเสร็จก่อนยืนยัน'); return }
     if (imageBusy || finalizingRef.current || conflicted.current) return
     const currentIssues = reviewIssues(payloadRef.current, imagesRef.current)
     setShowIssues(true)
@@ -404,6 +438,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }, [previewLevel, markChanged])
 
   const refreshSubjects = useCallback((forceRefresh = false) => {
+    subjectController.current?.abort()
     if (!/^25\d{2}$/.test(payload.scope.year) || !payload.scope.semester) {
       setSubjectsLoading(false)
       if (optionsContext !== loadedSubjectContext.current) {
@@ -415,16 +450,18 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       return Promise.resolve()
     }
     const controller = new AbortController()
+    subjectController.current = controller
     setSubjectsLoading(true)
     const alertId = forceRefresh
       ? actionAlert.loading('กำลังอัปเดตรายวิชาจากระบบ...', 'กรุณารอสักครู่ ระบบกำลังดึงข้อมูลล่าสุดจาก SDL School')
       : undefined
     if (!forceRefresh) {
       setAvailableSubjects([])
+      setAvailableGroups([])
     }
     setSubjectCatalog((current) => ({ ...current, error: null }))
     const params = new URLSearchParams({
-      ...(!district && payload.scope.tambon ? { tambon: payload.scope.tambon } : {}),
+      ...(payload.scope.tambon ? { tambon: payload.scope.tambon } : {}),
       year: payload.scope.year,
       semester: payload.scope.semester,
     })
@@ -504,8 +541,10 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }, [district, payload.scope.tambon, payload.scope.year, payload.scope.semester, optionsContext])
 
   useEffect(() => {
+    if (loadedSubjectContext.current === optionsContext) return
     void refreshSubjects(false)
-  }, [refreshSubjects])
+    return () => subjectController.current?.abort()
+  }, [optionsContext, refreshSubjects])
 
   useEffect(() => {
     teachingLevels.forEach(({ code }) => { requestSerial.current[code] += 1 })
@@ -537,27 +576,27 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     const current = payloadRef.current.levels[levelCode]
     const sameGroup = current.class_group_code === group.group_code
     const matchedTambon = district ? tambonOptions.find((t) => t.name && group.class_name.includes(t.name)) : undefined
-    if (district && matchedTambon && matchedTambon.id !== payloadRef.current.scope.tambon) {
-      setPayload((prev) => ({ ...prev, scope: { ...prev.scope, tambon: matchedTambon.id } }))
-    }
-    updateLevel(levelCode, { ...current, class_group_code: group.group_code, class_name: group.class_name, attendance: sameGroup ? current.attendance : [], attendance_mode: 'roster', attendance_reviewed: false, total: sameGroup ? current.total : 0, present: sameGroup ? current.present : 0 })
     setLoadStates((values) => ({ ...values, [levelCode]: { ...values[levelCode], loading: true, error: null } }))
     try {
       const query = new URLSearchParams({ group_code: group.group_code, level: levelCode, year: payloadRef.current.scope.year, semester: payloadRef.current.scope.semester, ...(sameGroup ? { refresh: '1' } : {}) })
       const response = await fetch(`/record-options/students?${query}`, { headers: { Accept: 'application/json' } })
       const envelope = await response.json() as { status?: string; message?: string; data?: { items?: WorkspaceAttendanceRow[]; source?: string } }
       if (!response.ok || envelope.status !== 'success') throw new Error(envelope.message || 'โหลดรายชื่อนักศึกษาไม่สำเร็จ')
-      if (serial !== requestSerial.current[levelCode]) return
+      if (!mounted.current || serial !== requestSerial.current[levelCode]) return
       const existingRows = sameGroup ? new Map(payloadRef.current.levels[levelCode].attendance.map((row) => [row.student_id, row])) : new Map<string, WorkspaceAttendanceRow>()
       const attendance = (envelope.data?.items || []).map((student) => {
         const existing = existingRows.get(student.student_id)
         return { ...student, present: existing?.present || false, learning_method: existing?.present ? existing.learning_method : null }
       })
       const latest = payloadRef.current.levels[levelCode]
-      updateLevel(levelCode, { ...latest, class_group_code: group.group_code, class_name: group.class_name, attendance, attendance_term: `${payloadRef.current.scope.semester}/${payloadRef.current.scope.year}`, attendance_mode: 'roster', attendance_reviewed: false, total: attendance.length, present: attendance.filter((row) => row.present).length })
+      markChanged(value => ({
+        ...value,
+        scope: district && matchedTambon && !value.scope.tambon ? { ...value.scope, tambon: matchedTambon.id } : value.scope,
+        levels: { ...value.levels, [levelCode]: { ...latest, class_group_code: group.group_code, class_name: group.class_name, attendance, attendance_term: `${value.scope.semester}/${value.scope.year}`, attendance_mode: 'roster', attendance_reviewed: false, total: attendance.length, present: attendance.filter(row => row.present).length } },
+      }))
       setLoadStates((values) => ({ ...values, [levelCode]: { loading: false, error: null, source: envelope.data?.source || values[levelCode].source } }))
     } catch (error) {
-      if (serial !== requestSerial.current[levelCode]) return
+      if (!mounted.current || serial !== requestSerial.current[levelCode]) return
       setLoadStates((values) => ({ ...values, [levelCode]: { ...values[levelCode], loading: false, error: error instanceof Error ? error.message : 'โหลดรายชื่อนักศึกษาไม่สำเร็จ' } }))
     }
   }
@@ -755,7 +794,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }
 
   const finalize = async () => {
-    if (!confirmationOpen || finalizingRef.current || imageBusy || conflicted.current) return
+    if (!confirmationOpen || finalizingRef.current || imageBusy || Object.values(loadStates).some(state => state.loading) || conflicted.current) return
     const currentIssues = reviewIssues(payloadRef.current, imagesRef.current)
     if (currentIssues.length) {
       setConfirmationOpen(false)
@@ -777,8 +816,9 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
       const envelope = await parseError(response)
       if (response.status === 409) handleConflict(envelope)
       if (!response.ok) throw new Error(envelope.message || 'ยืนยันบันทึกไม่สำเร็จ')
+      finalizedDraftIds.add(currentDraft.id)
       actionAlert.success('บันทึกหลังสอนแล้ว', 'บันทึกข้อมูลระดับชั้นที่คุณยืนยันเรียบร้อย', alertId)
-      router.visit(envelope.data?.redirect_url || '/')
+      router.visit(envelope.data?.redirect_url || '/', { replace: true, preserveState: false })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'ยืนยันบันทึกไม่สำเร็จ'
       setPageError(message)
@@ -806,8 +846,9 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
 
   return <AppShell>
     <Head title={title} />
-    <PageHeader title={title} description="ระบบเก็บร่างอัตโนมัติ บันทึกเมื่อข้อมูลพร้อม หรือเปิดดูตัวอย่าง PDF ได้ตามต้องการ" action={<div className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link href="/teaching-drafts/manage">จัดการร่างของฉัน</Link></Button><Button asChild variant="outline"><Link href={sourceRecord ? `/records/${sourceRecord.id}` : '/'}><ArrowLeft size={17} />{sourceRecord ? 'ดูบันทึกเดิม' : 'กลับหน้าภาพรวม'}</Link></Button></div>} />
+    <PageHeader title={title} description="ระบบเก็บร่างอัตโนมัติ บันทึกเมื่อข้อมูลพร้อม หรือเปิดดูตัวอย่าง PDF ได้ตามต้องการ" action={<div className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link href="/teaching-drafts/manage">จัดการร่างของฉัน</Link></Button><Button asChild variant="outline"><Link href={sourceRecord ? `/records/${sourceRecord.id}` : '/'} onClick={event => { event.preventDefault(); void leaveWorkspace() }}><ArrowLeft size={17} />ย้อนกลับ</Link></Button></div>} />
     <FlashMessages />
+    {sourceRecord && ['tambon', 'week', 'semester', 'year'].some(key => String(payload.scope[key as keyof typeof payload.scope]) !== String(sourceRecord[key as keyof typeof sourceRecord])) && <div className="mb-5 rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm" role="status">เปลี่ยนสัปดาห์หรือภาคเรียนแล้ว เมื่อยืนยันจะสร้างบันทึกใหม่ โดยเก็บบันทึกสัปดาห์เดิมไว้ครบ</div>}
 
     {pageError && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between" role="alert"><div className="flex items-start gap-2"><WarningCircle size={20} className="mt-0.5 shrink-0" /><span>{pageError}{sourceConflict && <small className="mt-1 block">ร่างที่กำลังทำยังถูกเก็บไว้ คุณสามารถเริ่มร่างใหม่จากบันทึกต้นฉบับล่าสุดได้</small>}</span></div>{conflictDraft && (sourceConflict ? <Button type="button" variant="outline" size="sm" onClick={() => void refreshFromSource()}>เริ่มร่างจากฉบับล่าสุด</Button> : <Button type="button" variant="outline" size="sm" onClick={() => { if (window.confirm('โหลดร่างล่าสุดจากเซิร์ฟเวอร์แทนข้อมูลในหน้านี้หรือไม่')) loadLatestConflict() }}>โหลดร่างล่าสุดจากเซิร์ฟเวอร์</Button>)}</div>}
 
@@ -856,8 +897,8 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     </Card>
 
     {showIssues && <WorkspaceIssues issues={issues} onFix={fixReviewIssue} />}
-    <RecordSaveConfirmation open={confirmationOpen} onOpenChange={setConfirmationOpen} payload={payload} images={images} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} error={pageError} onConfirm={finalize} onReturnFocus={() => { if (confirmationOrigin.current?.isConnected) confirmationOrigin.current.focus({ preventScroll: true }) }} />
-    {editorMode === 'review' ? <RecordReview payload={payload} previewLevel={previewLevel} previewUrl={previewUrl} previewing={previewing} previewStale={previewStale} previewFormat={previewFormats[previewLevel]} rendererUnavailable={rendererUnavailable} onBrowserPreview={() => previewPdf('browser')} onBrowserPreviewLoaded={browserPreviewLoaded} finalizing={finalizing} busy={imageBusy || saveState === 'conflict'} onBack={() => setEditorMode('edit')} onPreviewLevel={setPreviewLevel} onPreview={previewPdf} onEditDocument={editDocument} onSave={requestConfirmation} /> : <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-5 pb-48 xl:grid-cols-[200px_minmax(0,1fr)] 2xl:grid-cols-[220px_minmax(0,1fr)_260px]">
+    <RecordSaveConfirmation open={confirmationOpen} onOpenChange={setConfirmationOpen} payload={payload} images={images} finalizing={finalizing} busy={imageBusy || Object.values(loadStates).some(state => state.loading) || saveState === 'conflict'} error={pageError} onConfirm={finalize} onReturnFocus={() => { if (confirmationOrigin.current?.isConnected) confirmationOrigin.current.focus({ preventScroll: true }) }} />
+    {editorMode === 'review' ? <RecordReview payload={payload} previewLevel={previewLevel} previewUrl={previewUrl} previewing={previewing} previewStale={previewStale} previewFormat={previewFormats[previewLevel]} rendererUnavailable={rendererUnavailable} onBrowserPreview={() => previewPdf('browser')} onBrowserPreviewLoaded={browserPreviewLoaded} finalizing={finalizing} busy={imageBusy || Object.values(loadStates).some(state => state.loading) || saveState === 'conflict'} onBack={() => setEditorMode('edit')} onPreviewLevel={setPreviewLevel} onPreview={previewPdf} onEditDocument={editDocument} onSave={requestConfirmation} /> : <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-5 pb-48 xl:grid-cols-[200px_minmax(0,1fr)] 2xl:grid-cols-[220px_minmax(0,1fr)_260px]">
       <aside className="rounded-xl border bg-card p-3 xl:sticky xl:top-24"><p className="mb-3 px-2 text-xs font-semibold text-muted-foreground">เลือกระดับชั้น</p><WeeklyLevelNavigation activeLevel={activeLevel} levels={payload.levels} enabledLevelCodes={payload.enabled_level_codes ?? ['1', '2', '3']} onChange={setActiveLevel} /><Button type="button" className="mt-3 w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={requestConfirmation}>บันทึก<CheckCircle size={18} /></Button></aside>
       <Card className="min-w-0"><CardContent className="p-4 sm:p-6"><TeachingDetailsForm key={activeLevel} levelCode={activeLevel} value={payload.levels[activeLevel]} groups={availableGroups} subjects={availableSubjects} subjectsLoading={subjectsLoading || subjectOptionsContext !== optionsContext} subjectSource={subjectCatalog.source} subjectError={subjectCatalog.error} subjectTerm={subjectCatalog.term} subjectContext={optionsContext} loadState={loadStates[activeLevel]} images={images.filter((image) => image.level_code === activeLevel).sort((a, b) => a.sort_order - b.sort_order)} imageBusy={imageBusy} term={`${payload.scope.semester}/${payload.scope.year}`} sourceLabel={sourceLabel(loadStates[activeLevel].source)} onChange={(value) => editLevel(activeLevel, value)} onSelectGroup={(group) => loadStudents(activeLevel, group)} onUploadImages={(files) => uploadImages(activeLevel, files)} onDeleteImage={(image) => mutateImages('DELETE', activeLevel, image.id)} onReorderImages={(imageIds) => mutateImages('PATCH', activeLevel, undefined, imageIds)} onRefreshSubjects={() => void refreshSubjects(true)} /></CardContent></Card>
       <aside className="grid gap-4 rounded-xl border bg-card p-4 xl:col-span-2 2xl:sticky 2xl:top-24 2xl:col-span-1"><WorkspaceSummary payload={payload} images={images} activeLevel={activeLevel} onSelectLevel={setActiveLevel} /><div className="border-t pt-4"><Button type="button" size="lg" className="w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={requestConfirmation}>บันทึก {totalSelectedLevels} ระดับ<CheckCircle size={19} /></Button><p className="mt-2 text-center text-[11px] leading-5 text-muted-foreground">{issues.length ? `ยังมี ${issues.length} จุดให้ตรวจ กดบันทึกเพื่อไปแก้ไข` : 'ข้อมูลพร้อมบันทึก'}</p><Button type="button" variant="outline" className="mt-3 w-full" disabled={finalizing || imageBusy || saveState === 'conflict'} onClick={() => { setPreviewLevel(activeLevel); setEditorMode('review') }}>ดูตัวอย่าง PDF</Button></div></aside>

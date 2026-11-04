@@ -6,6 +6,7 @@ use App\Models\RecordAttendance;
 use App\Models\RecordImage;
 use App\Models\Setting;
 use App\Models\Tambon;
+use App\Models\TeachingDraft;
 use App\Models\TeachingRecord;
 use App\Models\User;
 use App\Models\WeeklySubmission;
@@ -321,7 +322,8 @@ class LegacyApiController extends Controller
 
             return $this->success('แก้ไขข้อมูลเรียบร้อยแล้ว');
         }
-        if (User::where('tambon', $tambon->id)->exists() || TeachingRecord::where('tambon', $tambon->id)->exists()) {
+        if (User::where('tambon', $tambon->id)->exists() || TeachingRecord::where('tambon', $tambon->id)->exists()
+            || TeachingDraft::query()->where('tambon', $tambon->id)->whereIn('status', ['active', 'paused'])->exists()) {
             return $this->error('ไม่สามารถลบได้ เนื่องจากกลุ่มเรียนนี้ยังถูกใช้งานอยู่');
         }
         $tambon->delete();
@@ -351,6 +353,9 @@ class LegacyApiController extends Controller
             }
             if ($user->id === $actor->id || $user->isDistrict()) {
                 return $this->error('Cannot delete this account');
+            }
+            if (TeachingDraft::query()->where('user_id', $user->id)->whereIn('status', ['active', 'paused'])->exists()) {
+                return $this->error('บัญชีนี้ยังมีร่างที่กำลังใช้งานหรือพักไว้ จึงลบไม่ได้');
             }
             $user->delete();
 
@@ -426,11 +431,13 @@ class LegacyApiController extends Controller
             }
         }
         foreach ($data as $key => $value) {
-            if (mb_strlen((string) $key) > 100 || mb_strlen((string) $value) > 10000 || ($key === 'app_logo_path' && ! $user->isDistrict())) {
+            if ((! is_scalar($value) && $value !== null) || mb_strlen((string) $key) > 100 || mb_strlen((string) $value) > 10000 || ($key === 'app_logo_path' && ! $user->isDistrict())) {
                 return $this->error('ข้อมูลการตั้งค่าไม่ถูกต้องหรือมีขนาดเกินกำหนด');
             }
-            Setting::query()->updateOrCreate(['setting_key' => $key], ['setting_value' => (string) $value]);
         }
+        Setting::query()->upsert(collect($data)->map(fn ($value, $key): array => [
+            'setting_key' => (string) $key, 'setting_value' => (string) $value,
+        ])->values()->all(), ['setting_key'], ['setting_value']);
         Cache::forget('pdf:settings');
         Cache::forget('pdf:settings:v2');
 

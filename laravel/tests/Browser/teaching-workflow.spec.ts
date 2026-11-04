@@ -3,9 +3,10 @@ import { mkdir } from 'node:fs/promises'
 import { test, expect, type Page } from '@playwright/test'
 import { startWorkflowFixture, workflowBaseUrl, workflowCredentials, type WorkflowFixture } from './helpers/workflow-fixture'
 
-type Draft = { id: string; lock_version: number; payload: { enabled_level_codes: string[]; levels: Record<string, { subject: string; result: string; present: number; total: number; attendance: { present: boolean }[] }> } }
+type Draft = { id: string; lock_version: number; payload: { enabled_level_codes: string[]; levels: Record<string, { subject: string; subject_code: string; class_group_code: string; result: string; present: number; total: number; attendance: { present: boolean }[] }> } }
 
 async function draftFromPage(page: Page) {
+  await expect.poll(() => new URL(page.url()).searchParams.get('draft')).toBeTruthy()
   const id = new URL(page.url()).searchParams.get('draft')
   expect(id).toBeTruthy()
   const response = await page.request.get(`/teaching-drafts/${id}`, { headers: { Accept: 'application/json' } })
@@ -31,6 +32,8 @@ async function fillLevel(page: Page, code: '1' | '3', subject: string) {
   await expect(second).not.toBeChecked()
   await expect(page.getByText('มาเรียน 0 จาก 2 คน', { exact: true })).toBeVisible()
   await first.check()
+  const manualSubject = page.getByRole('button', { name: 'กรอกรายวิชาเอง', exact: true })
+  if (await manualSubject.isVisible()) await manualSubject.click()
   await page.getByRole('textbox', { name: 'ชื่อรายวิชา *', exact: true }).fill(subject)
   await page.getByRole('textbox', { name: 'ผลการจัดการเรียนรู้ *', exact: true }).fill(`ผลการเรียนรู้ภาษาไทย ${subject}`)
   await expect(page.getByRole('button', { name: /ยืนยันตรวจรายชื่อ|ยืนยันว่าตรวจยอด/ })).toHaveCount(0)
@@ -50,6 +53,7 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
   test.afterAll(async () => { await fixture?.close() })
   test.beforeEach(async ({ page }) => {
     previewRequests.set(page, [])
+    fixture?.resetLoginAttempts()
     page.on('request', request => {
       if (request.method() === 'POST' && /\/(?:preview|pdf-preview|browser-preview)$/.test(new URL(request.url()).pathname)) previewRequests.get(page)!.push(request.url())
     })
@@ -63,6 +67,55 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     await page.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
     await expect(page).not.toHaveURL(/\/login$/)
     await page.goto('/records/create')
+  })
+
+  test('orientation can be selected without a subject catalog and saves its name without an invented code', async ({ page }) => {
+    await onlyLevels(page, ['1'])
+    await page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true }).selectOption('4')
+    await fillLevel(page, '1', 'ทดสอบตัวเลือกกิจกรรม')
+    const basics = page.locator('section[aria-labelledby="teaching-basics-1"]')
+    await basics.getByRole('button', { name: 'เลือกจากระบบ', exact: true }).click()
+    await basics.getByRole('button', { name: 'เลือกรายวิชา', exact: true }).click()
+    await page.getByRole('option', { name: 'ปฐมนิเทศ', exact: true }).click()
+    await expect(basics.getByRole('button', { name: 'เลือกรายวิชา', exact: true })).toContainText('ปฐมนิเทศ')
+    await page.getByRole('button', { name: 'เก็บร่างตอนนี้', exact: true }).click()
+    await expect.poll(async () => (await draftFromPage(page)).payload.levels['1'].subject).toBe('ปฐมนิเทศ')
+    expect((await draftFromPage(page)).payload.levels['1'].subject_code || '').toBe('')
+  })
+
+  test('a failed roster refresh retains the existing group and checked attendance', async ({ page }) => {
+    await onlyLevels(page, ['1'])
+    await page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true }).selectOption('5')
+    await fillLevel(page, '1', 'ทดสอบรายชื่อคงอยู่')
+    await page.getByRole('button', { name: 'เก็บร่างตอนนี้', exact: true }).click()
+    await expect.poll(async () => (await draftFromPage(page)).payload.levels['1'].attendance.length).toBe(2)
+    const before = structuredClone((await draftFromPage(page)).payload.levels['1'])
+    await page.route('**/record-options/students?**', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'ต้นทางไม่พร้อมทดสอบ' }) }))
+    await page.getByRole('button', { name: 'อัปเดตรายชื่อจากกลุ่มนี้', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('ต้นทางไม่พร้อมทดสอบ')
+    await expect(page.getByText('มาเรียน 1 จาก 2 คน', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'เก็บร่างตอนนี้', exact: true }).click()
+    const after = (await draftFromPage(page)).payload.levels['1']
+    expect(after.attendance).toEqual(before.attendance)
+    expect(after.class_group_code).toBe(before.class_group_code)
+    expect(after.present).toBe(before.present)
+  })
+
+  test('back saves the latest draft and does not rewrite the destination URL after leaving the form', async ({ page }) => {
+    await onlyLevels(page, ['1'])
+    await page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true }).selectOption('9')
+    const subject = `ก่อนย้อนกลับ ${randomUUID()}`
+    await fillLevel(page, '1', subject)
+    await page.getByRole('textbox', { name: 'ผลการจัดการเรียนรู้ *', exact: true }).fill('ข้อความล่าสุดก่อนย้อนกลับ')
+    await page.getByRole('link', { name: 'ย้อนกลับ', exact: true }).click()
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/')
+    const response = await page.request.get('/teaching-drafts', { headers: { Accept: 'application/json' } })
+    expect(response.status()).toBe(200)
+    const summaries = (await response.json()).data.drafts as { id: string }[]
+    const drafts: Draft[] = await Promise.all(summaries.map(async item => (await (await page.request.get(`/teaching-drafts/${item.id}`, { headers: { Accept: 'application/json' } })).json()).data.draft))
+    const saved = drafts.find(item => item.payload.levels['1'].subject === subject)
+    expect(saved?.payload.levels['1'].result).toBe('ข้อความล่าสุดก่อนย้อนกลับ')
+    expect(new URL(page.url()).searchParams.has('draft')).toBe(false)
   })
 
   test('missing data focuses the required field in the editor without opening a PDF or confirming', async ({ page }) => {
@@ -150,6 +203,7 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
   })
 
   test('district edits 26 legacy students and four photos, keeps its draft after a server failure, then retries', async ({ page }) => {
+    test.setTimeout(90_000)
     const sourceId = fixture.seedLegacyRecord()
     const original = fixture.records().find(record => record.id === sourceId)!
     expect(original.images).toHaveLength(4)
@@ -171,6 +225,8 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     const endpoint = '**/teaching-drafts/*/finalize'
     await page.route(endpoint, route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'SQLSTATE[22007]: private database diagnostic' }) }))
     await confirmation.getByRole('button', { name: 'ยืนยันบันทึก 1 ระดับ', exact: true }).click()
+    await expect(page.getByRole('alertdialog')).toContainText('ระบบบันทึกขัดข้องชั่วคราว')
+    await page.getByRole('alertdialog').getByRole('button', { name: 'ตกลง', exact: true }).click()
     await expect(confirmation.getByRole('alert')).toContainText('ระบบบันทึกขัดข้องชั่วคราว')
     await expect(confirmation).not.toContainText('SQLSTATE')
     expect(fixture.records().find(record => record.id === sourceId)?.images).toEqual(original.images)
@@ -187,6 +243,26 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     expect(saved.images.every(image => image.id.startsWith('i'))).toBe(true)
     expect(fixture.records().filter(record => record.id === sourceId)).toHaveLength(1)
     expect(previewRequests.get(page)).toEqual([])
+    await page.goto(`/records/${sourceId}`)
+    const recordUrl = page.url()
+    await page.getByRole('link', { name: 'จัดเอกสารก่อนพิมพ์', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })).toBeVisible()
+    await page.getByRole('link', { name: 'กลับหน้าบันทึก', exact: true }).click()
+    await expect(page).toHaveURL(recordUrl)
+    const tabCount = page.context().pages().length
+    await page.getByRole('link', { name: 'พิมพ์ / บันทึก PDF', exact: true }).click()
+    await expect(page.locator('#browser-print-back')).toBeVisible()
+    expect(page.context().pages()).toHaveLength(tabCount)
+    await page.locator('#browser-print-back').click()
+    await expect(page).toHaveURL(recordUrl)
+    await page.getByRole('link', { name: 'กลับรายการ', exact: true }).click()
+    await expect.poll(() => new URL(page.url()).searchParams.get('week')).toBe('16')
+    const filteredList = page.url()
+    await page.getByRole('link', { name: 'PDF สัปดาห์นี้', exact: true }).click()
+    await expect(page).toHaveURL(/\/exports\/browser-print\?/)
+    expect(page.context().pages()).toHaveLength(tabCount)
+    await page.getByRole('link', { name: 'กลับรายการ', exact: true }).click()
+    await expect(page).toHaveURL(filteredList)
   })
 
 })

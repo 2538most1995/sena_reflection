@@ -7,7 +7,7 @@ import { Packer } from 'docx'
 // The app's bundler resolves extensionless TS imports; Node's native TS runner needs the suffix.
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (['./document-model', './document-print'].includes(specifier) && /\/document-(export|print)\.ts$/.test(context.parentURL || '')) return nextResolve(`${specifier}.ts`, context)
+    if (['./document-model', './document-print', './app-url'].includes(specifier) && /\/document-(export|print)\.ts$/.test(context.parentURL || '')) return nextResolve(`${specifier}.ts`, context)
     return nextResolve(specifier, context)
   },
 })
@@ -420,3 +420,30 @@ test('Thai distribution uses the native Word thaiDistribute value in paragraphs,
   assert.match(paragraphWith(xml, 'ชิดขอบธรรมดา'), /w:jc w:val="both"/)
   assert.doesNotMatch(paragraphWith(xml, 'ข้อความปกติ'), /w:jc w:val="thaiDistribute"/)
 })
+
+
+for (const count of [2, 4]) {
+  test(`managed record photos keep their caption before the ${count} images in Word without text wrap displacement`, async () => {
+    const heading = paragraph('ภาพประกอบการจัดการเรียนการสอน', { id: 'photo-heading', role: 'recordTitle' })
+    const model = fixture({
+      content: { type: 'doc', content: [{ type: 'pageBreak' }, heading, paragraph('ข้อความหลังชุดรูป')] },
+      objects: Array.from({ length: count }, (_, index) => object('image', {
+        id: `record-image-${index}`, page: 2, rotation: 0, src: '/assets/photo.png',
+        x: 25 + (index % 2) * 80, width: 75, height: 50,
+        anchor: { kind: 'paragraph', id: 'photo-heading', offsetY: 16 + Math.floor(index / 2) * 60 },
+      })),
+    })
+    const original = structuredClone(model)
+    const { xml } = await archive(model, options)
+    const caption = paragraphWith(xml, 'ภาพประกอบการจัดการเรียนการสอน')
+    assert.equal((caption.match(/<wp:anchor /g) || []).length, count)
+    assert.equal((caption.match(/<wp:wrapNone\/>/g) || []).length, count)
+    assert.doesNotMatch(caption, /<wp:wrapSquare|<wp:wrapTopAndBottom/)
+    assert.match(caption, /<w:keepLines\/>/)
+    assert.match(caption, count === 2 ? /w:after="3742"/ : /w:after="7143"/)
+    assert.ok(caption.indexOf('ภาพประกอบการจัดการเรียนการสอน') < caption.indexOf('<wp:anchor '))
+    assert.match(caption, /<wp:positionV relativeFrom="paragraph"><wp:posOffset>576000<\/wp:posOffset>/)
+    assert.match(caption, /<wp:positionH relativeFrom="page"><wp:posOffset>900000<\/wp:posOffset>/)
+    assert.deepEqual(model, original)
+  })
+}

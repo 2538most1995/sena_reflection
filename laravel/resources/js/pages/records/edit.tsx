@@ -8,5 +8,5 @@ type Props = Omit<TeachingWorkspaceProps, 'mode' | 'sourceRecord'> & {
 }
 
 export default function EditRecord({ record, ...props }: Props) {
-  return <TeachingWorkspace {...props} mode="edit" sourceRecord={record} />
+  return <TeachingWorkspace key={`${record.id}:${props.workspace?.draft?.id || 'source'}`} {...props} mode="edit" sourceRecord={record} />
 }

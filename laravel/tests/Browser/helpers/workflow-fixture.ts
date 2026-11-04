@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 const project = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 export const workflowBaseUrl = 'http://127.0.0.1:8777'
 export const workflowCredentials = { user: 'workflow-e2e', password: 'WorkflowE2E2026!' }
-export type WorkflowFixture = { seedLegacyRecord: () => string; close: () => Promise<void>; records: () => { id: string; level: string; subject: string; present: number; total: number; attendance: { present: boolean }[]; images: { id: string; file_path: string }[] }[] }
+export type WorkflowFixture = { resetLoginAttempts: () => void; seedLegacyRecord: () => string; close: () => Promise<void>; records: () => { id: string; level: string; subject: string; present: number; total: number; attendance: { present: boolean }[]; images: { id: string; file_path: string }[] }[] }
 
 function php(source: string, environment: NodeJS.ProcessEnv) {
   const result = spawnSync('php', [], { cwd: project, env: environment, input: `<?php\n${source}`, encoding: 'utf8' })
@@ -48,7 +48,7 @@ export async function startWorkflowFixture(): Promise<WorkflowFixture> {
     APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite', DB_DATABASE: resolve(directory, 'database.sqlite'), DB_URL: '',
     SESSION_DRIVER: 'file', SESSION_COOKIE: 'sena_workflow_e2e', SESSION_DOMAIN: '', SESSION_SECURE_COOKIE: 'false',
     CACHE_STORE: 'file', QUEUE_CONNECTION: 'sync', LOG_CHANNEL: 'single', SENA_E2E_STORAGE: storage,
-    SENA_STUDENT_API_URL: '', SENA_STUDENT_API_KEY: '', ASSET_URL: '', VITE_APP_BASE_PATH: '',
+    SENA_STUDENT_API_URL: '', SENA_STUDENT_API_KEY: '', SENA_STUDENT_API_TOKEN: '', SENA_STUDENT_API_DRIVER: 'legacy', ASSET_URL: '', VITE_APP_BASE_PATH: '',
   }
   let server: ChildProcess | undefined
   let vite: ChildProcess | undefined
@@ -70,15 +70,18 @@ export async function startWorkflowFixture(): Promise<WorkflowFixture> {
       App\\Models\\Tambon::create(['id'=>'workflow-tambon','name'=>'ตำบลทดสอบขั้นตอนบันทึก']);
       App\\Models\\User::create(['id'=>'workflow-district','username'=>'workflow-district','name'=>'ผู้ดูแลทดสอบ','password'=>Illuminate\\Support\\Facades\\Hash::make('WorkflowE2E2026!'),'role'=>'district','tambon'=>null]);
       App\\Models\\User::create(['id'=>'workflow-user','username'=>'workflow-e2e','name'=>'ครูทดสอบขั้นตอนบันทึก','password'=>Illuminate\\Support\\Facades\\Hash::make('WorkflowE2E2026!'),'role'=>'tambon','tambon'=>'workflow-tambon']);
+      $fingerprint=app(App\\Services\\StudentApiService::class)->fingerprint();
       $groups=[];
       foreach(['1'=>'ประถมศึกษา','2'=>'มัธยมศึกษาตอนต้น','3'=>'มัธยมศึกษาตอนปลาย']as$code=>$name){
         $group='WORKFLOW-'.$code;
         $groups[]=['group_code'=>$group,'class_name'=>'กลุ่มทดสอบ '.$name,'level_code'=>(string)$code,'student_count'=>2];
         $students=[];
         foreach([1,2]as$index){$students[]=['student_id'=>'WF-'.$code.'-'.$index,'full_name'=>'นักศึกษาทดสอบ '.$code.'-'.$index,'group_code'=>$group,'class_name'=>'กลุ่มทดสอบ '.$name];}
-        Illuminate\\Support\\Facades\\Cache::put('record-create:students:v3:'.hash('sha256',implode('|',['workflow-user','workflow-tambon',$group,$code])),['items'=>$students,'meta'=>['source'=>'fixture','stale'=>false],'error'=>null,'error_code'=>null],3600);
+        foreach(['latest','1/2569','2/2569','3/2569']as$term)Illuminate\\Support\\Facades\\Cache::put('record-create:students:v4:'.hash('sha256',implode('|',[$fingerprint,'workflow-user','workflow-tambon',$group,$code,$term])),['items'=>$students,'meta'=>['source'=>'fixture','stale'=>false],'error'=>null,'error_code'=>null],3600);
       }
-      Illuminate\\Support\\Facades\\Cache::put('record-options:groups:v3:'.hash('sha256','workflow-user|workflow-tambon'),['items'=>$groups,'meta'=>['source'=>'fixture','stale'=>false],'error'=>null,'error_code'=>null],3600);
+      foreach(['latest','1/2569','2/2569','3/2569']as$term){
+        foreach([['workflow-user','workflow-tambon'],['workflow-district',''],['workflow-district','workflow-tambon']]as[$user,$tambon])Illuminate\\Support\\Facades\\Cache::put('record-options:groups:v4:'.hash('sha256',implode('|',[$fingerprint,$user,$tambon,$term])),['items'=>$groups,'meta'=>['source'=>'fixture','stale'=>false],'error'=>null,'error_code'=>null],3600);
+      }
     `, environment)
     const router = `<?php
       $path=rawurldecode(parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH)??'/');
@@ -97,6 +100,7 @@ export async function startWorkflowFixture(): Promise<WorkflowFixture> {
     await Promise.all([waitForServer(`${workflowBaseUrl}/login`, server), waitForServer('http://127.0.0.1:5187/@vite/client', vite)])
     return {
       close,
+      resetLoginAttempts: () => { php(`${bootstrap} foreach([md5('loginworkflow-e2e|127.0.0.1'),'login:workflow-e2e|127.0.0.1']as$key)Illuminate\\Support\\Facades\\RateLimiter::clear($key);`, environment) },
       seedLegacyRecord: () => php(`${bootstrap}
         Illuminate\\Support\\Facades\\Schema::drop('record_images');
         Illuminate\\Support\\Facades\\Schema::create('record_images',function(Illuminate\\Database\\Schema\\Blueprint $t){$t->string('id',20)->primary();$t->string('record_id',20)->index();$t->string('file_path');$t->timestamp('created_at')->nullable();});

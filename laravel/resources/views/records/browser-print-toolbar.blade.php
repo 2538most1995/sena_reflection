@@ -12,7 +12,7 @@
 <section class="browser-print-toolbar" aria-labelledby="browser-print-title">
     <div class="browser-print-bar">
         <div><h1 id="browser-print-title">ตรวจเอกสารก่อนพิมพ์</h1><p id="browser-print-status" role="status" aria-live="polite">กำลังตรวจฟอนต์และรูปภาพ…</p></div>
-        <div class="browser-print-actions"><button type="button" id="browser-print-button" disabled>พิมพ์ / บันทึก PDF</button><button type="button" id="browser-print-retry" hidden>ลองโหลดอีกครั้ง</button><a id="browser-print-edit" href="{{ $recordUrl }}" target="_top">กลับไปแก้ไข</a></div>
+        <div class="browser-print-actions"><button type="button" id="browser-print-button" disabled>พิมพ์ / บันทึก PDF</button><button type="button" id="browser-print-retry" hidden>ลองโหลดอีกครั้ง</button><a id="browser-print-back" href="{{ $recordUrl }}" target="_top">ย้อนกลับ</a><a id="browser-print-edit" href="{{ $recordUrl }}" target="_top">กลับไปแก้ไข</a></div>
     </div>
     <details><summary>ตั้งค่าการพิมพ์</summary><p>เลือก A4 ขนาด 100% ปิดหัวกระดาษและท้ายกระดาษ แล้วเลือก Save as PDF หากต้องการไฟล์ PDF</p></details>
 </section>
@@ -75,6 +75,24 @@
             retry.hidden = false;
         }
     };
+    document.getElementById('browser-print-back').addEventListener('click', event => {
+        if (window.parent !== window) {
+            event.preventDefault();
+            window.parent.postMessage({ source: 'sena-print-edit-request' }, '*');
+            return;
+        }
+        const navigation = window.navigation;
+        const previous = navigation?.entries().find(entry => entry.index === navigation.currentEntry.index - 1)?.url || document.referrer;
+        try {
+            const origin = new URL(document.getElementById('browser-print-edit').href);
+            const mount = origin.pathname.split('/records/')[0];
+            const target = new URL(previous);
+            if (window.history.length > 1 && target.origin === origin.origin && (!mount || target.pathname === mount || target.pathname.startsWith(mount + '/')) && !/\/(login|logout)\/?$/.test(target.pathname)) {
+                event.preventDefault();
+                window.history.back();
+            }
+        } catch {}
+    });
     document.getElementById('browser-print-edit').addEventListener('click', event => {
         if (window.parent === window) return;
         event.preventDefault();

@@ -1,3 +1,4 @@
+import { appBasePath, resolveAppUrl, safeAppHistoryUrl } from './app-url'
 import { MM_TO_PX, PAGE_GAP, pageDimensions } from './document-model'
 import type { WebDocument } from './document-model'
 
@@ -76,7 +77,22 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement,
   button.textContent = 'พิมพ์ / บันทึก PDF'
   button.disabled = true
   button.addEventListener('click', () => { preview.focus(); preview.print() })
-  toolbar.append(title, status, button)
+  const back = target.createElement('a')
+  back.id = 'browser-print-back'
+  back.textContent = 'ย้อนกลับ'
+  const printBasePath = /^(.*?)\/(?:records|exports|documents)(?:\/|$)/.exec(preview.location.pathname)?.[1] ?? appBasePath
+  back.href = resolveAppUrl(model.editorContext?.returnUrl || (model.sourceRecordId ? `/records/${model.sourceRecordId}` : '/documents'), printBasePath)
+  back.addEventListener('click', event => {
+    const navigation = (preview as Window & { navigation?: { currentEntry: { index: number } | null; entries: () => { index: number; url: string | null }[] } }).navigation
+    const previous = navigation?.currentEntry
+      ? navigation.entries().find(entry => entry.index === navigation.currentEntry!.index - 1)?.url
+      : target.referrer
+    if (preview.history.length > 1 && safeAppHistoryUrl(previous, preview.location.href, printBasePath)) {
+      event.preventDefault()
+      preview.history.back()
+    }
+  })
+  toolbar.append(title, status, back, button)
   if (preview !== window) target.body.replaceChildren(toolbar)
   const size = pageDimensions(model.pageSettings)
   const canvasWidth = Number(canvas.dataset.pageWidth) || size.width * MM_TO_PX
@@ -87,6 +103,7 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement,
     body { font-family: Sarabun, sans-serif; }
     .document-print-toolbar { position: sticky; top: 0; z-index: 2147483647; display: flex; align-items: center; gap: 20px; padding: 14px 24px; color: #0f172a; background: #fff; border-bottom: 1px solid #cbd5e1; font: 14px/1.5 sans-serif; }
     .document-print-toolbar strong { margin-right: auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .document-print-toolbar a { color: #1d4ed8; text-decoration: none; white-space: nowrap; padding: 9px 12px; }
     .document-print-toolbar button { border: 0; border-radius: 8px; padding: 9px 18px; color: white; background: #2563eb; cursor: pointer; }
     .document-print-toolbar button:disabled { opacity: .5; cursor: wait; }
     .document-print-page { position: relative !important; display: block !important; width: ${size.width}mm !important; height: ${size.height}mm !important; min-height: ${size.height}mm !important; max-height: ${size.height}mm !important; margin: 24px auto; padding: 0 !important; overflow: hidden !important; background: white; box-shadow: 0 1px 10px #0002; break-inside: avoid; break-after: page; page-break-after: always; }
@@ -164,4 +181,26 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement,
     status.style.color = '#b91c1c'
     throw error
   } finally { if (timeout) clearTimeout(timeout) }
+}
+
+/** Print the frozen canvas in this tab, retaining the editor and its browser history. */
+export async function printDocumentInPlace(model: WebDocument, canvas: HTMLElement): Promise<void> {
+  const frame = document.createElement('iframe')
+  frame.dataset.documentPrintFrame = 'true'
+  frame.title = 'เอกสารพร้อมพิมพ์'
+  frame.setAttribute('aria-hidden', 'true')
+  frame.style.cssText = 'position:fixed;left:-20000px;top:0;width:1123px;height:1500px;border:0;'
+  document.body.append(frame)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const cleanup = () => { if (timer) clearTimeout(timer); frame.remove(); window.focus() }
+  try {
+    const target = frame.contentWindow
+    if (!target) throw new Error('เปิดพื้นที่พิมพ์ไม่สำเร็จ กรุณาลองใหม่')
+    target.addEventListener('afterprint', () => setTimeout(cleanup, 800), { once: true })
+    timer = setTimeout(cleanup, 60000)
+    await openDocumentPrint(model, canvas, target)
+    frame.dataset.documentPrintReady = 'true'
+    target.focus()
+    target.print()
+  } catch (error) { cleanup(); throw error }
 }

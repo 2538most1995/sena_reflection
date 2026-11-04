@@ -1,3 +1,4 @@
+import { goBackInApp } from '@/lib/app-navigation'
 import { Head } from '@inertiajs/react'
 import type { Editor } from '@tiptap/react'
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Copy, Download, FileText, History, LoaderCircle, PanelLeftClose, PanelRight, Plus, Printer, Redo2, Save, Search, Undo2, X } from 'lucide-react'
@@ -15,7 +16,7 @@ import { appRouter } from '@/lib/app-router'
 import { appUrl } from '@/lib/app-url'
 import { actionAlert } from '@/lib/action-alert'
 import { createDocumentObject, pageDimensions, MM_TO_PX, type DocumentAsset, type DocumentEditorContext, type DocumentObject, type DocumentVersion, type WebDocument } from '@/lib/document-model'
-import { openDocumentPrint } from '@/lib/document-print'
+import { printDocumentInPlace } from '@/lib/document-print'
 import { createDocumentThumbnails, type DocumentPageView } from '@/lib/document-thumbnails'
 import { constrainObject } from '@/lib/document-layout'
 import { findDocumentText } from '@/lib/document-search'
@@ -207,15 +208,12 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
     if (actionInProgress.current) return
     const canvas = canvasHost.current?.querySelector<HTMLElement>('[data-document-canvas]')
     if (!canvas) { actionAlert.error('เอกสารยังไม่พร้อมพิมพ์', 'กรุณารอให้หน้ากระดาษโหลดเสร็จแล้วลองอีกครั้ง'); return }
-    const preview = window.open('', '_blank', 'popup,width=1100,height=850')
-    if (!preview) { const message = 'เบราว์เซอร์ปิดกั้นหน้าพิมพ์ กรุณาอนุญาตป๊อปอัปสำหรับเว็บไซต์นี้'; setNotice(message); actionAlert.error('เปิดหน้าพิมพ์ไม่ได้', message); return }
-    const id = beginAction(context ? 'กำลังบันทึกและเตรียมหน้าพิมพ์' : 'กำลังเตรียมหน้าพิมพ์', 'กำลังตรวจหน้ากระดาษ ฟอนต์ และรูปภาพ')
-    if (!id) { preview.close(); return }
+    const id = beginAction(context ? 'กำลังบันทึกและเตรียมพิมพ์' : 'กำลังเตรียมพิมพ์', 'กำลังตรวจหน้ากระดาษ ฟอนต์ และรูปภาพ')
+    if (!id) return
     try {
-      if (context && (latestSaveState.current.status === 'conflict' || !await saveWithFeedback())) { preview.close(); reportSaveFailure(id); return }
-      const popup = await openDocumentPrint(autosave.latest.current, canvas, preview)
-      if (!popup) throw new Error('เบราว์เซอร์ปิดกั้นหน้าพิมพ์ กรุณาอนุญาตป๊อปอัปสำหรับเว็บไซต์นี้')
-      actionAlert.success(context ? 'บันทึกแล้ว พร้อมพิมพ์' : 'เอกสารพร้อมพิมพ์', 'เลือก “พิมพ์ / บันทึก PDF” ในหน้าต่างตัวอย่าง แล้วเลือก Save as PDF หากต้องการไฟล์ PDF', id)
+      if (context && (latestSaveState.current.status === 'conflict' || !await saveWithFeedback())) { reportSaveFailure(id); return }
+      await printDocumentInPlace(autosave.latest.current, canvas)
+      actionAlert.success(context ? 'บันทึกแล้ว พร้อมพิมพ์' : 'เอกสารพร้อมพิมพ์', 'เลือก Save as PDF ในหน้าต่างพิมพ์เพื่อบันทึกไฟล์ PDF', id)
     }
     catch (error) { const message = error instanceof Error ? error.message : 'เปิดหน้าพิมพ์ไม่สำเร็จ'; setNotice(message); actionAlert.error('เตรียมหน้าพิมพ์ไม่สำเร็จ', message, id) }
     finally { finishAction() }
@@ -287,7 +285,7 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
     try {
       if (!await saveWithFeedback()) { reportSaveFailure(id); return }
       actionAlert.dismiss(id)
-      appRouter.visit(context?.returnUrl || '/documents')
+      goBackInApp(context?.returnUrl || '/documents', true)
     } finally { finishAction() }
   }
   return <AppShell wide><Head title={doc.title} /><div className="de-workspace">

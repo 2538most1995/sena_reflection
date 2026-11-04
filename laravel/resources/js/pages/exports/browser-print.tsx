@@ -2,6 +2,7 @@ import { Head } from '@inertiajs/react'
 import { useEffect, useRef, useState } from 'react'
 import { ArrowClockwise, ArrowLeft, Printer, WarningCircle } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
+import { BackLink } from '@/components/back-link'
 import { appUrl } from '@/lib/app-url'
 import { prepareBrowserExport, type BrowserExportRecord } from '@/lib/browser-export'
 import { actionAlert } from '@/lib/action-alert'
@@ -69,17 +70,9 @@ export default function BrowserPrint({ records, title }: { records: BrowserExpor
         </div>
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline" size="sm">
-            <a
-              href={appUrl('/')}
-              onClick={event => {
-                if (window.history.length > 1) {
-                  event.preventDefault()
-                  window.history.back()
-                }
-              }}
-            >
+            <BackLink href="/">
               <ArrowLeft size={17} />กลับรายการ
-            </a>
+            </BackLink>
           </Button>
           {error && <Button variant="outline" size="sm" onClick={() => setAttempt(value => value + 1)}><ArrowClockwise size={17} />ลองโหลดอีกครั้ง</Button>}
           <Button size="sm" data-testid="browser-export-print" disabled={!ready} onClick={() => window.print()}><Printer size={17} />พิมพ์ / บันทึก PDF</Button>

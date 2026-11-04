@@ -21,7 +21,7 @@ export type SubjectOption = {
   subject: string
   subject_code: string
   level: string
-  source?: 'sdl' | 'history'
+  source?: 'sdl' | 'history' | 'activity'
 }
 
 export type StudentOption = {

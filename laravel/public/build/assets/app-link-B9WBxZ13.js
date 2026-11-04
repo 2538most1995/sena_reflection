@@ -1,0 +1,1 @@
+import{a as e,p as t,t as n,u as r}from"./jsx-runtime-BdbEUa6B.js";import{o as i}from"./IconBase.es-DWwvHiCK.js";var a=t(r(),1),o=n(),s=(0,a.forwardRef)(({href:t,...n},r)=>{let a=typeof t==`string`?e(t):t&&{...t,url:e(t.url)};return(0,o.jsx)(i,{...n,href:a,ref:r})});s.displayName=`AppLink`;export{s as t};

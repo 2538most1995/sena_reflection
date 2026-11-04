@@ -493,14 +493,13 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                           }}
                           title={`พิมพ์ PDF สัปดาห์ที่ ${group.week}`}
                         >
-                          <a
+                          <Link
                             href={appUrl(`/exports/browser-print?scope=week&year=${group.year}&semester=${group.semester}&week=${group.week}${group.records[0]?.tambon ? `&tambon=${group.records[0].tambon}` : ''}`)}
-                            target="_blank"
                             rel="noopener"
                           >
                             <FilePdf size={14} weight="regular" />
                             PDF สัปดาห์นี้
-                          </a>
+                          </Link>
                         </Button>
                         <Button
                           type="button"
@@ -605,7 +604,6 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                                           >
                                             <a
                                               href={appUrl(`/records/${record.id}/browser-print`)}
-                                              target="_blank"
                                               rel="noopener"
                                             >
                                               <FilePdf size={15} weight="bold" />
@@ -704,14 +702,13 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                     }}
                     title={`พิมพ์ PDF สัปดาห์ที่ ${group.week}`}
                   >
-                    <a
+                    <Link
                       href={appUrl(`/exports/browser-print?scope=week&year=${group.year}&semester=${group.semester}&week=${group.week}${group.records[0]?.tambon ? `&tambon=${group.records[0].tambon}` : ''}`)}
-                      target="_blank"
                       rel="noopener"
                     >
                       <FilePdf size={14} weight="regular" />
                       PDF
-                    </a>
+                    </Link>
                   </Button>
                   <Button
                     type="button"
@@ -785,7 +782,6 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                           >
                             <a
                               href={appUrl(`/records/${record.id}/browser-print`)}
-                              target="_blank"
                               rel="noopener"
                             >
                               <FilePdf size={14} weight="bold" />

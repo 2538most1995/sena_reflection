@@ -9,6 +9,7 @@ import type { DocumentObject } from '@/lib/document-model'
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     documentParagraph: {
+      insertRecordLineBreak: () => ReturnType
       setParagraphSpacing: (before: number, after: number) => ReturnType
       setParagraphLineHeight: (height: number) => ReturnType
       setParagraphIndent: (millimeters: number) => ReturnType
@@ -35,7 +36,7 @@ export const ParagraphFormatting = Extension.create({
     return [{
       types: ['paragraph', 'heading'],
       attributes: {
-        id: { default: null, parseHTML: element => element.getAttribute('data-paragraph-id'), renderHTML: attrs => attrs.id ? { 'data-paragraph-id': attrs.id } : {} },
+        id: { default: null, keepOnSplit: false, parseHTML: element => element.getAttribute('data-paragraph-id'), renderHTML: attrs => attrs.id ? { 'data-paragraph-id': attrs.id } : {} },
         field: { default: null, parseHTML: element => element.getAttribute('data-record-field'), renderHTML: attrs => attrs.field ? { 'data-record-field': attrs.field } : {} },
         role: { default: null, parseHTML: element => element.getAttribute('data-record-role'), renderHTML: attrs => attrs.role ? { 'data-record-role': attrs.role } : {} },
         firstIndent: { default: null, parseHTML: element => element.hasAttribute('data-first-indent') ? Number(element.getAttribute('data-first-indent')) : null, renderHTML: attrs => attrs.firstIndent !== null ? { 'data-first-indent': Number(attrs.firstIndent), style: `text-indent:${Number(attrs.firstIndent) || 0}px` } : {} },
@@ -45,19 +46,31 @@ export const ParagraphFormatting = Extension.create({
         spaceAfter: { default: null, parseHTML: element => element.style.marginBottom ? parseFloat(element.style.marginBottom) : null, renderHTML: attrs => attrs.spaceAfter !== null ? { style: `margin-bottom:${Number(attrs.spaceAfter) || 0}pt` } : {} },
         indent: { default: 0, parseHTML: element => parseFloat(element.getAttribute('data-indent') || '') || 0, renderHTML: attrs => ({ 'data-indent': Number(attrs.indent) || 0, style: `margin-left:${Number(attrs.indent) || 0}mm` }) },
         offsetX: { default: 0, parseHTML: element => Number(element.getAttribute('data-record-offset-x')) || 0, renderHTML: attrs => attrs.offsetX ? { 'data-record-offset-x': Number(attrs.offsetX), style: `margin-left:calc(${Number(attrs.indent) || 0}mm + ${Number(attrs.offsetX) || 0}px)` } : {} },
-        offsetY: { default: 0, parseHTML: element => Number(element.getAttribute('data-record-offset-y')) || 0, renderHTML: attrs => attrs.offsetY ? { 'data-record-offset-y': Number(attrs.offsetY), style: `margin-top:calc(${Number(attrs.spaceBefore) || 0}pt + ${Number(attrs.offsetY) || 0}px)` } : {} },
+        offsetY: { default: 0, keepOnSplit: false, parseHTML: element => Number(element.getAttribute('data-record-offset-y')) || 0, renderHTML: attrs => attrs.offsetY ? { 'data-record-offset-y': Number(attrs.offsetY), style: `margin-top:calc(${Number(attrs.spaceBefore) || 0}pt + ${Number(attrs.offsetY) || 0}px)` } : {} },
       },
     }]
   },
   addCommands() {
     const update = (values: Record<string, number>) => ({ commands }: CommandProps) => commands.updateAttributes('paragraph', values) && commands.updateAttributes('heading', values)
     return {
+      insertRecordLineBreak: () => ({ state, commands, editor }) => {
+        const { $from, $to } = state.selection
+        if (editor.view.composing || !$from.sameParent($to)) return false
+        const parent = $from.parent
+        const container = $from.depth > 1 ? $from.node(-1).type.name : null
+        const isRecordLine = parent.attrs.role === 'recordTitle' || parent.type.name === 'recordSectionTitle'
+          || (parent.type.name === 'paragraph' && ['recordBody', 'recordSignature'].includes(container || ''))
+        return isRecordLine ? commands.setHardBreak() : false
+      },
       setParagraphSpacing: (before, after) => update({ spaceBefore: Math.max(0, before), spaceAfter: Math.max(0, after) }),
       setParagraphLineHeight: height => update({ lineHeight: Math.max(0.7, Math.min(4, height)) }),
       setParagraphIndent: millimeters => update({ indent: Math.max(0, Math.min(120, millimeters)) }),
       increaseIndent: () => ({ commands, editor }) => commands.setParagraphIndent(Number(editor.getAttributes('paragraph').indent ?? editor.getAttributes('heading').indent ?? 0) + 5),
       decreaseIndent: () => ({ commands, editor }) => commands.setParagraphIndent(Number(editor.getAttributes('paragraph').indent ?? editor.getAttributes('heading').indent ?? 0) - 5),
     }
+  },
+  addKeyboardShortcuts() {
+    return { Enter: () => this.editor.commands.insertRecordLineBreak() }
   },
   addProseMirrorPlugins() {
     return [new Plugin({
@@ -68,8 +81,12 @@ export const ParagraphFormatting = Extension.create({
         const ids = new Set<string>()
         state.doc.descendants((node, position) => {
           if (!['paragraph', 'heading'].includes(node.type.name)) return
-          if (!node.attrs.id || ids.has(node.attrs.id)) transaction.setNodeMarkup(position, undefined, { ...node.attrs, id: crypto.randomUUID() })
-          else ids.add(node.attrs.id)
+          if (!node.attrs.id || ids.has(node.attrs.id)) {
+            const duplicate = ids.has(node.attrs.id)
+            const id = crypto.randomUUID()
+            transaction.setNodeMarkup(position, undefined, { ...node.attrs, id, ...(duplicate ? { offsetY: 0 } : {}) })
+            ids.add(id)
+          } else ids.add(node.attrs.id)
         })
         return transaction.docChanged ? transaction.setMeta('addToHistory', false) : null
       },

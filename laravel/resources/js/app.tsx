@@ -1,10 +1,13 @@
 import '../css/app.css'
+import { installAppNavigation } from '@/lib/app-navigation'
 
 import { createInertiaApp } from '@inertiajs/react'
 import type { ComponentType } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ActionAlertHost } from '@/components/action-alert'
 import { ErrorBoundary } from '@/components/error-boundary'
+
+installAppNavigation()
 
 createInertiaApp({
   title: (title) => (title ? `${title} | SENA Reflection` : 'SENA Reflection'),

@@ -1,3 +1,4 @@
+import { BackLink } from '@/components/back-link'
 import { Head } from '@inertiajs/react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { ArrowLeft, ArrowClockwise, FileText, Pause, Play, X } from '@phosphor-icons/react'
@@ -51,7 +52,7 @@ export default function ManageDrafts({ drafts: initial }: { drafts: Draft[] }) {
   const active = drafts.filter(draft => draft.status === 'active').length
   return <AppShell>
     <Head title="จัดการร่างของฉัน" />
-    <PageHeader title="จัดการร่างของฉัน" description="พักร่างที่ยังไม่ใช้เพื่อเก็บภาคเรียน โดยเก็บข้อความ รูป และเอกสารไว้ครบ" action={<Button asChild variant="outline"><AppLink href="/"><ArrowLeft size={17} />กลับภาพรวม</AppLink></Button>} />
+    <PageHeader title="จัดการร่างของฉัน" description="พักร่างที่ยังไม่ใช้เพื่อเก็บภาคเรียน โดยเก็บข้อความ รูป และเอกสารไว้ครบ" action={<Button asChild variant="outline"><BackLink href="/"><ArrowLeft size={17} />ย้อนกลับ</BackLink></Button>} />
     <FlashMessages />
     <div className="mb-6 rounded-xl border bg-card p-4 text-sm leading-7"><b>กำลังใช้งาน {active} ร่าง · พักไว้ {drafts.length - active} ร่าง</b><p className="text-muted-foreground">เห็นเฉพาะร่างของคุณ ร่างที่พักไว้จะหยุดการแก้ไขและยืนยันชั่วคราว เมื่อต้องการใช้ต่อให้นำร่างกลับ หากเก็บภาคเรียนแล้วต้องนำชุดสำรองกลับก่อน</p></div>
     {error && <p role="alert" className="mb-4 whitespace-pre-line rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive">{error}</p>}

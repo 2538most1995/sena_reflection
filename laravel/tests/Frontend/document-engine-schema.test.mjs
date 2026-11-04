@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { getSchema } from '@tiptap/core'
+import { Editor, getSchema } from '@tiptap/core'
 import { EditorState } from '@tiptap/pm/state'
 import { history, undo, redo, closeHistory } from '@tiptap/pm/history'
 import StarterKit from '@tiptap/starter-kit'
@@ -165,4 +165,49 @@ test('ordinary objects and missing or moved title anchors retain their existing 
   assert.equal(objectFlowAfterText({ ...object, anchor: { kind: 'paragraph', id: 'deleted-heading' } }, title, true), false)
   assert.equal(objectFlowAfterText(object, null, true), false)
   assert.equal(objectFlowAfterText(object, schema.nodeFromJSON({ type: 'paragraph', attrs: { id: 'photo-title' } }), true), false)
+})
+
+
+test('Enter inside record fields keeps the original anchor and adds one line without copying paragraph offsets', () => {
+  for (const container of ['recordBody', 'recordSignature', null]) {
+    const paragraph = { type: 'paragraph', attrs: { id: 'stable-record-line', role: container ? null : 'recordTitle', offsetY: 24, firstIndent: 42 }, content: [{ type: 'text', text: 'หนึ่งสอง', marks: [{ type: 'bold' }] }] }
+    const editor = new Editor({ element: null, extensions: [StarterKit, ParagraphFormatting, RecordTemplate], content: { type: 'doc', content: container ? [{ type: container, content: [paragraph] }] : [paragraph] } })
+    try {
+      const position = container ? 2 : 1
+      editor.commands.setTextSelection(position + 5)
+      assert.equal(editor.commands.insertRecordLineBreak(), true)
+      editor.commands.insertContent({ type: 'text', text: 'สาม' })
+      const result = editor.getJSON().content[0]
+      const line = container ? result.content[0] : result
+      assert.equal(container ? result.content.length : editor.getJSON().content.length, 1)
+      assert.equal(line.attrs.id, 'stable-record-line')
+      assert.equal(line.attrs.offsetY, 24)
+      assert.equal(line.content.filter(node => node.type === 'hardBreak').length, 1)
+      assert.equal(line.content.filter(node => node.type === 'text').map(node => node.text).join(''), 'หนึ่งสามสอง')
+      assert.ok(line.content.filter(node => node.type === 'text').every(node => node.marks.some(mark => mark.type === 'bold')))
+    } finally { editor.destroy() }
+  }
+})
+
+test('ordinary paragraphs and record list items retain paragraph Enter, without reusing an anchor or vertical shift', () => {
+  for (const list of [false, true]) {
+    const paragraph = { type: 'paragraph', attrs: { id: 'original-anchor', offsetY: 80 }, content: [{ type: 'text', text: 'ข้อความ' }] }
+    const content = list ? [{ type: 'recordBody', content: [{ type: 'bulletList', content: [{ type: 'listItem', content: [paragraph] }] }] }] : [paragraph]
+    const editor = new Editor({ element: null, extensions: [StarterKit, ParagraphFormatting, RecordTemplate], content: { type: 'doc', content } })
+    try {
+      for (const plugin of ParagraphFormatting.config.addProseMirrorPlugins.call({})) editor.registerPlugin(plugin)
+      editor.commands.setTextSelection(list ? 5 : 2)
+      assert.equal(editor.commands.insertRecordLineBreak(), false)
+      if (!list) {
+        editor.commands.splitBlock()
+        const nodes = editor.getJSON().content
+        assert.equal(nodes.length, 2)
+        assert.equal(nodes[0].attrs.id, 'original-anchor')
+        assert.equal(nodes[0].attrs.offsetY, 80)
+        assert.notEqual(nodes[1].attrs.id, 'original-anchor')
+        assert.ok(nodes[1].attrs.id)
+        assert.equal(nodes[1].attrs.offsetY, 0)
+      }
+    } finally { editor.destroy() }
+  }
 })

@@ -1,3 +1,4 @@
+import { appUrl } from '@/lib/app-url'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { WarningCircle, ArrowClockwise, House } from '@phosphor-icons/react'
 
@@ -56,7 +57,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 รีเฟรชหน้าเว็บ
               </button>
               <a
-                href="/"
+                href={appUrl('/')}
                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-secondary text-secondary-foreground font-medium rounded-lg text-sm hover:bg-secondary/80 transition-colors"
               >
                 <House size={16} />

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { searchSubjects, subjectsForLevel } from '../../resources/js/components/teaching-workspace/subject-options.ts'
+import { searchSubjects, subjectsForLevel, withOrientationSubject } from '../../resources/js/components/teaching-workspace/subject-options.ts'
 
 const subjects = [
   { subject: 'คุณธรรมจริยธรรมในการใช้สื่อสังคมออนไลน์', subject_code: 'สค020035', level: '', source: 'sdl' },
@@ -31,4 +31,17 @@ test('filtering preserves option identity for retaining a selected course while 
   assert.equal(searchSubjects(levelSubjects, 'ไม่มีวิชา').includes(selected), false)
   assert.equal(searchSubjects(levelSubjects, '')[0], selected)
   assert.deepEqual(subjects, originalSubjects)
+})
+
+test('orientation is selectable at every level without SDL and never changes existing subjects', () => {
+  for (const level of ['1', '2', '3']) {
+    const values = withOrientationSubject([], level)
+    assert.deepEqual(values, [{ subject: 'ปฐมนิเทศ', subject_code: '', level, source: 'activity' }])
+    assert.equal(searchSubjects(values, 'ปฐมนิเทศ')[0], values[0])
+    assert.deepEqual(withOrientationSubject(values, level), values)
+  }
+  const original = structuredClone(subjects)
+  const values = withOrientationSubject(subjects, '1')
+  assert.equal(values[1], subjects[0])
+  assert.deepEqual(subjects, original)
 })
