@@ -199,6 +199,95 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     expect(persisted.objects[0]).toMatchObject({ anchor: { kind: 'paragraph', id: 'nested-photo-heading', offsetY: 16 } })
   })
 
+  test('formatting marks include blank Enter lines, headings, cells and signatures without changing content or print layout', async ({ page }, testInfo) => {
+    const document = await createDocument(page, { type: 'doc', content: [
+      { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'หัวข้อทั่วไป' }] },
+      { type: 'recordSectionTitle', content: [{ type: 'text', text: 'ข้อคิดเห็นของผู้อำนวยการสถานศึกษา' }] },
+      { type: 'recordInfoRow', content: [{ type: 'recordInfoCell', content: [{ type: 'text', text: 'ลงชื่อ' }] }, { type: 'recordInfoCell' }] },
+      { type: 'recordBody', content: [{ type: 'paragraph', attrs: { id: 'empty-body' } }] },
+      { type: 'recordSignature', attrs: { index: 3, width: 430 }, content: [
+        { type: 'paragraph', attrs: { id: 'signature-position', role: 'signaturePosition' }, content: [{ type: 'text', text: 'ครู รักษาการในตำแหน่ง' }, { type: 'hardBreak' }, { type: 'text', text: 'ผู้อำนวยการสถานศึกษา' }] },
+        { type: 'paragraph', attrs: { id: 'empty-signature' } },
+      ] },
+      { type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [{ type: 'paragraph' }] }] }] },
+      { type: 'paragraph', attrs: { id: 'long-line' }, content: [{ type: 'text', text: 'ข้อความภาษาไทยที่ตัดบรรทัดตามความกว้างกระดาษ '.repeat(10) }] },
+      { type: 'paragraph', attrs: { id: 'empty-end' } },
+    ] })
+    const created = (await api<{ document: StoredDocument & { pageSettings: Record<string, unknown> } }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    expect((await api(page, 'PUT', `/api/documents/${document.id}`, { revision: created.revision, pageSettings: { ...created.pageSettings, template: 'weekly-record', fontFamily: 'THSarabunNew' } })).status).toBe(200)
+    await page.reload()
+    const root = page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })
+    const canvas = page.locator('[data-document-canvas]')
+    await expect.poll(async () => (await root.locator('[data-paragraph-id=empty-end]').boundingBox())!.height).toBeGreaterThan(10)
+    const geometry = () => root.evaluate(element => [...element.querySelectorAll('p,h2,.record-section-title,.record-info-cell,.record-signature')].map(node => {
+      const rect = node.getBoundingClientRect()
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    }))
+    await page.evaluate(() => window.document.fonts.ready)
+    const before = await geometry()
+    const initial = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    await page.getByRole('tab', { name: 'ตรวจทาน', exact: true }).click()
+    await page.getByRole('button', { name: 'แสดงอักขระ', exact: true }).click()
+    await expect(canvas).toHaveClass(/show-marks/)
+    await expect(root.locator('h2 > [data-formatting-mark=paragraph]')).toHaveCount(1)
+    await expect(root.locator('.record-section-title > [data-formatting-mark=paragraph]')).toHaveCount(1)
+    await expect(root.locator('.record-info-cell > [data-formatting-mark=paragraph]')).toHaveCount(2)
+    await expect(root.locator('td:not(.record-info-cell) p > [data-formatting-mark=paragraph]')).toHaveCount(1)
+    for (const id of ['empty-body', 'empty-signature', 'empty-end', 'long-line']) await expect(root.locator(`[data-paragraph-id="${id}"] > [data-formatting-mark=paragraph]`)).toHaveCount(1)
+    await expect(root.locator('[data-paragraph-id=signature-position] > [data-formatting-mark]')).toHaveCount(2)
+    expect(await geometry()).toEqual(before)
+    expect((await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document.content).toEqual(initial.content)
+    const empty = root.locator('[data-paragraph-id=empty-signature]')
+    await empty.evaluate(element => {
+      element.closest<HTMLElement>('[contenteditable=true]')!.focus()
+      const range = window.document.createRange()
+      range.selectNodeContents(element); range.collapse(true)
+      const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
+      window.document.dispatchEvent(new Event('selectionchange'))
+    })
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Enter')
+    await expect(empty.locator('[data-formatting-mark]')).toHaveCount(4)
+    const lines = await empty.locator('[data-formatting-mark]').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top))
+    const lineHeight = await empty.evaluate(element => parseFloat(getComputedStyle(element).lineHeight) * element.getBoundingClientRect().width / (element as HTMLElement).offsetWidth)
+    for (let index = 1; index < lines.length; index++) expect(Math.abs(lines[index] - lines[index - 1] - lineHeight)).toBeLessThan(3)
+    await saved(page)
+    await page.screenshot({ path: testInfo.outputPath('paragraph-marks-empty-lines.png'), caret: 'initial' })
+    const stored = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    expect(JSON.stringify(stored.content)).not.toContain('¶')
+    expect(await root.textContent()).not.toContain('¶')
+    const withBlankLines = await geometry()
+    await page.getByRole('button', { name: 'ซ่อนอักขระ', exact: true }).click()
+    expect(await geometry()).toEqual(withBlankLines)
+    await expect(canvas).not.toHaveClass(/show-marks/)
+    const glyphs = () => root.locator('[data-formatting-mark]').evaluateAll(elements => elements.map(element => getComputedStyle(element, '::after').content))
+    expect((await glyphs()).every(content => content === 'none' || content === 'normal')).toBe(true)
+    await page.getByRole('button', { name: 'แสดงอักขระ', exact: true }).click()
+    expect((await glyphs()).every(content => content === '"¶"')).toBe(true)
+    await page.getByRole('button', { name: 'พิมพ์ / PDF', exact: true }).click()
+    await expect(page.locator('iframe[data-document-print-ready=true]')).toHaveCount(1)
+    const print = page.frameLocator('iframe[data-document-print-frame]')
+    await expect(print.locator('[data-formatting-mark],.ProseMirror-separator,.show-marks')).toHaveCount(0)
+    await page.locator('iframe[data-document-print-frame]').evaluate(element => element.remove())
+    await page.reload()
+    const persisted = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    expect(persisted.content).toEqual(stored.content)
+  })
+
+  test('formatting marks also cover empty paragraphs in a floating textbox while it is not being edited', async ({ page }) => {
+    await createDocument(page)
+    await page.getByRole('tab', { name: 'แทรก', exact: true }).click()
+    await page.getByRole('button', { name: 'กล่องข้อความ', exact: true }).click()
+    const textbox = page.getByRole('textbox', { name: 'ข้อความในกล่องข้อความ', exact: true })
+    await expect(textbox).toHaveAttribute('contenteditable', 'false')
+    await page.getByRole('tab', { name: 'ตรวจทาน', exact: true }).click()
+    await page.getByRole('button', { name: 'แสดงอักขระ', exact: true }).click()
+    await expect(textbox.locator('[data-formatting-mark=paragraph]')).toHaveCount(1)
+    expect(await textbox.locator('[data-formatting-mark]').evaluate(element => getComputedStyle(element, '::after').content)).toBe('"¶"')
+    expect(await textbox.textContent()).not.toContain('¶')
+  })
+
   test('Thai partial formatting survives autosave and a real reload', async ({ page }) => {
     const document = await createDocument(page)
     const editor = page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })

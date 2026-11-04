@@ -94,6 +94,46 @@ export const ParagraphFormatting = Extension.create({
   },
 })
 
+export const formattingMarksKey = new PluginKey<DecorationSet>('documentFormattingMarks')
+
+function formattingMarkDecorations(doc: ProseMirrorNode): DecorationSet {
+  const marks: Decoration[] = []
+  const marker = (position: number, kind: 'paragraph' | 'line-break') => Decoration.widget(position, view => {
+    const element = view.dom.ownerDocument.createElement('span')
+    element.className = 'document-formatting-mark'
+    element.dataset.formattingMark = kind
+    element.dataset.printHidden = 'true'
+    element.setAttribute('aria-hidden', 'true')
+    return element
+  }, { side: -1, marks: [], key: `${kind}:${position}`, ignoreSelection: true, kind })
+  doc.descendants((node, position) => {
+    if (!node.isTextblock) return
+    node.forEach((child, offset) => {
+      if (child.type.name === 'hardBreak') marks.push(marker(position + 1 + offset, 'line-break'))
+    })
+    marks.push(marker(position + 1 + node.content.size, 'paragraph'))
+  })
+  return DecorationSet.create(doc, marks)
+}
+
+/** Display-only marks include empty text blocks and explicit line breaks, without changing saved content. */
+export const FormattingMarks = Extension.create({
+  name: 'documentFormattingMarks',
+  addOptions() { return { renderWhenReadOnly: false } },
+  addProseMirrorPlugins() {
+    const editor = this.editor
+    const renderWhenReadOnly = this.options.renderWhenReadOnly
+    return [new Plugin({
+      key: formattingMarksKey,
+      state: {
+        init: (_config, state) => formattingMarkDecorations(state.doc),
+        apply: (transaction, previous) => transaction.docChanged ? formattingMarkDecorations(transaction.doc) : previous,
+      },
+      props: { decorations: state => editor.isEditable || renderWhenReadOnly ? formattingMarksKey.getState(state) : DecorationSet.empty },
+    })]
+  },
+})
+
 function numericAttribute(name: string, fallback: number, minimum = -2400, maximum = 2400) {
   return {
     default: fallback,

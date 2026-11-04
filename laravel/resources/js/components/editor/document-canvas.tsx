@@ -13,7 +13,7 @@ import interact from 'interactjs'
 import { Copy, Grip, RotateCw, Trash2 } from 'lucide-react'
 import { MM_TO_PX, PAGE_GAP, pageDimensions, type DocumentObject, type WebDocument } from '@/lib/document-model'
 import { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectAnchorAfterMove, objectCanvasTop, objectFlowOffset, snapMillimeters, type CanvasPage } from '@/lib/document-layout'
-import { hasDocumentContent, ObjectTextFlow, objectFlowKey, objectFlowAfterText, ParagraphFormatting, RecordTemplate, type FlowReservation } from './document-extensions'
+import { hasDocumentContent, FormattingMarks, ObjectTextFlow, objectFlowKey, objectFlowAfterText, ParagraphFormatting, RecordTemplate, type FlowReservation } from './document-extensions'
 
 export type { CanvasPage } from '@/lib/document-layout'
 
@@ -54,7 +54,10 @@ const canvasStyles = `
 .document-body-editor .rm-pagination-gap{box-sizing:border-box;border:0!important}
 .document-body-editor .rm-pages-wrapper{pointer-events:none;user-select:none}.document-body-editor .rm-first-page-header{pointer-events:none;user-select:none}
 .document-body-editor .document-manual-page-break{min-height:2px;position:relative;pointer-events:none}
-.document-canvas.show-marks .document-body-editor p:after{content:"¶";color:#94a3b8;font-size:.8em;pointer-events:none}
+.document-formatting-mark{display:inline;position:relative;width:0;height:0;overflow:visible;vertical-align:baseline;pointer-events:none;user-select:none}
+.document-canvas.show-marks .document-formatting-mark:after{content:"¶";position:absolute;left:0;bottom:0;font-family:inherit;font-size:.8em;line-height:1;color:#94a3b8;font-weight:400;font-style:normal;pointer-events:none;user-select:none}
+.document-canvas .ProseMirror-separator{display:inline!important;width:0!important;height:0!important;margin:0!important;border:0!important}
+
 .document-canvas.show-marks .document-manual-page-break:after{content:"ตัวแบ่งหน้า";position:absolute;top:0;left:0;width:100%;border-top:1px dashed #94a3b8;font-family:inherit;font-size:10px;color:#94a3b8}
 .document-object-layer{position:absolute;inset:0;pointer-events:none;z-index:3}.document-object{position:absolute;box-sizing:border-box;pointer-events:auto;outline:none;touch-action:none;transform-origin:center}
 .document-object.is-selected:after{content:"";position:absolute;inset:-1px;border:1.5px solid #2563eb;pointer-events:none}
@@ -72,7 +75,6 @@ const canvasStyles = `
 .document-vertical-ruler{position:absolute;left:-28px;top:0;width:23px;height:100%;background:#f8fafc;border-right:1px solid #dbe3ed;color:#94a3b8;font-size:9px;font-family:Arial,sans-serif;user-select:none;pointer-events:none}.document-vertical-ruler span{position:absolute;left:0;width:100%;border-top:1px solid #cbd5e1;padding-top:2px;padding-left:4px}
 .document-canvas.is-record-template{color:#000;font-synthesis:style;letter-spacing:0;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
 .document-canvas.is-record-template .document-body-editor{white-space:break-spaces;overflow-wrap:break-word;word-break:break-word}
-.document-canvas.is-record-template .document-body-editor>p:last-child:has(>br.ProseMirror-trailingBreak:only-child){display:block!important;min-height:0!important;height:0;margin:0!important;padding:0!important;line-height:0!important}
 .document-body-editor p[data-record-role="recordTitle"]{font-size:var(--record-title-size,20pt);line-height:1.1;font-weight:700;text-align:center;margin:0 0 8px;min-height:0}
 .document-body-editor .record-section-title{font-size:var(--record-section-size,17pt);font-weight:700;line-height:1.2;margin:8px 0 2px;break-after:avoid;page-break-after:avoid}
 .document-body-editor table.record-info-row{display:table!important;width:100%;table-layout:fixed;border-collapse:collapse;border:0;margin:0 0 6px;font-size:inherit;line-height:1.2}
@@ -80,8 +82,8 @@ const canvasStyles = `
 .document-body-editor table.record-info-row>tbody>tr{display:table-row!important}
 .document-body-editor table.record-info-row td.record-info-cell{display:table-cell!important;border:0;padding:0 4px 2px;font-size:inherit;line-height:1.2;vertical-align:bottom;min-width:0;overflow:visible;white-space:break-spaces;word-break:normal!important;text-align:center}
 .document-body-editor table.record-info-row td.record-info-cell--label{padding-right:6px;white-space:nowrap;text-align:left}
-.document-body-editor table.record-info-row td.record-info-cell:has(>br.ProseMirror-trailingBreak:only-child){width:auto}
-.document-body-editor table.record-info-row td.record-info-cell>br.ProseMirror-trailingBreak:only-child{display:none}
+.document-body-editor table.record-info-row td.record-info-cell:has(>br.ProseMirror-trailingBreak):not(:has(>:not(br.ProseMirror-trailingBreak,.document-formatting-mark,.ProseMirror-separator))){width:auto}
+.document-body-editor table.record-info-row td.record-info-cell:not(:has(>:not(br.ProseMirror-trailingBreak,.document-formatting-mark,.ProseMirror-separator)))>br.ProseMirror-trailingBreak{display:none}
 .document-body-editor .record-info-cell--dotted{background-image:radial-gradient(circle at .75px 1.25px,#000 .55px,transparent .65px);background-size:4px 2px;background-position:left bottom;background-repeat:repeat-x;min-height:26px;padding:0 5px 2px;text-align:center}
 .document-body-editor table.record-info-row--compact{width:auto!important;max-width:100%;table-layout:auto;margin:0 auto 1px;font-size:inherit;line-height:1.1}
 .document-body-editor table.record-info-row--compact td.record-info-cell{font-size:inherit;line-height:1.1;padding:0;white-space:nowrap;min-height:0}
@@ -103,11 +105,11 @@ const canvasStyles = `
 .document-body-editor .record-group{width:100%;padding:0;box-sizing:border-box}
 .document-body-editor .record-group--border:before{content:"";display:block;border-top:1px solid #000;margin:4px 0}
 .document-body-editor p[data-record-line="1"]{display:block!important;background-image:radial-gradient(circle at .75px 1.25px,#000 .55px,transparent .65px);background-size:4px 2px;background-position:left bottom;background-repeat:repeat-x;min-height:22px;line-height:22px}
-@media print{.document-canvas [data-print-hidden],.document-object-toolbar,.document-resize-handle,.document-rotation-handle{display:none!important}.document-object.is-selected:after,.document-body-editor img.ProseMirror-selectednode,.document-body-editor .record-signature.ProseMirror-selectednode .record-signature-content{border:0!important;outline:0!important}.document-page{box-shadow:none!important}.document-body-editor{caret-color:transparent}.document-canvas.show-marks .document-body-editor p:after,.document-canvas.show-marks .document-manual-page-break:after{display:none!important}}
+@media print{.document-canvas [data-print-hidden],.document-object-toolbar,.document-resize-handle,.document-rotation-handle{display:none!important}.document-object.is-selected:after,.document-body-editor img.ProseMirror-selectednode,.document-body-editor .record-signature.ProseMirror-selectednode .record-signature-content{border:0!important;outline:0!important}.document-page{box-shadow:none!important}.document-body-editor{caret-color:transparent}.document-canvas.show-marks .document-formatting-mark:after,.document-canvas.show-marks .document-manual-page-break:after{display:none!important}}
 `
 
-function commonExtensions() {
-  return [StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }), TextStyleKit, Highlight.configure({ multicolor: true }), Subscript, Superscript, TextAlign.configure({ types: ['heading', 'paragraph', 'recordSectionTitle', 'recordInfoCell'] }), ParagraphFormatting, RecordTemplate]
+function commonExtensions(marksInReadOnlyTextboxes = false) {
+  return [StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }), TextStyleKit, Highlight.configure({ multicolor: true }), Subscript, Superscript, TextAlign.configure({ types: ['heading', 'paragraph', 'recordSectionTitle', 'recordInfoCell'] }), ParagraphFormatting, FormattingMarks.configure({ renderWhenReadOnly: marksInReadOnlyTextboxes }), RecordTemplate]
 }
 
 type ParagraphLocation = { id: string; position: number; nodeSize: number; top: number; bottom: number }
@@ -420,7 +422,7 @@ function FloatingObject(props: FloatingObjectProps) {
   const [interacting, setInteracting] = useState(false)
   const lastContent = useRef(JSON.stringify(object.content))
   const textbox = useEditor({
-    extensions: commonExtensions(), content: hasDocumentContent(object.content), editable: false,
+    extensions: commonExtensions(!readOnly), content: hasDocumentContent(object.content), editable: false,
     immediatelyRender: false, shouldRerenderOnTransaction: false,
     editorProps: { attributes: { class: 'document-textbox-editor', lang: 'th', 'aria-label': 'ข้อความในกล่องข้อความ' } },
     onUpdate: ({ editor }) => { const content = editor.getJSON(); lastContent.current = JSON.stringify(content); latest.current.onChange({ content }) },

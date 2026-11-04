@@ -5,7 +5,7 @@ import { EditorState } from '@tiptap/pm/state'
 import { history, undo, redo, closeHistory } from '@tiptap/pm/history'
 import StarterKit from '@tiptap/starter-kit'
 import { TextStyleKit } from '@tiptap/extension-text-style'
-import { ObjectTextFlow, objectFlowKey, objectFlowAfterText, ParagraphFormatting, RecordTemplate, signatureMoveTransaction } from '../../resources/js/components/editor/document-extensions.ts'
+import { FormattingMarks, formattingMarksKey, ObjectTextFlow, objectFlowKey, objectFlowAfterText, ParagraphFormatting, RecordTemplate, signatureMoveTransaction } from '../../resources/js/components/editor/document-extensions.ts'
 
 const schema = getSchema([StarterKit, TextStyleKit, ParagraphFormatting, RecordTemplate])
 
@@ -209,5 +209,43 @@ test('ordinary paragraphs and record list items retain paragraph Enter, without 
         assert.equal(nodes[1].attrs.offsetY, 0)
       }
     } finally { editor.destroy() }
+  }
+})
+
+
+test('formatting marks cover empty paragraphs, semantic headings, table cells and every explicit line without changing content', () => {
+  const content = { type: 'doc', content: [
+    { type: 'heading', content: [{ type: 'text', text: 'หัวข้อ' }] },
+    { type: 'paragraph' },
+    { type: 'recordSectionTitle', content: [{ type: 'text', text: 'ข้อคิดเห็น' }] },
+    { type: 'recordInfoRow', content: [{ type: 'recordInfoCell' }] },
+    { type: 'recordSignature', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'ครู' }, { type: 'hardBreak' }, { type: 'hardBreak' }] }] },
+  ] }
+  const doc = schema.nodeFromJSON(content)
+  const plugins = FormattingMarks.config.addProseMirrorPlugins.call({ editor: { isEditable: true }, options: { renderWhenReadOnly: false } })
+  let state = EditorState.create({ schema, doc, plugins })
+  const marks = formattingMarksKey.getState(state).find()
+  assert.equal(marks.filter(mark => mark.spec.kind === 'paragraph').length, 5)
+  assert.equal(marks.filter(mark => mark.spec.kind === 'line-break').length, 2)
+  assert.deepEqual(state.doc.toJSON(), doc.toJSON())
+  assert.equal(state.doc.textContent, 'หัวข้อข้อคิดเห็นครู')
+  state = state.apply(state.tr.insertText('เพิ่ม', 1))
+  assert.equal(formattingMarksKey.getState(state).find().length, 7)
+  assert.equal(state.doc.firstChild.textContent, 'เพิ่มหัวข้อ')
+  assert.ok(formattingMarksKey.getState(state).find().every(mark => mark.from === mark.to))
+  state = state.apply(state.tr.split(state.doc.firstChild.nodeSize + 1))
+  assert.equal(formattingMarksKey.getState(state).find().filter(mark => mark.spec.kind === 'paragraph').length, 6)
+  assert.equal(formattingMarksKey.getState(state).find().filter(mark => mark.spec.kind === 'line-break').length, 2)
+  assert.ok(!JSON.stringify(state.doc.toJSON()).includes('¶'))
+})
+
+
+test('read-only snapshots omit formatting widgets while inactive textboxes can still show them', () => {
+  const doc = schema.nodeFromJSON({ type: 'doc', content: [{ type: 'paragraph' }] })
+  for (const renderWhenReadOnly of [false, true]) {
+    const plugins = FormattingMarks.config.addProseMirrorPlugins.call({ editor: { isEditable: false }, options: { renderWhenReadOnly } })
+    const state = EditorState.create({ schema, doc, plugins })
+    assert.equal(plugins[0].props.decorations(state).find().length, renderWhenReadOnly ? 1 : 0)
+    assert.deepEqual(state.doc.toJSON(), doc.toJSON())
   }
 })

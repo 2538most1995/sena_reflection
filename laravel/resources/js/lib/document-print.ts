@@ -19,7 +19,7 @@ export function removeTablePlusPrintControls(clone: HTMLElement) {
 /** Only editor chrome is removed; the actual text nodes, styles and object coordinates are retained. */
 function cleanPrintClone(clone: HTMLElement) {
   removeTablePlusPrintControls(clone)
-  clone.querySelectorAll('[data-print-hidden],script,iframe,object,embed,button,input,textarea,select,.moveable-control-box,.document-object-handle,.document-resize-handle,.document-rotation-handle,.document-grid,.document-ruler,.document-alignment-guide,.column-resize-handle').forEach(element => element.remove())
+  clone.querySelectorAll('[data-print-hidden],.ProseMirror-separator,script,iframe,object,embed,button,input,textarea,select,.moveable-control-box,.document-object-handle,.document-resize-handle,.document-rotation-handle,.document-grid,.document-ruler,.document-alignment-guide,.column-resize-handle').forEach(element => element.remove())
   for (const element of [clone, ...clone.querySelectorAll<HTMLElement>('*')]) {
     element.removeAttribute('contenteditable')
     element.removeAttribute('tabindex')
