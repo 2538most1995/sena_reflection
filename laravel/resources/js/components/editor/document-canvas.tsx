@@ -93,7 +93,7 @@ const canvasStyles = `
 .document-body-editor .record-body li,.document-body-editor .record-body li p{text-indent:0}
 .document-body-editor .record-signature{display:flex;width:100%;padding:0;break-inside:avoid;page-break-inside:avoid}
 .document-body-editor .record-signature-content{position:relative;max-width:100%;padding:4px 8px 6px;box-sizing:border-box;text-align:center;line-height:1.2}
-.document-body-editor .record-signature-box{display:inline-block;max-width:100%;font-size:inherit;line-height:1.1;text-align:center}
+.document-body-editor .record-signature-box{display:block;width:100%;max-width:100%;font-size:inherit;line-height:1.1;text-align:center}
 .document-body-editor .record-signature p{margin:0 0 1px;padding:0;min-height:0;font-size:inherit;line-height:1.1;text-align:center;white-space:break-spaces}
 .document-body-editor .record-signature p[data-record-role="signatureName"],.document-body-editor .record-signature p[data-record-role="signatureLine"]{white-space:nowrap}
 .document-body-editor .record-signature-move-handle{position:absolute;left:0;top:4px;min-width:68px;min-height:34px;display:flex;align-items:center;justify-content:center;border:1px solid #93c5fd;border-radius:6px;padding:5px 9px;background:#eff6ff;color:#1d4ed8;font:12px/20px Anuphan,sans-serif;cursor:grab;touch-action:none;white-space:nowrap;z-index:3;transform:translateX(calc(-100% - 8px)) scale(var(--document-ui-scale,1));transform-origin:right top;user-select:none}

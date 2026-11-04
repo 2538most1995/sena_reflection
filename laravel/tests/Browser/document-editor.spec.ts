@@ -144,6 +144,61 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     expect(errors).toEqual([])
   })
 
+  test('clicking before a Thai photo caption inside a signature places the caret before its first character at different zooms', async ({ page }, testInfo) => {
+    const title = 'ภาพประกอบการจัดการเรียนการสอน'
+    const document = await createDocument(page, { type: 'doc', content: [
+      { type: 'recordSignature', attrs: { index: 3, width: 430 }, content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'ผู้อำนวยการสถานศึกษา' }] },
+        { type: 'paragraph', attrs: { id: 'nested-photo-heading', role: 'recordTitle' }, content: [{ type: 'text', text: title, marks: [{ type: 'bold' }, { type: 'textStyle', attrs: { fontSize: '20pt' } }] }] },
+      ] },
+      { type: 'paragraph' },
+    ] })
+    await uploadImage(page)
+    const current = (await api<{ document: StoredDocument & { pageSettings: Record<string, unknown> } }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    expect((await api(page, 'PUT', `/api/documents/${document.id}`, {
+      revision: current.revision,
+      pageSettings: { ...current.pageSettings, template: 'weekly-record', fontFamily: 'THSarabunNew' },
+      objects: current.objects.map(object => ({ ...object, page: 1, x: 100, y: 65, width: 60, height: 35, wrap: 'inline', anchor: { kind: 'paragraph', id: 'nested-photo-heading', offsetY: 16 } })),
+    })).status).toBe(200)
+    await page.reload()
+    const caption = page.locator('[data-paragraph-id="nested-photo-heading"]')
+    const caret = () => caption.evaluate(element => {
+      const selection = window.getSelection()!
+      if (!selection.isCollapsed || !element.contains(selection.anchorNode)) return null
+      const before = window.document.createRange()
+      before.selectNodeContents(element)
+      before.setEnd(selection.anchorNode!, selection.anchorOffset)
+      return before.toString().length
+    })
+    for (const zoomIn of [0, 4]) {
+      for (let step = 0; step < zoomIn; step++) await page.getByRole('button', { name: 'ซูมเข้า', exact: true }).click()
+      await caption.scrollIntoViewIfNeeded()
+      await page.evaluate(() => window.document.fonts.ready)
+      const first = await caption.evaluate(element => {
+        const text = window.document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode()!
+        const range = window.document.createRange()
+        range.setStart(text, 0); range.setEnd(text, 1)
+        const rect = range.getBoundingClientRect()
+        return { left: rect.left, y: (rect.top + rect.bottom) / 2 }
+      })
+      await page.mouse.click(first.left - 2, first.y)
+      await expect.poll(caret).toBe(0)
+      if (!zoomIn) await page.screenshot({ path: testInfo.outputPath('caret-before-first-thai-character.png'), caret: 'initial' })
+      await page.keyboard.press('ArrowRight')
+      await expect.poll(caret).toBeGreaterThan(0)
+      await page.keyboard.press('ArrowLeft')
+      await expect.poll(caret).toBe(0)
+    }
+    await page.keyboard.insertText('ก่อน')
+    await expect(caption).toHaveText(`ก่อน${title}`)
+    await saved(page)
+    await page.reload()
+    await expect(caption).toHaveText(`ก่อน${title}`)
+    await expect(page.locator('.record-signature [data-paragraph-id="nested-photo-heading"]')).toHaveCount(1)
+    const persisted = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    expect(persisted.objects[0]).toMatchObject({ anchor: { kind: 'paragraph', id: 'nested-photo-heading', offsetY: 16 } })
+  })
+
   test('Thai partial formatting survives autosave and a real reload', async ({ page }) => {
     const document = await createDocument(page)
     const editor = page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })
