@@ -13,7 +13,7 @@ registerHooks({
 })
 const { buildDocumentDocx, documentPrintPageGeometry, resolveDocumentAssetUrl } = await import('../../resources/js/lib/document-export.ts')
 const { defaultPageSettings } = await import('../../resources/js/lib/document-model.ts')
-const { removeTablePlusPrintControls } = await import('../../resources/js/lib/document-print.ts')
+const { removeTablePlusPrintControls, waitForPrintImages } = await import('../../resources/js/lib/document-print.ts')
 
 const paragraph = (text, attrs = {}) => ({ type: 'paragraph', attrs, content: [{ type: 'text', text }] })
 function fixture(overrides = {}) {
@@ -447,3 +447,64 @@ for (const count of [2, 4]) {
     assert.deepEqual(model, original)
   })
 }
+
+
+function printImage(overrides = {}) {
+  const image = new EventTarget()
+  return Object.assign(image, { complete: true, naturalWidth: 300, naturalHeight: 200, src: '/photo.png', currentSrc: '/photo.png', dataset: {}, decode: async () => {}, ownerDocument: { defaultView: {} } }, overrides)
+}
+
+test('print waits for an image load before decoding it', async () => {
+  let decoded = false
+  const image = printImage({ complete: false, decode: async () => { decoded = true } })
+  const pending = waitForPrintImages({ images: [image] })
+  assert.equal(decoded, false)
+  image.complete = true
+  image.dispatchEvent(new Event('load'))
+  await pending
+  assert.equal(decoded, true)
+})
+
+test('a decode rejection recovers only when actual loaded pixels can be read and releases its temporary canvas', async () => {
+  let read = false
+  const canvas = { width: 0, height: 0, getContext: () => ({
+    drawImage: (source, x, y, width, height) => { assert.equal(source, image); assert.deepEqual([x, y, width, height], [0, 0, 1, 1]) },
+    getImageData: (x, y, width, height) => { assert.deepEqual([x, y, width, height], [0, 0, 1, 1]); read = true },
+  }) }
+  const image = printImage({ decode: async () => { throw new Error('The source image cannot be decoded.') }, ownerDocument: {
+    createElement: tag => { assert.equal(tag, 'canvas'); return canvas },
+  } })
+  await waitForPrintImages({ images: [image] })
+  assert.equal(read, true)
+  assert.equal(canvas.width, 0)
+  assert.equal(canvas.height, 0)
+  assert.equal(image.dataset.printImageFailed, undefined)
+})
+
+test('broken images block printing with Thai image numbers instead of raw decode errors, deduplicating repeated pages', async () => {
+  const decode = async () => { throw new Error('The source image cannot be decoded.') }
+  const broken = () => printImage({ src: '/broken.png', currentSrc: '/broken.png', decode })
+  const images = [printImage(), broken(), printImage(), broken()]
+  await assert.rejects(waitForPrintImages({ images }), error => {
+    assert.match(error.message, /1 รูป \(รูปที่ 2\)/)
+    assert.match(error.message, /ย้อนกลับตรวจรูป/)
+    assert.doesNotMatch(error.message, /cannot be decoded/)
+    return true
+  })
+  assert.equal(images[1].dataset.printImageFailed, 'true')
+  assert.equal(images[3].dataset.printImageFailed, 'true')
+  assert.equal(images[0].dataset.printImageFailed, undefined)
+})
+
+test('missing pixels, failed pixel validation and stalled loads never enable print', async t => {
+  const badDecode = async () => { throw new Error('decode') }
+  for (const image of [
+    printImage({ naturalWidth: 0 }),
+    printImage({ naturalHeight: 0 }),
+    printImage({ decode: badDecode, ownerDocument: { createElement: () => ({ getContext: () => ({ drawImage: () => { throw new Error('corrupt') } }) }) } }),
+  ]) await assert.rejects(waitForPrintImages({ images: [image] }), /โหลดรูปภาพไม่สำเร็จ/)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pending = assert.rejects(waitForPrintImages({ images: [printImage({ complete: false })] }), /โหลดรูปภาพไม่สำเร็จ/)
+  t.mock.timers.tick(15000)
+  await pending
+})

@@ -30,16 +30,56 @@ function cleanPrintClone(clone: HTMLElement) {
   }
 }
 
-async function waitForPrintImages(printDocument: Document) {
-  await Promise.all([...printDocument.images].map(async image => {
+async function waitForImageLoad(image: HTMLImageElement): Promise<void> {
+  if (image.complete) return
+  await new Promise<void>((resolve, reject) => {
+    const finish = (error?: Error) => {
+      clearTimeout(timer)
+      image.removeEventListener('load', loaded)
+      image.removeEventListener('error', failed)
+      if (error) reject(error)
+      else resolve()
+    }
+    const loaded = () => finish()
+    const failed = () => finish(new Error('โหลดรูปภาพไม่สำเร็จ'))
+    const timer = setTimeout(() => finish(new Error('โหลดรูปภาพเกินเวลา')), 15000)
+    image.addEventListener('load', loaded, { once: true })
+    image.addEventListener('error', failed, { once: true })
+    if (image.complete) loaded()
+  })
+}
+
+/** A rejected decode is recoverable only when the browser can actually read the loaded image's pixels. */
+export async function waitForPrintImages(printDocument: Document): Promise<void> {
+  const images = Array.from(printDocument.images)
+  const results = await Promise.allSettled(images.map(async image => {
+    delete image.dataset.printImageFailed
     image.loading = 'eager'
-    if (image.decode) await image.decode()
-    else if (!image.complete) await new Promise<void>((resolve, reject) => {
-      image.addEventListener('load', () => resolve(), { once: true })
-      image.addEventListener('error', () => reject(new Error('ภาพบางรูปโหลดไม่สำเร็จ')), { once: true })
-    })
-    if (!image.naturalWidth) throw new Error('ภาพบางรูปในตัวอย่างพิมพ์โหลดไม่สำเร็จ กรุณาลองใหม่')
+    await waitForImageLoad(image)
+    if (!image.complete || !image.naturalWidth || !image.naturalHeight) throw new Error('รูปภาพไม่สมบูรณ์')
+    try {
+      if (image.decode) await image.decode()
+    } catch {
+      const canvas = image.ownerDocument.createElement('canvas')
+      canvas.width = canvas.height = 1
+      try {
+        const context = canvas.getContext('2d', { willReadFrequently: true })
+        if (!context) throw new Error('อ่านรูปภาพไม่สำเร็จ')
+        context.drawImage(image, 0, 0, 1, 1)
+        context.getImageData(0, 0, 1, 1)
+      } finally { canvas.width = canvas.height = 0 }
+    }
+    if (!image.complete || !image.naturalWidth || !image.naturalHeight) throw new Error('รูปภาพไม่สมบูรณ์')
   }))
+  const sources = [...new Set(images.map((image, index) => image.currentSrc || image.src || `missing-${index}`))]
+  const failures = new Set<number>()
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') return
+    const image = images[index]
+    image.dataset.printImageFailed = 'true'
+    failures.add(sources.indexOf(image.currentSrc || image.src || `missing-${index}`) + 1)
+  })
+  if (failures.size) throw new Error(`โหลดรูปภาพไม่สำเร็จ ${failures.size} รูป (รูปที่ ${[...failures].join(', ')}) กรุณาย้อนกลับตรวจรูป หรือลองโหลดหน้านี้ใหม่`)
 }
 
 async function settlePrintPaint(target: Window) {
@@ -67,22 +107,34 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement,
   target.head.append(base)
   const status = target.createElement('span')
   status.textContent = 'กำลังเตรียมหน้าพิมพ์และโหลดฟอนต์…'
+  status.id = 'browser-print-status'
   status.setAttribute('role', 'status')
+  status.setAttribute('aria-live', 'polite')
   const toolbar = target.createElement('div')
   toolbar.className = 'document-print-toolbar'
   const title = target.createElement('strong')
   title.textContent = model.title || 'เอกสารไม่มีชื่อ'
+  const icon = (path: string) => {
+    const svg = target.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    for (const [key, value] of Object.entries({ viewBox: '0 0 24 24', width: '18', height: '18', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(key, value)
+    const line = target.createElementNS('http://www.w3.org/2000/svg', 'path')
+    line.setAttribute('d', path); svg.append(line)
+    return svg
+  }
   const button = target.createElement('button')
   button.type = 'button'
-  button.textContent = 'พิมพ์ / บันทึก PDF'
+  button.id = 'browser-print-button'
+  button.append(icon('M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z'), target.createTextNode('พิมพ์ / บันทึก PDF'))
   button.disabled = true
   button.addEventListener('click', () => { preview.focus(); preview.print() })
   const back = target.createElement('a')
   back.id = 'browser-print-back'
-  back.textContent = 'ย้อนกลับ'
+  back.append(icon('M19 12H5m7-7-7 7 7 7'), target.createTextNode('ย้อนกลับ'))
   const printBasePath = /^(.*?)\/(?:records|exports|documents)(?:\/|$)/.exec(preview.location.pathname)?.[1] ?? appBasePath
-  back.href = resolveAppUrl(model.editorContext?.returnUrl || (model.sourceRecordId ? `/records/${model.sourceRecordId}` : '/documents'), printBasePath)
+  const recordId = model.sourceRecordId || preview.location.pathname.match(/\/records\/([^/]+)\/browser-print\/?$/)?.[1]
+  back.href = resolveAppUrl(model.editorContext?.returnUrl || (recordId ? `/records/${recordId}` : '/documents'), printBasePath)
   back.addEventListener('click', event => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     const navigation = (preview as Window & { navigation?: { currentEntry: { index: number } | null; entries: () => { index: number; url: string | null }[] } }).navigation
     const previous = navigation?.currentEntry
       ? navigation.entries().find(entry => entry.index === navigation.currentEntry!.index - 1)?.url
@@ -92,7 +144,19 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement,
       preview.history.back()
     }
   })
-  toolbar.append(title, status, back, button)
+  const heading = target.createElement('div')
+  heading.className = 'document-print-heading'
+  heading.append(title, status)
+  const actions = target.createElement('div')
+  actions.className = 'document-print-actions'
+  const retry = target.createElement('button')
+  retry.id = 'browser-print-retry'
+  retry.type = 'button'
+  retry.hidden = true
+  retry.textContent = 'ลองโหลดอีกครั้ง'
+  retry.addEventListener('click', () => preview.location.reload())
+  actions.append(back, retry, button)
+  toolbar.append(heading, actions)
   if (preview !== window) target.body.replaceChildren(toolbar)
   const size = pageDimensions(model.pageSettings)
   const canvasWidth = Number(canvas.dataset.pageWidth) || size.width * MM_TO_PX
@@ -101,11 +165,21 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement,
     @page { size: ${size.width}mm ${size.height}mm; margin: 0; }
     html, body { margin: 0 !important; padding: 0 !important; min-width: 0 !important; height: auto !important; background: #e2e8f0 !important; }
     body { font-family: Sarabun, sans-serif; }
-    .document-print-toolbar { position: sticky; top: 0; z-index: 2147483647; display: flex; align-items: center; gap: 20px; padding: 14px 24px; color: #0f172a; background: #fff; border-bottom: 1px solid #cbd5e1; font: 14px/1.5 sans-serif; }
-    .document-print-toolbar strong { margin-right: auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .document-print-toolbar a { color: #1d4ed8; text-decoration: none; white-space: nowrap; padding: 9px 12px; }
-    .document-print-toolbar button { border: 0; border-radius: 8px; padding: 9px 18px; color: white; background: #2563eb; cursor: pointer; }
-    .document-print-toolbar button:disabled { opacity: .5; cursor: wait; }
+    .document-print-toolbar { position:sticky;top:0;z-index:2147483647;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 24px;color:#0f172a;background:#fff;border-bottom:1px solid #e2e8f0;box-shadow:0 1px 4px #0f172a08;font:14px/1.5 Anuphan,Sarabun,system-ui,sans-serif; }
+    .document-print-heading { min-width:0;flex:1; }
+    .document-print-heading strong { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;font-weight:600; }
+    .document-print-heading > span { display:block;margin-top:3px;color:#64748b;font-size:13px;line-height:1.6;overflow-wrap:anywhere; }
+    .document-print-actions { display:flex;align-items:center;gap:10px;flex-shrink:0; }
+    .document-print-actions a,.document-print-actions button { box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:10px 16px;border:1px solid #2563eb;border-radius:12px;background:#2563eb;color:#fff;font:600 14px/1.5 Anuphan,Sarabun,system-ui,sans-serif;text-decoration:none;white-space:nowrap;cursor:pointer;transition:transform 120ms cubic-bezier(.23,1,.32,1); }
+    .document-print-actions #browser-print-back,.document-print-actions #browser-print-retry { border-color:#dbe3ee;background:#f8fafc;color:#334155;box-shadow:0 1px 2px #0f172a05; }
+    .document-print-actions svg { flex-shrink:0; }
+    .document-print-actions :focus-visible { outline:3px solid #93c5fd;outline-offset:3px; }
+    .document-print-actions button:disabled { opacity:.5;cursor:wait; }
+    .document-print-actions [hidden] { display:none!important; }
+    .document-print-canvas img[data-print-image-failed] { outline:2px solid #dc2626;outline-offset:2px; }
+    @media(hover:hover) and (pointer:fine) { .document-print-actions #browser-print-back:hover,.document-print-actions #browser-print-retry:hover { background:#eff6ff;border-color:#93c5fd;color:#1d4ed8; } .document-print-actions button:not(:disabled):active,.document-print-actions a:active { transform:scale(.97); } }
+    @media(max-width:640px) { .document-print-toolbar { flex-wrap:wrap;gap:12px;padding:12px 16px; } .document-print-heading { flex-basis:100%; } .document-print-actions { width:100%;flex-wrap:wrap; } .document-print-actions #browser-print-button { flex:1; } }
+    @media(prefers-reduced-motion:reduce) { .document-print-actions a,.document-print-actions button { transition:none;transform:none!important; } }
     .document-print-page { position: relative !important; display: block !important; width: ${size.width}mm !important; height: ${size.height}mm !important; min-height: ${size.height}mm !important; max-height: ${size.height}mm !important; margin: 24px auto; padding: 0 !important; overflow: hidden !important; background: white; box-shadow: 0 1px 10px #0002; break-inside: avoid; break-after: page; page-break-after: always; }
     .document-print-page:last-child { break-after: auto; page-break-after: auto; }
     .document-print-canvas { position: absolute !important; left: 0 !important; width: ${canvasWidth}px !important; margin: 0 !important; transform: none !important; zoom: 1 !important; outline: 0 !important; }
@@ -179,6 +253,7 @@ export async function openDocumentPrint(model: WebDocument, canvas: HTMLElement,
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : 'เตรียมหน้าพิมพ์ไม่สำเร็จ กรุณาลองใหม่'
     status.style.color = '#b91c1c'
+    retry.hidden = preview !== window
     throw error
   } finally { if (timeout) clearTimeout(timeout) }
 }

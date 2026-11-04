@@ -54,6 +54,7 @@ async function uploadImage(page: Page) {
 test.describe('Web document editor against an isolated Laravel fixture', () => {
   test.use({ baseURL: baseUrl || 'http://127.0.0.1:8765' })
   let fixture: WorkflowFixture | undefined
+  let legacyRecordId: string | undefined
   test.beforeAll(async () => {
     if (ownsFixture) { test.setTimeout(60_000); fixture = await startWorkflowFixture() }
   })
@@ -442,8 +443,71 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     }
   })
 
+  test('a transient image decode error still prints after pixel validation and the new back button works on mobile', async ({ page }, testInfo) => {
+    const recordId = ownsFixture ? (legacyRecordId ||= fixture!.seedLegacyRecord()) : process.env.SENA_E2E_RECORD_ID
+    test.skip(!recordId, 'Provide an isolated record fixture with images.')
+    await page.goto(`/records/${recordId}/document`)
+    await expect(page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })).toBeVisible()
+    await saved(page)
+    await page.addInitScript(() => { HTMLImageElement.prototype.decode = async () => { throw new DOMException('The source image cannot be decoded.', 'EncodingError') } })
+    await page.goto(`/records/${recordId}`)
+    const returnUrl = page.url()
+    await page.getByRole('link', { name: 'พิมพ์ / บันทึก PDF', exact: true }).click()
+    await expect(page.locator('body')).toHaveAttribute('data-document-print-ready', 'true', { timeout: 25000 })
+    await expect(page.locator('#browser-print-button')).toBeEnabled()
+    await expect(page.locator('#browser-print-status')).toContainText('พร้อมพิมพ์')
+    await expect(page.locator('.document-print-page img')).not.toHaveCount(0)
+    await expect(page.locator('img[data-print-image-failed],img.ProseMirror-separator')).toHaveCount(0)
+    const back = page.getByRole('link', { name: 'ย้อนกลับ', exact: true })
+    await expect(back.locator('svg[aria-hidden=true]')).toHaveCount(1)
+    expect((await back.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    await page.screenshot({ path: testInfo.outputPath('print-toolbar-desktop.png') })
+    await page.setViewportSize({ width: 390, height: 844 })
+    const bounds = (await back.boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(0)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(390)
+    await expect(page.locator('#browser-print-button')).toBeInViewport()
+    await page.screenshot({ path: testInfo.outputPath('print-toolbar-mobile.png') })
+    await back.focus()
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(returnUrl)
+  })
+
+  test('genuinely unreadable print images stay blocked with Thai diagnostics and can be retried', async ({ page }) => {
+    const recordId = ownsFixture ? (legacyRecordId ||= fixture!.seedLegacyRecord()) : process.env.SENA_E2E_RECORD_ID
+    test.skip(!recordId, 'Provide an isolated record fixture with images.')
+    await page.goto(`/records/${recordId}/document`)
+    await expect(page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })).toBeVisible()
+    await saved(page)
+    const printRoute = `**/records/${recordId}/browser-print`
+    await page.route(printRoute, async route => {
+      const response = await route.fetch()
+      const html = await response.text()
+      const payload = /<script id="document-snapshot-data" type="application\/json">([\s\S]*?)<\/script>/.exec(html)![1]
+      let corrupted = 0
+      const damaged = JSON.stringify(JSON.parse(payload), (_key, value) => {
+        if (typeof value === 'string' && value.startsWith('data:image/')) { corrupted++; return 'data:image/png;base64,aW52YWxpZC1pbWFnZQ==' }
+        return value
+      }).replace(/</g, '\\u003c')
+      expect(corrupted).toBeGreaterThan(0)
+      await route.fulfill({ response, body: html.replace(payload, damaged) })
+    })
+    await page.goto(`/records/${recordId}/browser-print`)
+    await expect(page.locator('#browser-print-status')).toContainText('โหลดรูปภาพไม่สำเร็จ', { timeout: 25000 })
+    await expect(page.locator('#browser-print-status')).toContainText('รูปที่ 1')
+    await expect(page.locator('#browser-print-status')).not.toContainText('cannot be decoded')
+    await expect(page.locator('#browser-print-button')).toBeDisabled()
+    await expect(page.locator('#browser-print-retry')).toBeVisible()
+    expect(await page.locator('img[data-print-image-failed]').count()).toBeGreaterThan(0)
+    await page.unroute(printRoute)
+    await page.getByRole('button', { name: 'ลองโหลดอีกครั้ง', exact: true }).click()
+    await expect(page.locator('body')).toHaveAttribute('data-document-print-ready', 'true', { timeout: 25000 })
+    await expect(page.locator('#browser-print-button')).toBeEnabled()
+    await expect(page.locator('#browser-print-retry')).toBeHidden()
+  })
+
   test('the original record route uses the advanced editor with the original Thai form and saves before printing', async ({ page }) => {
-    const recordId = ownsFixture ? fixture!.seedLegacyRecord() : process.env.SENA_E2E_RECORD_ID
+    const recordId = ownsFixture ? (legacyRecordId ||= fixture!.seedLegacyRecord()) : process.env.SENA_E2E_RECORD_ID
     test.skip(!recordId, 'Provide the ID of a dedicated isolated report fixture to test the record binding.')
     await page.goto(`/records/${recordId}/document`)
     await expect(page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })).toBeVisible()
