@@ -42,7 +42,7 @@ export function TeachingDetailsForm({
   groups,
   subjects,
   subjectsLoading = false,
-  subjectSource = 'history',
+  subjectSource = 'unavailable',
   subjectError = null,
   subjectTerm = null,
   subjectContext = '',
@@ -59,25 +59,45 @@ export function TeachingDetailsForm({
   onRefreshSubjects,
 }: Props) {
   const level = teachingLevels.find((item) => item.code === levelCode) ?? teachingLevels[0]
-  const levelGroups = useMemo(() => groups.filter((group) => !group.level || group.level === levelCode), [groups, levelCode])
-  const levelSubjects = useMemo(() => subjectsForLevel(subjects, levelCode, level.name), [level.name, levelCode, subjects])
+  const catalogueGroups = useMemo(() => groups.filter((group) => !group.level || group.level === levelCode), [groups, levelCode])
+  const groupInCatalogue = catalogueGroups.some((group) => group.group_code === value.class_group_code && group.class_name === value.class_name)
+  const levelGroups = useMemo(() => {
+    if (groupInCatalogue || (!value.class_group_code && !value.class_name)) return catalogueGroups
+    return [...catalogueGroups, { group_code: value.class_group_code, class_name: value.class_name, level: levelCode, level_name: level.name, district_id: '', district_name: '' }]
+  }, [catalogueGroups, groupInCatalogue, level.name, levelCode, value.class_group_code, value.class_name])
+  const catalogueSubjects = useMemo(() => subjects.filter(subject => subject.source !== 'history'), [subjects])
+  const levelSubjects = useMemo(() => subjectsForLevel(catalogueSubjects, levelCode, level.name), [catalogueSubjects, level.name, levelCode])
   const [showAllSubjects, setShowAllSubjects] = useState(false)
   const selectableSubjects = useMemo(() => {
-    return withOrientationSubject(showAllSubjects ? subjects : levelSubjects, levelCode)
-  }, [showAllSubjects, levelSubjects, levelCode, subjects])
+    return withOrientationSubject(showAllSubjects ? catalogueSubjects : levelSubjects, levelCode)
+  }, [showAllSubjects, levelSubjects, levelCode, catalogueSubjects])
 
   const groupIndex = levelGroups.findIndex((group) => group.group_code === value.class_group_code && group.class_name === value.class_name)
   const subjectIndex = selectableSubjects.findIndex((subject) => subject.subject === value.subject && subject.subject_code === value.subject_code)
-  const [manualGroup, setManualGroup] = useState(Boolean((value.class_group_code || value.class_name) && groupIndex < 0))
+  const [manualGroup, setManualGroup] = useState(Boolean((value.class_group_code || value.class_name) && !groupInCatalogue))
   const [manualSubject, setManualSubject] = useState(Boolean(value.subject && subjectIndex < 0))
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [openUpwards, setOpenUpwards] = useState(false)
   const comboboxRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const manualSubjectInputRef = useRef<HTMLInputElement>(null)
+  const focusManualSubject = useRef(false)
   const [subjectQuery, setSubjectQuery] = useState('')
   const matchingSubjects = useMemo(() => searchSubjects(selectableSubjects, subjectQuery), [selectableSubjects, subjectQuery])
-  const selectedSubject = selectableSubjects[subjectIndex]
+  const startManualSubject = (name = '') => {
+    if (name) onChange({ ...value, subject: name.slice(0, 150), subject_code: '' })
+    focusManualSubject.current = true
+    setManualSubject(true)
+    setDropdownOpen(false)
+    setSubjectQuery('')
+  }
+
+  useEffect(() => {
+    if (!manualSubject || !focusManualSubject.current) return
+    focusManualSubject.current = false
+    manualSubjectInputRef.current?.focus()
+  }, [manualSubject])
 
   useEffect(() => {
     setSubjectQuery('')
@@ -167,14 +187,14 @@ export function TeachingDetailsForm({
         <div className="grid content-start gap-3">
           <div className="flex items-center justify-between gap-2">
             <b className="text-sm">รายวิชา</b>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setManualSubject((current) => !current)}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => manualSubject ? setManualSubject(false) : startManualSubject()}>
               {manualSubject ? 'เลือกจากระบบ' : 'กรอกรายวิชาเอง'}
             </Button>
           </div>
           {manualSubject || (!subjectsLoading && !selectableSubjects.length) ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <FormField label="ชื่อรายวิชา *">
-                <Input data-workspace-field="subject" maxLength={150} value={value.subject} onChange={(event) => onChange({ ...value, subject: event.target.value })} placeholder="ระบุชื่อวิชา" />
+                <Input ref={manualSubjectInputRef} data-workspace-field="subject" maxLength={150} value={value.subject} onChange={(event) => onChange({ ...value, subject: event.target.value })} placeholder="ระบุชื่อวิชา" />
               </FormField>
               <FormField label="รหัสวิชา">
                 <Input maxLength={50} value={value.subject_code} onChange={(event) => onChange({ ...value, subject_code: event.target.value })} placeholder="เช่น ทช11002" />
@@ -249,7 +269,20 @@ export function TeachingDetailsForm({
                           type="search"
                           value={subjectQuery}
                           onChange={(event) => setSubjectQuery(event.target.value)}
-                          placeholder="พิมพ์ค้นหารหัสหรือชื่อวิชา..."
+                          aria-label="ค้นหาหรือกรอกชื่อรายวิชา"
+                          placeholder="ค้นหารายวิชา หรือพิมพ์ชื่อวิชาเอง..."
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' || !subjectQuery.trim() || event.nativeEvent.isComposing) return
+                            event.preventDefault()
+                            const query = subjectQuery.trim().toLocaleLowerCase('th')
+                            const exact = matchingSubjects.find(subject => subject.subject.toLocaleLowerCase('th') === query || subject.subject_code.toLocaleLowerCase('th') === query)
+                            if (exact) {
+                              onChange({ ...value, subject: exact.subject, subject_code: exact.subject_code })
+                              setDropdownOpen(false)
+                              setSubjectQuery('')
+                              triggerRef.current?.focus()
+                            } else startManualSubject(subjectQuery.trim())
+                          }}
                           className="h-8 pl-8 pr-7 text-xs bg-background"
                         />
                         {subjectQuery && (
@@ -270,13 +303,13 @@ export function TeachingDetailsForm({
                           ไม่พบรายวิชาที่ค้นหา &ldquo;{subjectQuery}&rdquo;
                         </div>
                       ) : (
-                        (['activity', 'sdl', 'history'] as const).map((source) => {
-                          const items = matchingSubjects.filter((subject) => (subject.source || 'history') === source)
+                        (['activity', 'sdl'] as const).map((source) => {
+                          const items = matchingSubjects.filter((subject) => (subject.source || 'sdl') === source)
                           if (!items.length) return null
                           return (
                             <div key={source} className="mb-2 last:mb-0">
                               <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground">
-                                {source === 'activity' ? 'กิจกรรม' : source === 'sdl' ? 'SDL School' : 'ประวัติบันทึก'} ({items.length})
+                                {source === 'activity' ? 'กิจกรรม' : 'SDL School'} ({items.length})
                               </div>
                               <div className="space-y-0.5">
                                 {items.map((subject) => {
@@ -324,6 +357,12 @@ export function TeachingDetailsForm({
                         })
                       )}
                     </div>
+                    <div className="border-t border-border/60 p-2">
+                      <Button type="button" variant="ghost" size="sm" className="h-auto w-full justify-start whitespace-normal text-left" onClick={() => startManualSubject(subjectQuery.trim())}>
+                        <NotePencil size={16} className="shrink-0" />
+                        {subjectQuery.trim() ? `ใช้ชื่อ “${subjectQuery.trim()}” เป็นรายวิชา` : 'กรอกรายวิชาเอง'}
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -344,7 +383,7 @@ export function TeachingDetailsForm({
                 {subjectsLoading ? 'กำลังอัปเดต...' : 'อัปเดตรายวิชา'}
               </Button>
             )}
-            {levelSubjects.length > 0 && subjects.length > levelSubjects.length && (
+            {levelSubjects.length > 0 && catalogueSubjects.length > levelSubjects.length && (
               <Button
                 type="button"
                 variant="ghost"
@@ -352,7 +391,7 @@ export function TeachingDetailsForm({
                 onClick={() => setShowAllSubjects((current) => !current)}
                 className="text-xs text-muted-foreground"
               >
-                {showAllSubjects ? `เฉพาะ${level.name}` : `วิชาทั้งหมด (${subjects.length})`}
+                {showAllSubjects ? `เฉพาะ${level.name}` : `วิชาทั้งหมด (${catalogueSubjects.length})`}
               </Button>
             )}
             {levelSubjects.length === 0 && selectableSubjects.length > 0 && !manualSubject && (

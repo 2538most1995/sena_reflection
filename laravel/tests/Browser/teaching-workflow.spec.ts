@@ -14,6 +14,11 @@ async function draftFromPage(page: Page) {
   return (await response.json()).data.draft as Draft
 }
 
+async function closeActionNotice(page: Page, title: string) {
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'ปิดการแจ้งเตือน', exact: true }).click()
+}
+
 async function onlyLevels(page: Page, codes: string[]) {
   for (const [code, name] of [['1', 'ประถมศึกษา'], ['2', 'มัธยมศึกษาตอนต้น'], ['3', 'มัธยมศึกษาตอนปลาย']]) {
     const toggle = page.getByRole('switch', { name: `สอนระดับ${name}`, exact: true })
@@ -87,6 +92,149 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     await expect(page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true })).toBeVisible()
     expect(requests).toEqual(['/records/create'])
     await expect(page.locator('a[href="/records/create"]')).toHaveCount(0)
+  })
+
+  test('the subject picker accepts a typed name and optional code without history suggestions and keeps them after reload', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await onlyLevels(page, ['1'])
+    await page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true }).selectOption('10')
+    await page.route('**/record-options/workspace?**', route => route.fulfill({ json: { status: 'success', data: {
+      groups: [{ group_code: 'WORKFLOW-1', class_name: 'กลุ่มทดสอบ ประถมศึกษา', level: '1' }],
+      subjects: [{ subject: 'วิชาจากระบบ', subject_code: 'API1', level: '1', source: 'sdl' }, { subject: 'วิชาประวัติที่ไม่ต้องแสดง', subject_code: 'OLD', level: '1', source: 'history' }],
+      subject_source: 'sdl', subject_term: '2/2569', subject_error: null, error_code: null,
+    } } }))
+    const basics = page.locator('section[aria-labelledby="teaching-basics-1"]')
+    await basics.getByRole('button', { name: 'อัปเดตรายวิชา', exact: true }).click()
+    await closeActionNotice(page, 'อัปเดตรายวิชาจากระบบเรียบร้อยแล้ว')
+    await expect(basics.getByRole('button', { name: 'อัปเดตรายวิชา', exact: true })).toBeEnabled()
+    await basics.getByRole('button', { name: 'เลือกรายวิชา', exact: true }).click()
+    await expect(page.getByRole('option', { name: /วิชาประวัติ/ })).toHaveCount(0)
+    await expect(basics.getByText(/ประวัติบันทึก/)).toHaveCount(0)
+    const name = `รายวิชากรอกเอง ${randomUUID()}`
+    await page.getByRole('searchbox', { name: 'ค้นหาหรือกรอกชื่อรายวิชา', exact: true }).fill(name)
+    await page.getByRole('searchbox', { name: 'ค้นหาหรือกรอกชื่อรายวิชา', exact: true }).press('Enter')
+    const subject = page.getByRole('textbox', { name: 'ชื่อรายวิชา *', exact: true })
+    await expect(subject).toHaveValue(name)
+    await expect(subject).toBeFocused()
+    await expect(page.getByRole('textbox', { name: 'รหัสวิชา', exact: true })).toHaveValue('')
+    await page.getByRole('textbox', { name: 'รหัสวิชา', exact: true }).fill('MANUAL-1')
+    await page.getByRole('button', { name: 'เก็บร่างตอนนี้', exact: true }).click()
+    await closeActionNotice(page, 'เก็บฉบับร่างแล้ว')
+    await expect.poll(async () => (await draftFromPage(page)).payload.levels['1'].subject_code).toBe('MANUAL-1')
+    await page.reload()
+    await expect(subject).toHaveValue(name)
+    await expect(page.getByRole('textbox', { name: 'รหัสวิชา', exact: true })).toHaveValue('MANUAL-1')
+    await page.getByRole('button', { name: 'เลือกจากระบบ', exact: true }).click()
+    await page.getByRole('button', { name: 'เลือกรายวิชา', exact: true }).click()
+    await page.getByRole('listbox', { name: 'รายวิชาหรือกิจกรรม', exact: true }).getByRole('button', { name: 'กรอกรายวิชาเอง', exact: true }).click()
+    await expect(subject).toHaveValue(name)
+    await expect(page.getByRole('textbox', { name: 'รหัสวิชา', exact: true })).toHaveValue('MANUAL-1')
+    await page.screenshot({ path: 'output/playwright/subject-manual-mobile.png', fullPage: false })
+  })
+
+  test('switching the active level alone leaves the clean workspace without an unsaved warning', async ({ page }) => {
+    const dialogs: string[] = []
+    page.on('dialog', dialog => { dialogs.push(dialog.message()) })
+    await page.getByRole('navigation', { name: 'ระดับชั้นในชุดงาน', exact: true }).getByRole('button').filter({ hasText: 'ม.ต้น' }).click()
+    await page.getByRole('navigation', { name: 'เมนูหลัก', exact: true }).getByRole('link', { name: 'เอกสาร', exact: true }).first().click()
+    await expect(page).toHaveURL(/\/documents$/)
+    expect(dialogs).toEqual([])
+  })
+
+  test('hover prefetch never warns but leaving unsaved work warns once and saving removes the warning', async ({ page }) => {
+    const dialogs: string[] = []
+    page.on('dialog', dialog => { dialogs.push(dialog.message()) })
+    await page.getByRole('button', { name: 'กรอกรายวิชาเอง', exact: true }).click()
+    await page.getByRole('textbox', { name: 'ชื่อรายวิชา *', exact: true }).fill('ข้อความที่ยังไม่ได้เก็บร่าง')
+    const documents = page.getByRole('navigation', { name: 'เมนูหลัก', exact: true }).getByRole('link', { name: 'เอกสาร', exact: true }).first()
+    await Promise.all([page.waitForRequest(request => new URL(request.url()).pathname === '/documents'), documents.hover()])
+    expect(dialogs).toEqual([])
+    await expect(page).toHaveURL(/\/records\/create$/)
+    await documents.click()
+    await expect.poll(() => dialogs.length).toBe(1)
+    await expect(page).toHaveURL(/\/records\/create$/)
+    await page.getByRole('button', { name: 'เก็บร่างตอนนี้', exact: true }).click()
+    await closeActionNotice(page, 'เก็บฉบับร่างแล้ว')
+    await expect(page.getByRole('status').filter({ hasText: 'บันทึกล่าสุด' })).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole('textbox', { name: 'ชื่อรายวิชา *', exact: true })).toHaveValue('ข้อความที่ยังไม่ได้เก็บร่าง')
+    await documents.click()
+    await expect(page).toHaveURL(/\/documents$/)
+    expect(dialogs).toHaveLength(1)
+  })
+
+  test('catalogue refresh retains the selected group, course and attendance when options disappear or the source fails', async ({ page }) => {
+    await onlyLevels(page, ['1'])
+    await page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true }).selectOption('11')
+    await fillLevel(page, '1', 'รายวิชาที่เลือกไว้')
+    await page.getByRole('button', { name: 'เก็บร่างตอนนี้', exact: true }).click()
+    await closeActionNotice(page, 'เก็บฉบับร่างแล้ว')
+    const before = structuredClone((await draftFromPage(page)).payload.levels['1'])
+    let update = 0
+    await page.route('**/record-options/workspace?**', route => {
+      update++
+      if (update === 3) return route.fulfill({ status: 503, json: { message: 'ต้นทางไม่พร้อม' } })
+      return route.fulfill({ json: { status: update === 2 ? 'error' : 'success', message: 'โหลดกลุ่มเรียนไม่สำเร็จ', data: {
+        groups: [], subjects: update === 2 ? [] : [{ subject: 'รายวิชาใหม่จากระบบ', subject_code: 'NEW1', level: '1', source: 'sdl' }],
+        subject_source: update === 2 ? 'unavailable' : 'sdl', subject_term: '2/2569', subject_error: update === 2 ? 'โหลดรายวิชาไม่สำเร็จ' : null, error_code: update === 2 ? 'student_source_unavailable' : null,
+      } } })
+    })
+    for (let refresh = 1; refresh <= 3; refresh++) {
+      await page.getByRole('button', { name: 'อัปเดตรายวิชา', exact: true }).click()
+      await closeActionNotice(page, refresh === 1 ? 'อัปเดตรายวิชาจากระบบเรียบร้อยแล้ว' : refresh === 2 ? 'อัปเดตข้อมูลยังไม่ครบ' : 'อัปเดตรายวิชาไม่สำเร็จ')
+      await expect(page.getByRole('button', { name: 'อัปเดตรายวิชา', exact: true })).toBeEnabled()
+      const group = page.getByRole('combobox', { name: 'เลือกกลุ่มเรียน', exact: true })
+      await expect(group.locator('option:checked')).toHaveText('กลุ่มทดสอบ ประถมศึกษา (WORKFLOW-1)')
+      await expect(page.getByText('มาเรียน 1 จาก 2 คน', { exact: true })).toBeVisible()
+      await expect(page.getByRole('textbox', { name: 'ชื่อรายวิชา *', exact: true })).toHaveValue(before.subject)
+      await page.getByRole('button', { name: 'เลือกจากระบบ', exact: true }).click()
+      await page.getByRole('button', { name: 'เลือกรายวิชา', exact: true }).click()
+      await expect(page.getByRole('option', { name: 'NEW1 - รายวิชาใหม่จากระบบ', exact: true })).toBeVisible()
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: 'กรอกรายวิชาเอง', exact: true }).click()
+      expect((await draftFromPage(page)).payload.levels['1']).toEqual(before)
+    }
+  })
+
+  test('an empty roster refresh keeps existing checked students instead of silently erasing them', async ({ page }) => {
+    await onlyLevels(page, ['1'])
+    await page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true }).selectOption('12')
+    await fillLevel(page, '1', 'รายวิชาทดสอบรายชื่อว่าง')
+    await page.getByRole('button', { name: 'เก็บร่างตอนนี้', exact: true }).click()
+    await closeActionNotice(page, 'เก็บฉบับร่างแล้ว')
+    const before = structuredClone((await draftFromPage(page)).payload.levels['1'])
+    await page.route('**/record-options/students?**', route => route.fulfill({ json: { status: 'success', data: { items: [], source: 'student_api' } } }))
+    await page.getByRole('button', { name: 'อัปเดตรายชื่อจากกลุ่มนี้', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('รายชื่อและสถานะเช็กชื่อเดิมยังคงอยู่')
+    await expect(page.getByText('มาเรียน 1 จาก 2 คน', { exact: true })).toBeVisible()
+    expect((await draftFromPage(page)).payload.levels['1']).toEqual(before)
+  })
+
+  test('changing terms rapidly ignores the late catalogue and reloads options when returning to the original term', async ({ page }) => {
+    let releaseOld!: () => void
+    let oldStarted!: () => void
+    const waiting = new Promise<void>(resolve => { releaseOld = resolve })
+    const started = new Promise<void>(resolve => { oldStarted = resolve })
+    await page.route('**/record-options/workspace?**', async route => {
+      const term = new URL(route.request().url()).searchParams.get('semester')
+      if (term === '1') { oldStarted(); await waiting }
+      await route.fulfill({ json: { status: 'success', data: {
+        groups: [{ group_code: `TERM-${term}`, class_name: `กลุ่มภาคเรียน ${term}`, level: '1' }],
+        subjects: [{ subject: `วิชาภาคเรียน ${term}`, subject_code: `TERM-${term}`, level: '1', source: 'sdl' }],
+        subject_source: 'sdl', subject_term: `${term}/2569`, subject_error: null, error_code: null,
+      } } }).catch(() => undefined)
+    })
+    const semester = page.getByRole('combobox', { name: 'ภาคเรียน *', exact: true })
+    await semester.selectOption('1')
+    await started
+    await semester.selectOption('2')
+    await expect(page.getByRole('button', { name: 'อัปเดตรายวิชา', exact: true })).toBeEnabled()
+    releaseOld()
+    await expect(page.getByRole('combobox', { name: 'เลือกกลุ่มเรียน', exact: true }).getByRole('option', { name: 'กลุ่มภาคเรียน 2 (TERM-2)', exact: true })).toHaveCount(1)
+    await page.getByRole('button', { name: 'เลือกรายวิชา', exact: true }).click()
+    await expect(page.getByRole('option', { name: 'TERM-2 - วิชาภาคเรียน 2', exact: true })).toBeVisible()
+    await expect(page.getByRole('option', { name: 'TERM-1 - วิชาภาคเรียน 1', exact: true })).toHaveCount(0)
+    await page.keyboard.press('Escape')
   })
 
   test('orientation can be selected without a subject catalog and saves its name without an invented code', async ({ page }) => {

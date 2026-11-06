@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Tambon;
-use App\Models\TeachingRecord;
 use App\Services\AcademicTermService;
 use App\Services\ActiveAcademicTermService;
 use App\Services\DraftService;
@@ -116,46 +115,20 @@ class RecordCreateController extends Controller
         if ($api->isSdl() && $subjectTerm === null) {
             $subjectTerm = app(AcademicTermService::class)->normalize($api->status()['latest_term']);
         }
-        $subjects = TeachingRecord::query()->visibleTo($user)
-            ->when($user->isDistrict() && $targetTambon !== '', fn ($query) => $query->where('tambon', $targetTambon))
-            ->when($api->isSdl(), function ($query) use ($subjectTerm): void {
-                if ($subjectTerm === null) {
-                    $query->whereIn('id', []);
-
-                    return;
-                }
-                [$semester, $year] = explode('/', $subjectTerm);
-                $query->where('semester', $semester)->where('year', $year);
-            })
-            ->whereNotNull('subject')->where('subject', '!=', '')
-            ->select(['subject', 'subject_code', 'level'])->distinct()->orderBy('subject')->limit(200)->get()
-            ->map(function (TeachingRecord $record) use ($levels): ?array {
-                $level = $levels->fields($record->level);
-                if ($level === null) {
-                    return null;
-                }
-
-                return [
-                    'subject' => trim((string) $record->subject),
-                    'subject_code' => trim((string) $record->subject_code),
-                    ...$level,
-                    'source' => 'history',
-                ];
-            })->filter()->unique(fn (array $row) => $row['level_code'].'|'.$row['subject_code'].'|'.$row['subject'])->values();
-        $subjectSource = $subjects->isNotEmpty() ? 'history' : 'unavailable';
+        $subjects = collect();
+        $subjectSource = 'unavailable';
         $subjectError = null;
         if ($api->isSdl()) {
             try {
                 $catalogue = $api->subjects($subjectTerm ?? '', $request->boolean('refresh'));
-                $catalogueKeys = $catalogue->map(fn (array $row): string => mb_strtolower($row['subject_code']).'|'.$row['level'])->all();
-                $subjects = $catalogue->concat($subjects->reject(fn (array $row): bool => in_array(mb_strtolower($row['subject_code']).'|'.$row['level_code'], $catalogueKeys, true)))->values();
+                $subjects = $catalogue->values();
                 $subjectSource = 'sdl';
                 if ($catalogue->contains(fn (array $row): bool => $row['level'] === '')) {
-                    $subjectError = 'SDL School ยังไม่ระบุระดับชั้นของรายวิชาบางรายการ จึงไม่แสดงวิชาที่ตรวจระดับไม่ได้ กรุณาอัปเดต API รายวิชา หรือเลือกประวัติของระดับชั้นนี้/กรอกรายวิชาเอง';
+                    $subjectError = 'SDL School ยังไม่ระบุระดับชั้นของรายวิชาบางรายการ จึงไม่แสดงวิชาที่ตรวจระดับไม่ได้ กรุณาอัปเดต API รายวิชา หรือกรอกรายวิชาเอง';
                 }
             } catch (\Throwable $exception) {
                 Log::warning('SDL School subject catalogue unavailable', ['exception' => $exception::class, 'term' => $subjectTerm]);
-                $subjectError = 'โหลดรายวิชาจาก SDL School ไม่สำเร็จ'.($subjectTerm ? ' สำหรับภาคเรียน '.$subjectTerm : '').' สามารถเลือกจากประวัติภาคเรียนนี้หรือเพิ่มรายวิชาเองได้';
+                $subjectError = 'โหลดรายวิชาจาก SDL School ไม่สำเร็จ'.($subjectTerm ? ' สำหรับภาคเรียน '.$subjectTerm : '').' สามารถกรอกรายวิชาเองได้ โดยรายวิชาที่เลือกไว้ยังคงอยู่';
             }
         }
         $error = $payload['error'] ?? null;

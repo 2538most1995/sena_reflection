@@ -193,7 +193,7 @@ class SubjectCatalogTest extends TestCase
         }
     }
 
-    public function test_workspace_merges_api_first_and_keeps_history_scoped_to_tambon_and_term(): void
+    public function test_workspace_offers_only_catalogue_without_record_history_for_teacher_and_district(): void
     {
         $teacher = $this->teacher();
         $otherTeacher = $this->teacher('t2');
@@ -206,9 +206,9 @@ class SubjectCatalogTest extends TestCase
         foreach ([$teacher, $this->district()] as $user) {
             $response = $this->actingAs($user)->getJson(route('record-options.workspace', ['term' => '2/2569', 'tambon' => 't1']))
                 ->assertOk()->assertJsonPath('data.subject_source', 'sdl')->assertJsonPath('data.subject_term', '2/2569')
-                ->assertJsonPath('data.subject_error', null)->assertJsonCount(2, 'data.subjects')
+                ->assertJsonPath('data.subject_error', null)->assertJsonCount(1, 'data.subjects')
                 ->assertJsonPath('data.subjects.0.subject', 'วิชาจาก SDL')->assertJsonPath('data.subjects.0.level', '1')
-                ->assertJsonPath('data.subjects.1.subject_code', 'HISTORY')
+                ->assertDontSee('HISTORY')
                 ->assertDontSee('ชื่อเก่าจากประวัติ')->assertDontSee('OLDTERM')->assertDontSee('OTHER')
                 ->assertDontSee('fixture-private-token')->assertDontSee('remote-private-value');
             $this->assertArrayNotHasKey('student_count', $response->json('data.subjects.0'));
@@ -216,18 +216,18 @@ class SubjectCatalogTest extends TestCase
         }
     }
 
-    public function test_missing_source_level_metadata_warns_without_discarding_scoped_history(): void
+    public function test_missing_source_level_metadata_warns_without_adding_record_history(): void
     {
         $teacher = $this->teacher();
         $this->history($teacher, 'known-primary', 'SAME', 'วิชาประถมที่เคยใช้');
         $this->fakeWorkspace([['code' => 'SAME', 'name' => 'ชื่อจาก SDL ยังไม่ระบุระดับ']]);
         $response = $this->actingAs($teacher)->getJson(route('record-options.workspace', ['term' => '2/2569', 'tambon' => 't1']))->assertOk();
         $this->assertStringContainsString('ยังไม่ระบุระดับชั้น', $response->json('data.subject_error'));
-        $this->assertSame('1', collect($response->json('data.subjects'))->firstWhere('source', 'history')['level_code']);
-        $response->assertJsonCount(2, 'data.subjects');
+        $response->assertJsonCount(1, 'data.subjects')->assertJsonPath('data.subjects.0.source', 'sdl')->assertDontSee('วิชาประถมที่เคยใช้');
+        $this->assertDatabaseHas('records', ['id' => 'known-primary', 'subject_code' => 'SAME']);
     }
 
-    public function test_catalogue_failure_keeps_current_term_history_and_returns_only_a_safe_notice(): void
+    public function test_catalogue_failure_returns_a_safe_manual_entry_notice_without_record_history(): void
     {
         $teacher = $this->teacher();
         $this->history($teacher, 'current', 'CURRENT', 'รายวิชาภาคเรียนนี้');
@@ -235,8 +235,8 @@ class SubjectCatalogTest extends TestCase
         $this->fakeWorkspace([], 401);
 
         $this->actingAs($teacher)->getJson(route('record-options.workspace', ['term' => '2/2569']))
-            ->assertOk()->assertJsonPath('data.subject_source', 'history')->assertJsonPath('data.subject_term', '2/2569')
-            ->assertJsonCount(1, 'data.subjects')->assertJsonPath('data.subjects.0.subject_code', 'CURRENT')
+            ->assertOk()->assertJsonPath('data.subject_source', 'unavailable')->assertJsonPath('data.subject_term', '2/2569')
+            ->assertJsonCount(0, 'data.subjects')->assertDontSee('CURRENT')
             ->assertJsonPath('data.subject_error', fn ($message): bool => is_string($message) && str_contains($message, '2/2569'))
             ->assertDontSee('remote-private-value')->assertDontSee('fixture-private-token')->assertDontSee('OLD');
     }
@@ -271,6 +271,7 @@ class SubjectCatalogTest extends TestCase
             ->where('workspace.draft.payload.levels.1.subject', 'ชื่อรายวิชาเดิมที่ผู้ใช้แก้ไข')
             ->where('workspace.draft.payload.levels.1.subject_code', 'MANUAL')
             ->where('workspace.draft.payload.levels.1.attendance.0.present', false));
+        $this->getJson(route('record-options.workspace', ['term' => '2/2569', 'refresh' => 1]))->assertOk()->assertJsonPath('data.subjects.0.subject_code', 'NEW');
         $this->assertSame($storedPayload, $draft->fresh()->getRawOriginal('payload'));
         $this->assertSame($lockVersion, $draft->fresh()->lock_version);
         $this->assertSame('active', $draft->fresh()->status);

@@ -50,7 +50,9 @@ class RecordCreateTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page->component('records/create')
                 ->where('groups.0.group_code', 'G01')
-                ->where('subjects.0.subject_code', 'พท11001'));
+                ->has('subjects', 0));
+
+        $this->assertDatabaseHas('records', ['id' => 'history-1', 'subject_code' => 'พท11001']);
 
         $this->getJson(route('record-options.students', ['group_code' => 'G01', 'level' => '1']))
             ->assertOk()
@@ -80,7 +82,7 @@ class RecordCreateTest extends TestCase
             ->assertJsonPath('data.groups.0.level', '2')
             ->assertJsonPath('data.groups.0.level_code', '2')
             ->assertJsonPath('data.groups.0.level_name', 'มัธยมศึกษาตอนต้น')
-            ->assertJsonPath('data.subjects.0.level_code', '2')
+            ->assertJsonCount(0, 'data.subjects')
             ->assertJsonPath('data.stale', true);
     }
 

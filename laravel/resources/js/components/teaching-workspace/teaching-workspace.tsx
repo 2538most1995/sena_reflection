@@ -159,7 +159,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const imagesRef = useRef(images)
   const changeVersionRef = useRef(0)
   const savedVersionRef = useRef(initialDraft ? 0 : -1)
-  const savedFingerprintRef = useRef(initialDraft ? fingerprint(normalizeDraftPayload(initialDraft.payload, fallbackPayload), initialDraft.images || []) : '')
+  const savedFingerprintRef = useRef(initialDraft ? fingerprint(normalizeDraftPayload(initialDraft.payload, fallbackPayload), initialDraft.images || []) : fingerprint(normalizeDraftPayload(null, fallbackPayload), []))
   const requestSerial = useRef<Record<LevelCode, number>>({ '1': 0, '2': 0, '3': 0 })
   const mutationQueue = useRef<Promise<unknown>>(Promise.resolve())
   const createPromise = useRef<Promise<TeachingDraft> | null>(null)
@@ -190,9 +190,11 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }, [fallbackPayload])
 
   const markChanged = useCallback((updater: TeachingDraftPayload | ((current: TeachingDraftPayload) => TeachingDraftPayload)) => {
-    const next = typeof updater === 'function' ? updater(payloadRef.current) : updater
+    const previous = payloadRef.current
+    const next = typeof updater === 'function' ? updater(previous) : updater
     payloadRef.current = next
     setPayload(next)
+    if (fingerprint(next, imagesRef.current) === fingerprint(previous, imagesRef.current)) return
     changeVersionRef.current += 1
     setChangeVersion(changeVersionRef.current)
     setSaveState('idle')
@@ -315,14 +317,14 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     }
   }, [persistSnapshot])
 
+  const hasUnsavedChanges = useCallback(() => imageBusy || fingerprint(payloadRef.current, imagesRef.current) !== savedFingerprintRef.current, [imageBusy])
+
   const leaveWorkspace = async () => {
     if (finalizingRef.current || imageBusy || Object.values(loadStates).some(state => state.loading)) {
       actionAlert.info('กำลังบันทึกหรือโหลดข้อมูล', 'กรุณารอให้ข้อมูลพร้อมก่อนย้อนกลับ')
       return
     }
-    const latest = payloadRef.current
-    const hasContent = Boolean(latest.scope.week) || Object.values(latest.levels).some(level => level.subject || level.result || level.problem || level.suggestion || level.attendance.length || level.image_ids.length)
-    if (hasContent && changeVersionRef.current > savedVersionRef.current) {
+    if (hasUnsavedChanges()) {
       try { await saveNow() }
       catch (error) { actionAlert.error('เก็บร่างก่อนย้อนกลับไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่'); return }
     }
@@ -369,18 +371,19 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
 
   useEffect(() => {
     const warnUnsaved = (event: BeforeUnloadEvent) => {
-      if (!finalizingRef.current && (imageBusy || changeVersionRef.current > Math.max(0, savedVersionRef.current))) {
+      if (!finalizingRef.current && hasUnsavedChanges()) {
         event.preventDefault()
         event.returnValue = ''
       }
     }
     window.addEventListener('beforeunload', warnUnsaved)
     return () => window.removeEventListener('beforeunload', warnUnsaved)
-  }, [imageBusy])
+  }, [hasUnsavedChanges])
 
   useEffect(() => router.on('before', (event) => {
-    if (!finalizingRef.current && (imageBusy || changeVersionRef.current > Math.max(0, savedVersionRef.current)) && !window.confirm('ยังมีข้อมูลที่บันทึกไม่เสร็จ ต้องการออกจากหน้านี้หรือไม่')) event.preventDefault()
-  }), [imageBusy])
+    if (event.detail.visit.prefetch) return
+    if (!finalizingRef.current && hasUnsavedChanges() && !window.confirm('ยังมีข้อมูลที่บันทึกไม่เสร็จ ต้องการออกจากหน้านี้หรือไม่')) event.preventDefault()
+  }), [hasUnsavedChanges])
 
   useEffect(() => {
     if (editorMode !== 'edit' || !focusAfterReview.current) return
@@ -442,6 +445,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     if (!/^25\d{2}$/.test(payload.scope.year) || !payload.scope.semester) {
       setSubjectsLoading(false)
       if (optionsContext !== loadedSubjectContext.current) {
+        setAvailableGroups([])
         setAvailableSubjects([])
         loadedSubjectContext.current = optionsContext
         setSubjectOptionsContext(optionsContext)
@@ -455,7 +459,9 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     const alertId = forceRefresh
       ? actionAlert.loading('กำลังอัปเดตรายวิชาจากระบบ...', 'กรุณารอสักครู่ ระบบกำลังดึงข้อมูลล่าสุดจาก SDL School')
       : undefined
-    if (!forceRefresh) {
+    const contextChanged = loadedSubjectContext.current !== optionsContext
+    if (contextChanged) {
+      loadedSubjectContext.current = ''
       setAvailableSubjects([])
       setAvailableGroups([])
     }
@@ -490,20 +496,23 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
         },
       }))
       .then(({ response, envelope }) => {
-        if (controller.signal.aborted) {
+        if (!mounted.current || controller.signal.aborted) {
           if (alertId) actionAlert.dismiss(alertId)
           return
         }
         if (!response.ok || !envelope.data) throw new Error(envelope.message || 'โหลดตัวเลือกไม่สำเร็จ')
-        if (envelope.data?.groups) setAvailableGroups(envelope.data.groups)
-        setAvailableSubjects(envelope.data.subjects || [])
+        const data = envelope.data
+        const groupsReady = Array.isArray(data.groups) && !data.error_code && envelope.status !== 'error'
+        const subjectsReady = Array.isArray(data.subjects) && (data.subject_source === 'sdl' || (!data.subject_error && envelope.status !== 'error' && !data.error_code))
+        if (groupsReady) setAvailableGroups(data.groups!)
+        if (subjectsReady) setAvailableSubjects(data.subjects!)
         loadedSubjectContext.current = optionsContext
         setSubjectOptionsContext(optionsContext)
-        setSubjectCatalog({
-          source: envelope.data.subject_source || 'history',
-          error: envelope.data.subject_error || null,
-          term: envelope.data.subject_term || null,
-        })
+        setSubjectCatalog((current) => ({
+          source: subjectsReady ? data.subject_source || 'unavailable' : contextChanged ? 'unavailable' : current.source,
+          error: data.subject_error || null,
+          term: data.subject_term || (contextChanged ? null : current.term),
+        }))
         if (envelope.data?.source) {
           setLoadStates((current) =>
             Object.fromEntries(
@@ -514,22 +523,23 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
             ) as Record<LevelCode, WorkspaceLoadState>
           )
         }
-        if (envelope.status === 'error') {
-          setPageError(envelope.message || 'โหลดตัวเลือกสำหรับภาคเรียนนี้ไม่สำเร็จ')
-          if (alertId) actionAlert.error('อัปเดตรายวิชาไม่สำเร็จ', envelope.message || 'โหลดตัวเลือกไม่สำเร็จ', alertId)
+        if (envelope.status === 'error' || data.error_code || data.subject_error) {
+          const message = [envelope.status === 'error' || data.error_code ? envelope.message || 'โหลดกลุ่มเรียนไม่สำเร็จ' : null, data.subject_error].filter(Boolean).join(' · ')
+          setPageError(message)
+          if (alertId) actionAlert.error('อัปเดตข้อมูลยังไม่ครบ', `${message} ข้อมูลที่เลือกไว้ยังคงอยู่`, alertId)
         } else if (alertId) {
+          setPageError(null)
           actionAlert.success('อัปเดตรายวิชาจากระบบเรียบร้อยแล้ว', `พบรายวิชา ${envelope.data.subjects?.length || 0} รายการ`, alertId)
         }
       })
       .catch((error) => {
-        if (controller.signal.aborted) {
+        if (!mounted.current || controller.signal.aborted) {
           if (alertId) actionAlert.dismiss(alertId)
           return
         }
-        if (!forceRefresh) setAvailableSubjects([])
         loadedSubjectContext.current = optionsContext
         setSubjectOptionsContext(optionsContext)
-        setSubjectCatalog({ source: 'unavailable', error: 'โหลดรายวิชาไม่สำเร็จ สามารถกรอกชื่อและรหัสวิชาเองได้', term: null })
+        setSubjectCatalog((current) => ({ source: contextChanged ? 'unavailable' : current.source, error: 'โหลดรายวิชาไม่สำเร็จ ข้อมูลที่เลือกไว้ยังคงอยู่ และสามารถกรอกรายวิชาเองได้', term: contextChanged ? null : current.term }))
         if (alertId) {
           actionAlert.error('อัปเดตรายวิชาไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', alertId)
         }
@@ -578,13 +588,15 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     const matchedTambon = district ? tambonOptions.find((t) => t.name && group.class_name.includes(t.name)) : undefined
     setLoadStates((values) => ({ ...values, [levelCode]: { ...values[levelCode], loading: true, error: null } }))
     try {
-      const query = new URLSearchParams({ group_code: group.group_code, level: levelCode, year: payloadRef.current.scope.year, semester: payloadRef.current.scope.semester, ...(sameGroup ? { refresh: '1' } : {}) })
+      const query = new URLSearchParams({ group_code: group.group_code, level: levelCode, year: payloadRef.current.scope.year, semester: payloadRef.current.scope.semester, ...(district && payloadRef.current.scope.tambon ? { tambon: payloadRef.current.scope.tambon } : {}), ...(sameGroup ? { refresh: '1' } : {}) })
       const response = await fetch(`/record-options/students?${query}`, { headers: { Accept: 'application/json' } })
       const envelope = await response.json() as { status?: string; message?: string; data?: { items?: WorkspaceAttendanceRow[]; source?: string } }
       if (!response.ok || envelope.status !== 'success') throw new Error(envelope.message || 'โหลดรายชื่อนักศึกษาไม่สำเร็จ')
       if (!mounted.current || serial !== requestSerial.current[levelCode]) return
       const existingRows = sameGroup ? new Map(payloadRef.current.levels[levelCode].attendance.map((row) => [row.student_id, row])) : new Map<string, WorkspaceAttendanceRow>()
-      const attendance = (envelope.data?.items || []).map((student) => {
+      if (!Array.isArray(envelope.data?.items)) throw new Error('ข้อมูลรายชื่อไม่สมบูรณ์ รายชื่อเดิมยังคงอยู่ กรุณาลองอัปเดตอีกครั้ง')
+      if (sameGroup && existingRows.size > 0 && envelope.data.items.length === 0) throw new Error('ไม่พบรายชื่อจากกลุ่มนี้ในการอัปเดต รายชื่อและสถานะเช็กชื่อเดิมยังคงอยู่ กรุณาตรวจกลุ่มเรียนและภาคเรียนแล้วลองใหม่')
+      const attendance = envelope.data.items.map((student) => {
         const existing = existingRows.get(student.student_id)
         return { ...student, present: existing?.present || false, learning_method: existing?.present ? existing.learning_method : null }
       })
