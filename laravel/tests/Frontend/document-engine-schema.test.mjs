@@ -168,7 +168,7 @@ test('ordinary objects and missing or moved title anchors retain their existing 
 })
 
 
-test('Enter inside record fields keeps the original anchor and adds one line without copying paragraph offsets', () => {
+test('explicit line breaks in record fields keep the original anchor and existing content', () => {
   for (const container of ['recordBody', 'recordSignature', null]) {
     const paragraph = { type: 'paragraph', attrs: { id: 'stable-record-line', role: container ? null : 'recordTitle', offsetY: 24, firstIndent: 42 }, content: [{ type: 'text', text: 'หนึ่งสอง', marks: [{ type: 'bold' }] }] }
     const editor = new Editor({ element: null, extensions: [StarterKit, ParagraphFormatting, RecordTemplate], content: { type: 'doc', content: container ? [{ type: container, content: [paragraph] }] : [paragraph] } })
@@ -213,6 +213,75 @@ test('ordinary paragraphs and record list items retain paragraph Enter, without 
 })
 
 
+test('Enter makes real record paragraphs with new anchors while Shift+Enter retains an inline break', () => {
+  for (const container of ['recordBody', 'recordSignature', null]) {
+    const paragraph = { type: 'paragraph', attrs: { id: 'original-line', role: container ? null : 'recordTitle', offsetY: 24 }, content: [{ type: 'text', text: 'หนึ่งสอง', marks: [{ type: 'bold' }] }] }
+    const editor = new Editor({ element: null, extensions: [StarterKit, ParagraphFormatting, RecordTemplate], content: { type: 'doc', content: container ? [{ type: container, content: [paragraph] }] : [paragraph] } })
+    try {
+      for (const plugin of ParagraphFormatting.config.addProseMirrorPlugins.call({})) editor.registerPlugin(plugin)
+      editor.registerPlugin(history())
+      editor.commands.setTextSelection((container ? 2 : 1) + 5)
+      const beforeSplit = editor.getJSON()
+      assert.equal(editor.commands.insertRecordParagraph(), true)
+      const split = editor.getJSON()
+      assert.equal(editor.commands.undo(), true)
+      assert.deepEqual(editor.getJSON(), beforeSplit)
+      assert.equal(editor.commands.redo(), true)
+      assert.deepEqual(editor.getJSON(), split)
+      editor.commands.insertContent({ type: 'text', text: 'สาม' })
+      const nodes = container ? editor.getJSON().content[0].content : editor.getJSON().content
+      assert.equal(nodes.length, 2)
+      assert.equal(nodes[0].attrs.id, 'original-line')
+      assert.equal(nodes[0].attrs.offsetY, 24)
+      assert.notEqual(nodes[1].attrs.id, 'original-line')
+      assert.ok(nodes[1].attrs.id)
+      assert.equal(nodes[1].attrs.offsetY, 0)
+      assert.equal(nodes[1].attrs.spaceBefore, 0)
+      assert.equal(nodes.map(node => node.content.map(child => child.text || '').join('')).join(''), 'หนึ่งสามสอง')
+      assert.equal(editor.commands.insertRecordLineBreak(), true)
+      const after = container ? editor.getJSON().content[0].content : editor.getJSON().content
+      assert.equal(after.length, 2)
+      assert.equal(after[1].content.filter(node => node.type === 'hardBreak').length, 1)
+    } finally { editor.destroy() }
+  }
+})
+
+test('each blank Enter remains inside the record field and has one distinct paragraph end', () => {
+  const editor = new Editor({ element: null, extensions: [StarterKit, ParagraphFormatting, RecordTemplate], content: { type: 'doc', content: [{ type: 'recordBody', attrs: { field: 'record_result' }, content: [{ type: 'paragraph', attrs: { id: 'empty-original' } }] }] } })
+  try {
+    for (const plugin of ParagraphFormatting.config.addProseMirrorPlugins.call({})) editor.registerPlugin(plugin)
+    editor.commands.setTextSelection(2)
+    for (let count = 0; count < 3; count++) assert.equal(editor.commands.insertRecordParagraph(), true)
+    const body = editor.state.doc.firstChild
+    assert.equal(body.type.name, 'recordBody')
+    assert.equal(body.attrs.field, 'record_result')
+    assert.equal(body.childCount, 4)
+    assert.equal(body.firstChild.attrs.id, 'empty-original')
+    const ids = []
+    body.forEach(node => ids.push(node.attrs.id))
+    assert.equal(new Set(ids).size, 4)
+    const plugins = FormattingMarks.config.addProseMirrorPlugins.call({ editor: { isEditable: true }, options: { renderWhenReadOnly: false } })
+    const state = EditorState.create({ schema, doc: editor.state.doc, plugins })
+    assert.equal(formattingMarksKey.getState(state).find().filter(mark => mark.spec.kind === 'paragraph').length, 4)
+    assert.equal(formattingMarksKey.getState(state).find().filter(mark => mark.spec.kind === 'line-break').length, 0)
+  } finally { editor.destroy() }
+})
+
+test('space and tab marks correspond only to real whitespace without modifying historical hard breaks', () => {
+  const doc = schema.nodeFromJSON({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'คำ  ไทย\tถัดไป' }, { type: 'hardBreak' }, { type: 'text', text: 'เดิม' }] }] })
+  const plugins = FormattingMarks.config.addProseMirrorPlugins.call({ editor: { isEditable: true }, options: { renderWhenReadOnly: false } })
+  const state = EditorState.create({ schema, doc, plugins })
+  const marks = formattingMarksKey.getState(state).find()
+  assert.deepEqual(marks.map(mark => mark.spec.kind), ['space', 'space', 'tab', 'line-break', 'paragraph'])
+  assert.deepEqual(state.doc.toJSON(), doc.toJSON())
+  const editor = new Editor({ element: null, extensions: [StarterKit, ParagraphFormatting, RecordTemplate], content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'ไทย' }] }] } })
+  try {
+    editor.commands.setTextSelection(4)
+    assert.equal(editor.commands.insertDocumentTab(), true)
+    assert.equal(editor.state.doc.textContent, 'ไทย\t')
+  } finally { editor.destroy() }
+})
+
 test('formatting marks cover empty paragraphs, semantic headings, table cells and every explicit line without changing content', () => {
   const content = { type: 'doc', content: [
     { type: 'heading', content: [{ type: 'text', text: 'หัวข้อ' }] },
@@ -225,7 +294,8 @@ test('formatting marks cover empty paragraphs, semantic headings, table cells an
   const plugins = FormattingMarks.config.addProseMirrorPlugins.call({ editor: { isEditable: true }, options: { renderWhenReadOnly: false } })
   let state = EditorState.create({ schema, doc, plugins })
   const marks = formattingMarksKey.getState(state).find()
-  assert.equal(marks.filter(mark => mark.spec.kind === 'paragraph').length, 5)
+  assert.equal(marks.filter(mark => mark.spec.kind === 'paragraph').length, 4)
+  assert.equal(marks.filter(mark => mark.spec.kind === 'cell').length, 1)
   assert.equal(marks.filter(mark => mark.spec.kind === 'line-break').length, 2)
   assert.deepEqual(state.doc.toJSON(), doc.toJSON())
   assert.equal(state.doc.textContent, 'หัวข้อข้อคิดเห็นครู')
@@ -234,7 +304,7 @@ test('formatting marks cover empty paragraphs, semantic headings, table cells an
   assert.equal(state.doc.firstChild.textContent, 'เพิ่มหัวข้อ')
   assert.ok(formattingMarksKey.getState(state).find().every(mark => mark.from === mark.to))
   state = state.apply(state.tr.split(state.doc.firstChild.nodeSize + 1))
-  assert.equal(formattingMarksKey.getState(state).find().filter(mark => mark.spec.kind === 'paragraph').length, 6)
+  assert.equal(formattingMarksKey.getState(state).find().filter(mark => mark.spec.kind === 'paragraph').length, 5)
   assert.equal(formattingMarksKey.getState(state).find().filter(mark => mark.spec.kind === 'line-break').length, 2)
   assert.ok(!JSON.stringify(state.doc.toJSON()).includes('¶'))
 })

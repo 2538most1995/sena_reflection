@@ -1,7 +1,7 @@
 import { Extension, Node, mergeAttributes, type CommandProps, type JSONContent } from '@tiptap/core'
 import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
-import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import interact from 'interactjs'
 import type { DocumentObject } from '@/lib/document-model'
@@ -9,7 +9,9 @@ import type { DocumentObject } from '@/lib/document-model'
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     documentParagraph: {
+      insertRecordParagraph: () => ReturnType
       insertRecordLineBreak: () => ReturnType
+      insertDocumentTab: () => ReturnType
       setParagraphSpacing: (before: number, after: number) => ReturnType
       setParagraphLineHeight: (height: number) => ReturnType
       setParagraphIndent: (millimeters: number) => ReturnType
@@ -53,6 +55,30 @@ export const ParagraphFormatting = Extension.create({
   addCommands() {
     const update = (values: Record<string, number>) => ({ commands }: CommandProps) => commands.updateAttributes('paragraph', values) && commands.updateAttributes('heading', values)
     return {
+      insertRecordParagraph: () => ({ state, editor, chain }) => {
+        const { $from, $to } = state.selection
+        if (editor.view.composing || !$from.sameParent($to)) return false
+        const container = $from.depth > 1 ? $from.node(-1).type.name : null
+        const parent = $from.parent
+        const managedParagraph = parent.attrs.role === 'recordTitle' || parent.type.name === 'recordSectionTitle'
+          || (parent.type.name === 'paragraph' && ['recordBody', 'recordSignature'].includes(container || ''))
+        if (!managedParagraph || !editor.can().splitBlock()) return false
+        return chain().splitBlock().command(({ tr, dispatch }) => {
+          const next = tr.selection.$from
+          if (dispatch && next.parent.type.name === 'paragraph') {
+            tr.setNodeMarkup(next.before(), undefined, { ...next.parent.attrs, id: crypto.randomUUID(), offsetY: 0, spaceBefore: 0 })
+          }
+          return true
+        }).run()
+      },
+      insertDocumentTab: () => ({ state, commands, editor }) => {
+        const { $from } = state.selection
+        if (editor.view.composing || !['paragraph', 'heading', 'recordSectionTitle'].includes($from.parent.type.name)) return false
+        for (let depth = $from.depth - 1; depth > 0; depth--) {
+          if (['tableCell', 'tableHeader', 'listItem', 'taskItem'].includes($from.node(depth).type.name)) return false
+        }
+        return commands.insertContent({ type: 'text', text: '\t' })
+      },
       insertRecordLineBreak: () => ({ state, commands, editor }) => {
         const { $from, $to } = state.selection
         if (editor.view.composing || !$from.sameParent($to)) return false
@@ -70,7 +96,11 @@ export const ParagraphFormatting = Extension.create({
     }
   },
   addKeyboardShortcuts() {
-    return { Enter: () => this.editor.commands.insertRecordLineBreak() }
+    return {
+      Enter: () => this.editor.commands.insertRecordParagraph(),
+      'Shift-Enter': () => this.editor.commands.insertRecordLineBreak() || this.editor.commands.setHardBreak(),
+      Tab: () => this.editor.commands.insertDocumentTab(),
+    }
   },
   addProseMirrorPlugins() {
     return [new Plugin({
@@ -96,27 +126,142 @@ export const ParagraphFormatting = Extension.create({
 
 export const formattingMarksKey = new PluginKey<DecorationSet>('documentFormattingMarks')
 
+type FormattingMarkKind = 'paragraph' | 'line-break' | 'cell' | 'space' | 'tab'
+
 function formattingMarkDecorations(doc: ProseMirrorNode): DecorationSet {
   const marks: Decoration[] = []
-  const marker = (position: number, kind: 'paragraph' | 'line-break') => Decoration.widget(position, view => {
+  const marker = (position: number, kind: FormattingMarkKind) => Decoration.widget(position, view => {
     const element = view.dom.ownerDocument.createElement('span')
     element.className = 'document-formatting-mark'
     element.dataset.formattingMark = kind
+    element.dataset.markPosition = String(position)
     element.dataset.printHidden = 'true'
     element.setAttribute('aria-hidden', 'true')
     return element
   }, { side: -1, marks: [], key: `${kind}:${position}`, ignoreSelection: true, kind })
-  doc.descendants((node, position) => {
+  doc.descendants((node, position, parent, index) => {
     if (!node.isTextblock) return
     node.forEach((child, offset) => {
       if (child.type.name === 'hardBreak') marks.push(marker(position + 1 + offset, 'line-break'))
+      if (child.isText) {
+        for (let index = 0; index < child.text!.length; index++) {
+          if (child.text![index] === ' ') marks.push(marker(position + 1 + offset + index, 'space'))
+          if (child.text![index] === '\t') marks.push(marker(position + 1 + offset + index, 'tab'))
+        }
+      }
     })
-    marks.push(marker(position + 1 + node.content.size, 'paragraph'))
+    const cellEnd = node.type.name === 'recordInfoCell' || (['tableCell', 'tableHeader'].includes(parent?.type.name || '') && index === parent!.childCount - 1)
+    marks.push(marker(position + 1 + node.content.size, cellEnd ? 'cell' : 'paragraph'))
   })
   return DecorationSet.create(doc, marks)
 }
 
-/** Display-only marks include empty text blocks and explicit line breaks, without changing saved content. */
+/** Measure the caret before drawing; the zero-size widgets never change line wrapping or pagination. */
+function formattingMarkView(view: EditorView) {
+  const ownerWindow = view.dom.ownerDocument.defaultView!
+  let canvas: HTMLElement | null = null
+  let frame = 0
+  let destroyed = false
+  const rangeRect = (from: number, to: number) => {
+    const start = view.domAtPos(from, 1), end = view.domAtPos(to, -1)
+    const range = view.dom.ownerDocument.createRange()
+    range.setStart(start.node, start.offset)
+    range.setEnd(end.node, end.offset)
+    return [...range.getClientRects()].reverse().find(rect => rect.height > 0 && rect.width > 0)
+  }
+  const position = () => {
+    frame = 0
+    if (destroyed) return
+    const nextCanvas = view.dom.closest<HTMLElement>('[data-document-canvas]')
+    if (nextCanvas !== canvas) {
+      mutation.disconnect()
+      canvas = nextCanvas
+      if (canvas) {
+        mutation.observe(canvas, { attributes: true, attributeFilter: ['class', 'style'] })
+        if (canvas.parentElement) mutation.observe(canvas.parentElement, { attributes: true, attributeFilter: ['style'] })
+      }
+    }
+    if (!canvas?.classList.contains('show-marks')) return
+    const canvasRect = canvas.getBoundingClientRect()
+    const scale = canvas.offsetWidth ? canvasRect.width / canvas.offsetWidth : 1
+    if (!scale) return
+    const measurements = [...view.dom.querySelectorAll<HTMLElement>('.document-formatting-mark')].map(element => {
+      const at = Number(element.dataset.markPosition)
+      if (!Number.isInteger(at) || at < 1 || at > view.state.doc.content.size) return null
+      const kind = element.dataset.formattingMark
+      const whitespace = kind === 'space' || kind === 'tab'
+      const resolved = view.state.doc.resolve(at)
+      const dom = view.domAtPos(whitespace ? at : Math.max(resolved.start(), at - 1), 1).node
+      const context = dom.nodeType === 1 ? dom as HTMLElement : dom.parentElement!
+      const font = ownerWindow.getComputedStyle(context)
+      let caret = view.coordsAtPos(at, 1)
+      let width = 0
+      if (whitespace) {
+        const character = rangeRect(at, at + 1)
+        if (character) { caret = character; width = character.width / scale }
+      } else if (kind === 'line-break') {
+        const br = view.nodeDOM(at)
+        if (br instanceof ownerWindow.HTMLElement) caret = br.getBoundingClientRect()
+      } else if (resolved.nodeBefore?.isText) {
+        const character = rangeRect(at - 1, at)
+        if (character) caret = { left: character.right, right: character.right, top: character.top, bottom: character.bottom }
+      }
+      if (caret.bottom <= caret.top) {
+        const block = view.nodeDOM(resolved.before())
+        if (!(block instanceof ownerWindow.HTMLElement)) return null
+        const trailing = block.querySelector('br.ProseMirror-trailingBreak')?.getBoundingClientRect()
+        if (trailing && trailing.height > 0) caret = trailing
+        else {
+          const box = block.getBoundingClientRect(), style = ownerWindow.getComputedStyle(block)
+          const fontSize = parseFloat(style.fontSize) || 16
+          const lineHeight = parseFloat(style.lineHeight) || fontSize * 1.2
+          const left = parseFloat(style.paddingLeft) || 0, right = parseFloat(style.paddingRight) || 0
+          const innerWidth = block.clientWidth - left - right
+          const alignment = style.textAlign
+          const indent = alignment === 'center' ? innerWidth / 2 : ['right', 'end'].includes(alignment) ? innerWidth : parseFloat(style.textIndent) || 0
+          const x = box.left + (left + indent) * scale
+          const y = box.top + (parseFloat(style.paddingTop) || 0) * scale
+          caret = { left: x, right: x, top: y, bottom: y + lineHeight * scale }
+        }
+      }
+      const rect = element.getBoundingClientRect()
+      return { element, x: (caret.left - rect.left) / scale, y: (caret.top - rect.top) / scale, height: (caret.bottom - caret.top) / scale, width, fontSize: font.fontSize, fontFamily: font.fontFamily }
+    })
+    for (const measurement of measurements) {
+      if (!measurement) continue
+      const { element, x, y, height, width, fontSize, fontFamily } = measurement
+      element.style.setProperty('--formatting-mark-x', `${x}px`)
+      element.style.setProperty('--formatting-mark-y', `${y}px`)
+      element.style.setProperty('--formatting-mark-height', `${height}px`)
+      element.style.setProperty('--formatting-mark-width', `${width}px`)
+      element.style.setProperty('--formatting-mark-font-size', fontSize)
+      element.style.setProperty('--formatting-mark-font-family', fontFamily)
+    }
+  }
+  const schedule = () => {
+    if (!destroyed && !frame) frame = ownerWindow.requestAnimationFrame(position)
+  }
+  const resize = new ownerWindow.ResizeObserver(schedule)
+  resize.observe(view.dom)
+  const mutation = new ownerWindow.MutationObserver(schedule)
+  view.dom.addEventListener('compositionend', schedule)
+  view.dom.ownerDocument.fonts?.ready.then(schedule)
+  view.dom.ownerDocument.fonts?.addEventListener('loadingdone', schedule)
+  schedule()
+  return {
+    update: schedule,
+    destroy() {
+      destroyed = true
+      ownerWindow.cancelAnimationFrame(frame)
+      resize.disconnect()
+      mutation.disconnect()
+      view.dom.removeEventListener('compositionend', schedule)
+      view.dom.ownerDocument.fonts?.removeEventListener('loadingdone', schedule)
+    },
+  }
+}
+
+/** Formatting marks are decorations only; historical paragraphs and hard breaks stay unchanged. */
 export const FormattingMarks = Extension.create({
   name: 'documentFormattingMarks',
   addOptions() { return { renderWhenReadOnly: false } },
@@ -130,6 +275,7 @@ export const FormattingMarks = Extension.create({
         apply: (transaction, previous) => transaction.docChanged ? formattingMarkDecorations(transaction.doc) : previous,
       },
       props: { decorations: state => editor.isEditable || renderWhenReadOnly ? formattingMarksKey.getState(state) : DecorationSet.empty },
+      view: formattingMarkView,
     })]
   },
 })

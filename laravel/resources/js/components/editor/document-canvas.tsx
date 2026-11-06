@@ -54,8 +54,13 @@ const canvasStyles = `
 .document-body-editor .rm-pagination-gap{box-sizing:border-box;border:0!important}
 .document-body-editor .rm-pages-wrapper{pointer-events:none;user-select:none}.document-body-editor .rm-first-page-header{pointer-events:none;user-select:none}
 .document-body-editor .document-manual-page-break{min-height:2px;position:relative;pointer-events:none}
-.document-formatting-mark{display:inline;position:relative;width:0;height:0;overflow:visible;vertical-align:baseline;pointer-events:none;user-select:none}
-.document-canvas.show-marks .document-formatting-mark:after{content:"¶";position:absolute;left:0;bottom:0;font-family:inherit;font-size:.8em;line-height:1;color:#94a3b8;font-weight:400;font-style:normal;pointer-events:none;user-select:none}
+.document-formatting-mark{display:inline;position:relative;width:0!important;height:0!important;overflow:visible;vertical-align:baseline;pointer-events:none;user-select:none;text-indent:0}
+.document-canvas.show-marks .document-formatting-mark:after{position:absolute;left:var(--formatting-mark-x,0px);top:var(--formatting-mark-y,-.8em);width:var(--formatting-mark-width,0px);height:var(--formatting-mark-height,1em);font-family:var(--formatting-mark-font-family,inherit);font-size:var(--formatting-mark-font-size,1em);line-height:var(--formatting-mark-height,1em);color:#60a5fa;font-weight:400;font-style:normal;text-indent:0;text-align:left;white-space:pre;pointer-events:none;user-select:none}
+.document-canvas.show-marks [data-formatting-mark=paragraph]:after{content:"¶"}
+.document-canvas.show-marks [data-formatting-mark=line-break]:after{content:"↵"}
+.document-canvas.show-marks [data-formatting-mark=cell]:after{content:"¤"}
+.document-canvas.show-marks [data-formatting-mark=space]:after{content:"·";text-align:center}
+.document-canvas.show-marks [data-formatting-mark=tab]:after{content:"→";text-align:center}
 .document-canvas .ProseMirror-separator{display:inline!important;width:0!important;height:0!important;margin:0!important;border:0!important}
 
 .document-canvas.show-marks .document-manual-page-break:after{content:"ตัวแบ่งหน้า";position:absolute;top:0;left:0;width:100%;border-top:1px dashed #94a3b8;font-family:inherit;font-size:10px;color:#94a3b8}
@@ -257,13 +262,22 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
       const candidate = anchor.kind === 'paragraph'
         ? locations.find(location => location.id === anchor.id)
         : [...locations].reverse().find(location => location.top <= object.canvasTop + 1)
-      const paragraph = candidate || locations[0]
+      let paragraph = candidate || locations[0]
       if (!paragraph) continue
       const relativeX = object.x * MM_TO_PX - marginPx.left
       const side = relativeX + object.width * MM_TO_PX / 2 <= contentWidth / 2 ? 'left' : 'right'
       const width = side === 'left' ? relativeX + object.width * MM_TO_PX + 8 : contentWidth - relativeX + 8
       const afterText = objectFlowAfterText(object, editor.state.doc.nodeAt(paragraph.position), isRecordTemplate)
-      flow.push({ id: object.id, position: paragraph.position, nodeSize: paragraph.nodeSize, side, width: Math.min(contentWidth, Math.max(1, width)), height: object.height * MM_TO_PX + 6, offset: objectFlowOffset(object, object.canvasTop, paragraph.top, afterText), wrap: afterText || width > contentWidth * 0.75 ? 'top-bottom' : object.wrap, afterText })
+      const anchorTop = paragraph.top
+      if (afterText) {
+        let next = locations.find(location => location.position === paragraph!.position + paragraph!.nodeSize)
+        while (next && editor.state.doc.nodeAt(next.position)?.attrs.role === 'recordTitle') {
+          paragraph = next
+          next = locations.find(location => location.position === paragraph!.position + paragraph!.nodeSize)
+        }
+      }
+      const offset = Math.max(0, objectFlowOffset(object, object.canvasTop, anchorTop, afterText) - (afterText ? paragraph.top - anchorTop : 0))
+      flow.push({ id: object.id, position: paragraph.position, nodeSize: paragraph.nodeSize, side, width: Math.min(contentWidth, Math.max(1, width)), height: object.height * MM_TO_PX + 6, offset, wrap: afterText || width > contentWidth * 0.75 ? 'top-bottom' : object.wrap, afterText })
     }
     for (const reservation of flow) {
       const siblings = flow.filter(item => item.position === reservation.position && item.wrap === 'square')

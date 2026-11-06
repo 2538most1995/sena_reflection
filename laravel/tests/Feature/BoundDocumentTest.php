@@ -467,6 +467,39 @@ class BoundDocumentTest extends TestCase
         $this->assertSame($lockVersion, $document->fresh()->binding_snapshot['lock_version']);
     }
 
+    public function test_paragraphs_empty_paragraphs_and_manual_breaks_survive_bound_save_and_unrelated_source_updates(): void
+    {
+        $document = app(BoundDocumentService::class)->forRecord($this->teacher, $this->record);
+        $content = $document->content_json;
+        $replace = function (array &$node) use (&$replace): void {
+            if (($node['attrs']['field'] ?? null) === 'record_result') {
+                $node['content'] = [
+                    ['type' => 'paragraph', 'attrs' => ['id' => 'word-paragraph-one'], 'content' => [['type' => 'text', 'text' => 'ย่อหน้าแรก']]],
+                    ['type' => 'paragraph', 'attrs' => ['id' => 'word-paragraph-empty']],
+                    ['type' => 'paragraph', 'attrs' => ['id' => 'word-paragraph-three'], 'content' => [['type' => 'text', 'text' => 'บรรทัดแรก'], ['type' => 'hardBreak'], ['type' => 'text', 'text' => 'บรรทัดต่อเนื่อง']]],
+                ];
+
+                return;
+            }
+            if (isset($node['content'])) {
+                foreach ($node['content'] as &$child) {
+                    $replace($child);
+                }
+            }
+        };
+        $replace($content);
+        $expected = $this->fieldNode($content, 'record_result');
+
+        $this->actingAs($this->teacher)->putJson('/api/documents/'.$document->id, ['revision' => $document->revision, 'content' => $content])->assertOk();
+
+        $this->assertSame("ย่อหน้าแรก\n\nบรรทัดแรก\nบรรทัดต่อเนื่อง", $this->record->fresh()->result);
+        $this->assertSame($expected, $this->fieldNode($document->fresh()->content_json, 'record_result'));
+        $this->record->update(['problem' => 'แก้ไขจากหน้าบันทึก']);
+        $latest = $this->getJson('/api/documents/'.$document->id)->assertOk()->json('document.content');
+        $this->assertSame($expected, $this->fieldNode($latest, 'record_result'));
+        $this->assertStringNotContainsString('data-formatting-mark', json_encode($document->fresh()->content_json));
+    }
+
     private function usePreviousHeader(Document $document): Document
     {
         $binding = $document->binding_snapshot;

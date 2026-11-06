@@ -129,18 +129,20 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     const scale = await canvas.evaluate(element => element.getBoundingClientRect().width / (element as HTMLElement).offsetWidth)
     expect((secondTop - firstTop) / scale).toBeGreaterThan(15)
     expect((secondTop - firstTop) / scale).toBeLessThan(40)
-    await expect(caption.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(1)
+    await expect(caption.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(0)
+    await expect(caption.locator('xpath=following-sibling::p[1]')).toContainText('บรรทัดที่สอง')
     await expect.poll(async () => (await image.boundingBox())!.y).toBeCloseTo(photoTop, 0)
     await positionAtEnd('[data-paragraph-id="result-line"]')
     await page.keyboard.press('Enter')
     await page.keyboard.insertText('ต่อเนื้อหาบรรทัดเดียว')
     await saved(page)
     await page.reload()
-    await expect(caption).toContainText('บรรทัดที่สอง')
-    await expect(canvas.locator('[data-paragraph-id="result-line"]')).toContainText('ต่อเนื้อหาบรรทัดเดียว')
+    await expect(caption.locator('xpath=following-sibling::p[1]')).toContainText('บรรทัดที่สอง')
+    await expect(canvas.locator('[data-record-field="record_result"]')).toContainText('ต่อเนื้อหาบรรทัดเดียว')
     const persisted = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document
     const title = persisted.content.content!.find(node => node.attrs?.id === 'photo-heading')!
-    expect(title.content!.filter(node => node.type === 'hardBreak')).toHaveLength(1)
+    expect(title.content!.filter(node => node.type === 'hardBreak')).toHaveLength(0)
+    expect(persisted.content.content![persisted.content.content!.indexOf(title) + 1].content).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'text', text: 'บรรทัดที่สอง' })]))
     expect(persisted.objects).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'record-image-fixture', anchor: { kind: 'paragraph', id: 'photo-heading', offsetY: 16 } })]))
     expect(errors).toEqual([])
   })
@@ -232,10 +234,11 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     await expect(canvas).toHaveClass(/show-marks/)
     await expect(root.locator('h2 > [data-formatting-mark=paragraph]')).toHaveCount(1)
     await expect(root.locator('.record-section-title > [data-formatting-mark=paragraph]')).toHaveCount(1)
-    await expect(root.locator('.record-info-cell > [data-formatting-mark=paragraph]')).toHaveCount(2)
-    await expect(root.locator('td:not(.record-info-cell) p > [data-formatting-mark=paragraph]')).toHaveCount(1)
+    await expect(root.locator('.record-info-cell > [data-formatting-mark=cell]')).toHaveCount(2)
+    await expect(root.locator('td:not(.record-info-cell) p > [data-formatting-mark=cell]')).toHaveCount(1)
     for (const id of ['empty-body', 'empty-signature', 'empty-end', 'long-line']) await expect(root.locator(`[data-paragraph-id="${id}"] > [data-formatting-mark=paragraph]`)).toHaveCount(1)
-    await expect(root.locator('[data-paragraph-id=signature-position] > [data-formatting-mark]')).toHaveCount(2)
+    await expect(root.locator('[data-paragraph-id=signature-position] > [data-formatting-mark=line-break]')).toHaveCount(1)
+    await expect(root.locator('[data-paragraph-id=signature-position] > [data-formatting-mark=paragraph]')).toHaveCount(1)
     expect(await geometry()).toEqual(before)
     expect((await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document.content).toEqual(initial.content)
     const empty = root.locator('[data-paragraph-id=empty-signature]')
@@ -249,8 +252,11 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
-    await expect(empty.locator('[data-formatting-mark]')).toHaveCount(4)
-    const lines = await empty.locator('[data-formatting-mark]').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top))
+    const blank = root.locator('.record-signature p').filter({ hasNotText: /\S/ })
+    await expect(blank).toHaveCount(4)
+    await expect(blank.locator('[data-formatting-mark=paragraph]')).toHaveCount(4)
+    await expect(blank.locator('[data-formatting-mark=line-break]')).toHaveCount(0)
+    const lines = await blank.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top))
     const lineHeight = await empty.evaluate(element => parseFloat(getComputedStyle(element).lineHeight) * element.getBoundingClientRect().width / (element as HTMLElement).offsetWidth)
     for (let index = 1; index < lines.length; index++) expect(Math.abs(lines[index] - lines[index - 1] - lineHeight)).toBeLessThan(3)
     await saved(page)
@@ -265,7 +271,7 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     const glyphs = () => root.locator('[data-formatting-mark]').evaluateAll(elements => elements.map(element => getComputedStyle(element, '::after').content))
     expect((await glyphs()).every(content => content === 'none' || content === 'normal')).toBe(true)
     await page.getByRole('button', { name: 'แสดงอักขระ', exact: true }).click()
-    expect((await glyphs()).every(content => content === '"¶"')).toBe(true)
+    expect((await glyphs()).every(content => ['"¶"', '"↵"', '"¤"', '"·"', '"→"'].includes(content))).toBe(true)
     await page.getByRole('button', { name: 'พิมพ์ / PDF', exact: true }).click()
     await expect(page.locator('iframe[data-document-print-ready=true]')).toHaveCount(1)
     const print = page.frameLocator('iframe[data-document-print-frame]')
@@ -274,6 +280,135 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     await page.reload()
     const persisted = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document
     expect(persisted.content).toEqual(stored.content)
+  })
+
+  test('Word-like marks distinguish real paragraph ends, manual breaks, spaces and tabs at the Thai caret across zoom levels', async ({ page }, testInfo) => {
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    const document = await createDocument(page, { type: 'doc', content: [
+      { type: 'recordBody', attrs: { field: 'record_result', lineSpacing: 26, align: 'justify', firstIndent: 42 }, content: [
+        { type: 'paragraph', attrs: { id: 'word-legacy' }, content: [
+          { type: 'text', text: '- ปฐมนิเทศ ชี้แจงหลักสูตร/วิธีเรียน/การจัดการเรียนการสอน   ' }, { type: 'hardBreak' },
+          { type: 'text', text: 'แนะแนว' }, { type: 'hardBreak' }, { type: 'hardBreak' },
+          { type: 'text', text: '- ชี้แจงการทำกิจกรรม กพช.' }, { type: 'hardBreak' }, { type: 'text', text: '- แนะแนวทางการจัดกระบวนการเรียนรู้ ตามหลักสูตร' },
+        ] },
+        { type: 'paragraph', attrs: { id: 'word-empty' } },
+        { type: 'paragraph', attrs: { id: 'word-spaces' }, content: [{ type: 'text', text: 'คำ  ไทย\tถัดไป' }] },
+        { type: 'paragraph', attrs: { id: 'word-wrap' }, content: [{ type: 'text', text: 'ข้อความไทยที่ตัดบรรทัดอัตโนมัติ '.repeat(15) }] },
+      ] },
+    ] })
+    const initial = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    const root = page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })
+    const canvas = page.locator('[data-document-canvas]')
+    const geometry = () => root.evaluate(element => {
+      const origin = element.getBoundingClientRect()
+      return [...element.querySelectorAll('p')].map(paragraph => {
+        const rect = paragraph.getBoundingClientRect()
+        return { x: rect.x - origin.x, y: rect.y - origin.y, width: rect.width, height: rect.height }
+      })
+    })
+    await page.getByRole('tab', { name: 'ตรวจทาน', exact: true }).click()
+    for (const zoom of ['0.5', '1', '1.5']) {
+      await page.getByRole('slider', { name: 'ซูมเอกสาร', exact: true }).fill(zoom)
+      await page.evaluate(() => window.document.fonts.ready)
+      const before = await geometry()
+      const decorationLayout = await root.locator('.record-body').evaluate(element => {
+        const clone = element.cloneNode(true) as HTMLElement
+        clone.querySelectorAll('[data-formatting-mark]').forEach(marker => marker.remove())
+        Object.assign(clone.style, { position: 'absolute', left: '0', top: '0', width: `${(element as HTMLElement).offsetWidth}px`, visibility: 'hidden' })
+        element.parentElement!.append(clone)
+        const original = [...element.querySelectorAll('p')].map(paragraph => paragraph.getBoundingClientRect().height)
+        const clean = [...clone.querySelectorAll('p')].map(paragraph => paragraph.getBoundingClientRect().height)
+        clone.remove()
+        return { original, clean }
+      })
+      expect(decorationLayout.original).toEqual(decorationLayout.clean)
+      await page.getByRole('button', { name: 'แสดงอักขระ', exact: true }).click()
+      await expect(root.locator('[data-paragraph-id=word-legacy] > [data-formatting-mark=paragraph]')).toHaveCount(1)
+      await expect(root.locator('[data-paragraph-id=word-legacy] > [data-formatting-mark=line-break]')).toHaveCount(4)
+      await expect(root.locator('[data-paragraph-id=word-spaces] > [data-formatting-mark=space]')).toHaveCount(2)
+      await expect(root.locator('[data-paragraph-id=word-spaces] > [data-formatting-mark=tab]')).toHaveCount(1)
+      await expect(root.locator('[data-paragraph-id=word-wrap] > [data-formatting-mark=paragraph]')).toHaveCount(1)
+      const alignmentErrors = () => root.locator('[data-paragraph-id=word-spaces]').evaluate(element => {
+        const scale = element.getBoundingClientRect().width / (element as HTMLElement).offsetWidth
+        return [...element.querySelectorAll<HTMLElement>('[data-formatting-mark=space],[data-formatting-mark=tab]')].map(marker => {
+          const x = marker.style.getPropertyValue('--formatting-mark-x')
+          const width = marker.style.getPropertyValue('--formatting-mark-width')
+          if (!x || !width) return 999
+          let next: Node | null = marker.nextSibling
+          while (next && !next.textContent) next = next.nextSibling
+          if (!next || next.nodeType !== Node.TEXT_NODE) return 999
+          const range = window.document.createRange()
+          range.setStart(next, 0); range.setEnd(next, 1)
+          const rect = range.getBoundingClientRect()
+          return Math.abs(marker.getBoundingClientRect().left + (parseFloat(x) + parseFloat(width) / 2) * scale - (rect.left + rect.right) / 2)
+        })
+      })
+      await expect.poll(async () => Math.max(...await alignmentErrors())).toBeLessThan(2)
+      await expect.poll(() => root.locator('[data-paragraph-id=word-legacy]').evaluate(element => {
+        const marker = element.querySelector<HTMLElement>('[data-formatting-mark=paragraph]')!
+        const scale = element.getBoundingClientRect().width / (element as HTMLElement).offsetWidth
+        if (!marker.style.getPropertyValue('--formatting-mark-y')) return 999
+        const walker = window.document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+        let last: Node | null = null
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent?.length) last = node
+        if (!last) return 999
+        const range = window.document.createRange()
+        range.setStart(last, last.textContent!.length - 1); range.setEnd(last, last.textContent!.length)
+        const rect = range.getBoundingClientRect()
+        const markerRect = marker.getBoundingClientRect()
+        const x = markerRect.left + parseFloat(marker.style.getPropertyValue('--formatting-mark-x')) * scale
+        const y = markerRect.top + parseFloat(marker.style.getPropertyValue('--formatting-mark-y')) * scale
+        return Math.max(Math.abs(x - rect.right), Math.abs(y - rect.top))
+      })).toBeLessThan(3).catch(async error => {
+        console.log('Paragraph end geometry', await root.locator('[data-paragraph-id=word-legacy]').evaluate(element => {
+          const marker = element.querySelector<HTMLElement>('[data-formatting-mark=paragraph]')!
+          const scale = element.getBoundingClientRect().width / (element as HTMLElement).offsetWidth
+          const walker = window.document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+          let last: Node | null = null
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent?.length) last = node
+          const range = window.document.createRange()
+          range.setStart(last!, last!.textContent!.length - 1); range.setEnd(last!, last!.textContent!.length)
+          const rect = range.getBoundingClientRect(), box = marker.getBoundingClientRect()
+          return { scale, marker: { x: box.x, y: box.y }, reference: { x: rect.right, y: rect.top, height: rect.height }, x: marker.style.getPropertyValue('--formatting-mark-x'), y: marker.style.getPropertyValue('--formatting-mark-y'), height: marker.style.getPropertyValue('--formatting-mark-height'), paragraph: element.getBoundingClientRect().toJSON(), text: last!.textContent }
+        }))
+        throw error
+      })
+
+      expect(await geometry()).toEqual(before)
+      if (zoom === '1') await page.screenshot({ path: testInfo.outputPath('word-like-formatting-marks.png'), fullPage: false })
+      await page.getByRole('button', { name: 'ซ่อนอักขระ', exact: true }).click()
+      expect(await geometry()).toEqual(before)
+    }
+    const line = root.locator('[data-paragraph-id=word-spaces]')
+    await line.evaluate(element => {
+      element.closest<HTMLElement>('[contenteditable=true]')!.focus()
+      const range = window.document.createRange(); range.selectNodeContents(element); range.collapse(false)
+      const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
+      window.document.dispatchEvent(new Event('selectionchange'))
+    })
+    await page.keyboard.press('Tab')
+    await expect(line).toHaveText('คำ  ไทย\tถัดไป\t')
+    await page.keyboard.press('Shift+Enter')
+    await page.keyboard.insertText('ยังเป็นย่อหน้าเดิม')
+    await expect(line.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(1)
+    await page.keyboard.press('Enter')
+    await page.keyboard.insertText('ย่อหน้าใหม่')
+    await expect(line.locator('xpath=following-sibling::p[1]')).toHaveText('ย่อหน้าใหม่')
+    await saved(page)
+    const stored = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    expect(stored.content.content![0].content![0]).toEqual(initial.content.content![0].content![0])
+    expect(JSON.stringify(stored.content)).not.toMatch(/[¶↵¤·→]/)
+    await page.getByRole('button', { name: 'แสดงอักขระ', exact: true }).click()
+    await page.getByRole('button', { name: 'พิมพ์ / PDF', exact: true }).click()
+    await expect(page.locator('iframe[data-document-print-ready=true]')).toHaveCount(1)
+    const print = page.frameLocator('iframe[data-document-print-frame]')
+    await expect(print.locator('[data-formatting-mark],.show-marks')).toHaveCount(0)
+    await expect(print.locator('[data-paragraph-id=word-spaces]')).toHaveText('คำ  ไทย\tถัดไป\tยังเป็นย่อหน้าเดิม')
+    await page.locator('iframe[data-document-print-frame]').evaluate(frame => frame.remove())
+    await page.reload()
+    expect((await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document.content).toEqual(stored.content)
+    expect(errors).toEqual([])
   })
 
   test('formatting marks also cover empty paragraphs in a floating textbox while it is not being edited', async ({ page }) => {
