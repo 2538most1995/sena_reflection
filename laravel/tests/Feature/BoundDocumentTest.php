@@ -10,8 +10,11 @@ use App\Models\Tambon;
 use App\Models\TeachingDraft;
 use App\Models\TeachingRecord;
 use App\Models\User;
+use App\Services\BoundDocumentService;
+use App\Services\DraftService;
 use App\Services\LegacyPrintService;
 use App\Services\RecordEditorTemplate;
+use App\Services\RecordRevisionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
@@ -385,6 +388,104 @@ class BoundDocumentTest extends TestCase
             File::deleteDirectory($fixtureRoot);
             Storage::set('local', $previousDisk);
         }
+    }
+
+    public function test_existing_header_upgrades_once_without_rebuilding_user_content_photos_or_frozen_revisions(): void
+    {
+        $this->record->update(['class_name' => 'ศกร.ระดับตำบลบางนมโค', 'class_group_code' => 'G01']);
+        $this->sourceImage('header-photo-a.png');
+        $this->sourceImage('header-photo-b.png');
+        $service = app(BoundDocumentService::class);
+        $document = $service->forRecord($this->teacher, $this->record);
+        $document = $this->usePreviousHeader($document);
+        $content = $document->content_json;
+        $this->replaceField($content, 'record_result', 'ข้อความที่ผู้ใช้จัดรูปแบบไว้', [['type' => 'bold']]);
+        $objects = $document->objects_json;
+        $objects[0]['x'] = 61.5;
+        $document->update(['content_json' => $content, 'objects_json' => $objects]);
+        $frozen = ['schema_version' => 1, 'record' => ['id' => $this->record->id], 'advanced_document' => $service->snapshotForPrint($document)];
+        $revision = RecordRevision::create(['id' => (string) Str::uuid(), 'record_id' => $this->record->id, 'revision' => 100, 'content_hash' => hash('sha256', json_encode($frozen)), 'snapshot' => $frozen, 'created_by' => $this->teacher->id, 'created_at' => now()]);
+        $oldRevision = $document->revision;
+        $pageSettings = $document->page_settings_json;
+        $resultNode = $this->fieldNode($content, 'record_result');
+
+        $currentRevision = app(RecordRevisionService::class)->capture($this->record, $this->teacher);
+        $upgraded = $document->fresh();
+
+        $this->assertSame(2, $currentRevision->snapshot['advanced_document']['templateVersion']);
+        $this->assertSame(2, $upgraded->binding_snapshot['template_version']);
+        $this->assertSame($oldRevision + 1, $upgraded->revision);
+        $this->assertSame($resultNode, $this->fieldNode($upgraded->content_json, 'record_result'));
+        $this->assertSame($objects, $upgraded->objects_json);
+        $this->assertSame($pageSettings, $upgraded->page_settings_json);
+        $this->assertSame($frozen, $revision->fresh()->snapshot);
+        $header = $upgraded->content_json['content'][1];
+        $this->assertSame('record_class_name', $header['content'][1]['attrs']['field']);
+        $this->assertSame('ศกร.ระดับตำบลบางนมโค', $header['content'][1]['content'][0]['text']);
+        $this->assertSame([18, 30, 36, 16], array_column(array_column($header['content'], 'attrs'), 'width'));
+        $this->assertCount(5, array_filter($upgraded->content_json['content'], static fn (array $node): bool => $node['type'] === 'recordInfoRow'));
+        $this->assertSame($upgraded->revision, $service->forRecord($this->teacher, $this->record)->revision);
+        $this->assertSame('ศกร.ระดับตำบลบางนมโค', $this->record->fresh()->class_name);
+    }
+
+    public function test_learning_center_edit_saves_to_group_name_and_external_group_changes_do_not_restore_a_group_row(): void
+    {
+        $this->record->update(['class_name' => 'ศกร.ระดับตำบลบางนมโค', 'class_group_code' => 'G01']);
+        $document = app(BoundDocumentService::class)->forRecord($this->teacher, $this->record);
+        $content = $document->content_json;
+        $this->replaceField($content, 'record_class_name', 'ศกร.ระดับตำบลบ้านแพน');
+
+        $this->actingAs($this->teacher)->putJson('/api/documents/'.$document->id, ['revision' => $document->revision, 'content' => $content])->assertOk();
+
+        $this->assertSame('ศกร.ระดับตำบลบ้านแพน', $this->record->fresh()->class_name);
+        $this->assertSame('G01', $this->record->class_group_code);
+        $this->record->update(['class_name' => '', 'class_group_code' => '']);
+        $latest = $this->getJson('/api/documents/'.$document->id)->assertOk()->json('document.content');
+        $this->assertCount(5, array_filter($latest['content'], static fn (array $node): bool => $node['type'] === 'recordInfoRow'));
+        $this->assertNull($this->fieldNode($latest, 'record_class_name'));
+        $this->assertSame('ตำบลเสนา', $latest['content'][1]['content'][1]['content'][0]['text']);
+    }
+
+    public function test_existing_draft_preview_upgrades_its_header_without_changing_attendance_or_lock_version(): void
+    {
+        $draft = $this->draft();
+        $payload = $draft->payload;
+        $payload['levels']['1']['class_name'] = 'ศกร.ระดับตำบลบางนมโค';
+        $draft->update(['payload' => $payload]);
+        $service = app(BoundDocumentService::class);
+        $document = $this->usePreviousHeader($service->forDraft($this->teacher, $draft, '1'));
+        $before = $draft->fresh()->getRawOriginal('payload');
+        $lockVersion = $draft->lock_version;
+
+        $snapshot = app(DraftService::class)->snapshotForPreview($this->teacher, $draft, '1', [], $lockVersion);
+
+        $this->assertSame(2, $snapshot['advanced_document']['templateVersion']);
+        $this->assertSame('ศกร.ระดับตำบลบางนมโค', $snapshot['advanced_document']['content']['content'][1]['content'][1]['content'][0]['text']);
+        $this->assertSame($document->revision + 1, $document->fresh()->revision);
+        $this->assertSame($before, $draft->fresh()->getRawOriginal('payload'));
+        $this->assertSame($lockVersion, $draft->fresh()->lock_version);
+        $this->assertSame($lockVersion, $document->fresh()->binding_snapshot['lock_version']);
+    }
+
+    private function usePreviousHeader(Document $document): Document
+    {
+        $binding = $document->binding_snapshot;
+        $binding['template_version'] = 1;
+        $oldHeader = app(RecordEditorTemplate::class)->build($binding['source_snapshot'], 1);
+        $rows = array_values(array_filter($oldHeader['content']['content'], static fn (array $node): bool => $node['type'] === 'recordInfoRow'));
+        $binding['managed']['info_rows'] = [];
+        foreach ($rows as &$row) {
+            $row['attrs']['id'] = (string) Str::uuid();
+            $labels = array_filter($row['content'], static fn (array $cell): bool => $cell['attrs']['label']);
+            $key = implode('|', array_map(static fn (array $cell): string => $cell['content'][0]['text'] ?? '', $labels));
+            $binding['managed']['info_rows'][$key] = $row['attrs']['id'];
+        }
+        unset($row);
+        $content = $document->content_json;
+        $content['content'] = [$content['content'][0], ...$rows, ...array_slice($content['content'], 6)];
+        $document->update(['content_json' => $content, 'binding_snapshot' => $binding]);
+
+        return $document;
     }
 
     private function sourceImage(string $name, ?TeachingRecord $record = null): RecordImage

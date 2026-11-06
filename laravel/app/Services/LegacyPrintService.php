@@ -8,6 +8,7 @@ use App\Models\TeachingRecord;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
+use Mockery\LegacyMockInterface;
 use RuntimeException;
 use Symfony\Component\Process\Exception\ExceptionInterface;
 use Symfony\Component\Process\ExecutableFinder;
@@ -44,6 +45,7 @@ class LegacyPrintService
 
         return [
             'schema_version' => 1,
+            'template_version' => RecordEditorTemplate::VERSION,
             'record' => $attributes,
             'images' => $record->images->map(fn ($image): array => $image->only(['id', 'file_path']))->values()->all(),
             'attendance' => $record->attendance->toArray(),
@@ -87,7 +89,7 @@ class LegacyPrintService
     public function browserPrintHtml(TeachingRecord $record, User $user): string
     {
         $saved = $this->savedSnapshot($record, $user);
-        if (! isset($saved['advanced_document']) && ! is_a($this, \Mockery\LegacyMockInterface::class) && Schema::hasTable('documents')) {
+        if ((! isset($saved['advanced_document']) || (int) ($saved['advanced_document']['templateVersion'] ?? 1) < RecordEditorTemplate::VERSION) && ! is_a($this, LegacyMockInterface::class) && Schema::hasTable('documents')) {
             try {
                 $advanced = app(BoundDocumentService::class)->ensureForRecordWithSnapshot($user, $record, $saved);
                 if ($advanced) {
@@ -124,6 +126,9 @@ class LegacyPrintService
     public function html(TeachingRecord $record, User $user, bool $hideAttendance = false): string
     {
         $snapshot = $this->savedSnapshot($record, $user);
+        if (isset($snapshot['advanced_document']) && (int) ($snapshot['advanced_document']['templateVersion'] ?? 1) < RecordEditorTemplate::VERSION) {
+            $snapshot['advanced_document'] = app(BoundDocumentService::class)->ensureForRecordWithSnapshot($user, $record, $snapshot);
+        }
         if ($hideAttendance) {
             $snapshot['settings']['show_attendance_page'] = '0';
         }

@@ -22,8 +22,10 @@ class RecordEditorTemplateTest extends TestCase
         $this->assertFalse($model['pageSettings']['pageNumbers']);
         $this->assertEqualsWithDelta(94, $model['pageSettings']['margins']['left'] * 96 / 25.4, 0.001);
         $this->assertEqualsWithDelta(57, $model['pageSettings']['margins']['top'] * 96 / 25.4, 0.001);
-        $this->assertSame([18.0, 22.0, 36.0, 16.0, 8.0], array_column(array_column($nodes[1]['content'], 'attrs'), 'width'));
-        $this->assertSame('ตำบลบ้านแพน', $nodes[1]['content'][1]['content'][0]['text']);
+        $this->assertSame([18.0, 30.0, 36.0, 16.0], array_column(array_column($nodes[1]['content'], 'attrs'), 'width'));
+        $this->assertSame('ศกร.ระดับตำบลบ้านแพน', $nodes[1]['content'][1]['content'][0]['text']);
+        $this->assertSame('record_class_name', $nodes[1]['content'][1]['attrs']['field']);
+        $this->assertCount(5, $this->nodesOfType(['type' => 'doc', 'content' => array_slice($nodes, 0, 6)], 'recordInfoRow'));
         $this->assertSame('กันยายน', $nodes[2]['content'][5]['content'][0]['text']);
         $this->assertSame('2569', $nodes[2]['content'][7]['content'][0]['text']);
         $fields = $this->fields($model['content']);
@@ -73,6 +75,29 @@ class RecordEditorTemplateTest extends TestCase
 
         $this->assertEqualsWithDelta(0.75, $validated['pageSettings']['lineHeight'], 0.0001);
         $this->assertSame(20.0, $this->nodesOfType($validated['content'], 'recordBody')[0]['attrs']['lineSpacing']);
+    }
+
+    public function test_learning_center_uses_group_name_then_code_then_tambon_without_a_separate_group_row(): void
+    {
+        foreach ([['ศกร.ระดับตำบลบางนมโค', 'G01', 'ศกร.ระดับตำบลบางนมโค', 'record_class_name'], ['   ', 'G01', 'G01', 'record_class_group_code'], ['', '', 'ตำบลบ้านแพน', null]] as [$name, $code, $expected, $field]) {
+            $snapshot = $this->snapshot();
+            $snapshot['record']['class_name'] = $name;
+            $snapshot['record']['class_group_code'] = $code;
+            $model = app(RecordEditorTemplate::class)->build($snapshot);
+            app(DocumentSchema::class)->validate($model);
+            $center = $model['content']['content'][1]['content'][1];
+            $this->assertSame($expected, $center['content'][0]['text']);
+            $this->assertSame($field, $center['attrs']['field']);
+            $labels = array_filter($this->nodesOfType($model['content'], 'recordInfoCell'), static fn (array $cell): bool => $cell['attrs']['label']);
+            $this->assertNotContains('กลุ่มเรียน', array_map(static fn (array $cell): string => $cell['content'][0]['text'] ?? '', $labels));
+        }
+    }
+
+    public function test_previous_template_can_still_be_reconstructed_for_lossless_versioned_upgrades(): void
+    {
+        $model = app(RecordEditorTemplate::class)->build($this->snapshot(), 1);
+        $this->assertSame('ตำบลบ้านแพน', $model['content']['content'][1]['content'][1]['content'][0]['text']);
+        $this->assertSame('กลุ่มเรียน', $model['content']['content'][4]['content'][0]['content'][0]['text']);
     }
 
     private function snapshot(): array

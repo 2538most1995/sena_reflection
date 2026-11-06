@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { test, expect, type Page } from '@playwright/test'
 import JSZip from 'jszip'
 import { startWorkflowFixture, workflowBaseUrl, workflowCredentials, type WorkflowFixture } from './helpers/workflow-fixture'
@@ -506,6 +506,49 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     await expect(page.locator('#browser-print-retry')).toBeHidden()
   })
 
+  test('the learning center shows the selected group without a group row in both canvas print and server PDF', async ({ page }) => {
+    test.setTimeout(90_000)
+    const name = 'ศกร.ระดับตำบลบางนมโค'
+    const created = await api<{ data: { draft: { id: string; lock_version: number } } }>(page, 'POST', '/teaching-drafts', { payload: {
+      scope: { tambon: 'workflow-tambon', year: '2569', semester: '2', week: 15, date: '2026-11-05' },
+      enabled_level_codes: ['1'], active_level_code: '1', levels: { '1': { subject: 'ปฐมนิเทศ', subject_code: '', class_name: name, class_group_code: 'CENTER-1', result: 'จัดกิจกรรมปฐมนิเทศให้ผู้เรียน', problem: '', suggestion: '', attendance_mode: 'counts', total: 2, present: 2 } },
+    } })
+    expect(created.status).toBe(201)
+    const draft = created.data.data.draft
+    const finalized = await api<{ data: { record_ids: string[] } }>(page, 'POST', `/teaching-drafts/${draft.id}/finalize`, { lock_version: draft.lock_version, idempotency_key: randomUUID(), confirmed: true })
+    expect(finalized.status).toBe(200)
+    const recordId = finalized.data.data.record_ids[0]
+    await page.goto(`/records/${recordId}/document`)
+    await expect(page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })).toBeVisible()
+    const header = page.locator('.record-info-row:not(.record-info-row--compact)').first()
+    await expect(header.locator('[data-record-field="record_class_name"]')).toHaveText(name)
+    await expect(page.locator('.record-info-cell--label').filter({ hasText: /^กลุ่มเรียน$/ })).toHaveCount(0)
+    await saved(page)
+    await page.getByRole('button', { name: 'บันทึกและพิมพ์', exact: true }).click()
+    const frame = page.frameLocator('iframe[data-document-print-frame]')
+    await expect(page.locator('iframe[data-document-print-ready=true]')).toHaveCount(1)
+    await expect(frame.locator('.record-info-row:not(.record-info-row--compact)').first()).toContainText(name)
+    await expect(frame.locator('.record-info-cell--label').filter({ hasText: /^กลุ่มเรียน$/ })).toHaveCount(0)
+    const verification = await page.context().newPage()
+    await verification.goto(`/records/${recordId}/browser-print`)
+    await expect(verification.locator('body')).toHaveAttribute('data-document-print-ready', 'true', { timeout: 25_000 })
+    await expect(verification.locator('.record-info-row:not(.record-info-row--compact)').first()).toContainText(name)
+    await expect(verification.locator('.record-info-cell--label').filter({ hasText: /^กลุ่มเรียน$/ })).toHaveCount(0)
+    const geometry = await verification.locator('[data-record-field="record_class_name"]').first().evaluate(cell => ({ client: cell.clientWidth, scroll: cell.scrollWidth }))
+    expect(geometry.scroll).toBeLessThanOrEqual(geometry.client + 1)
+    await mkdir('output/pdf', { recursive: true })
+    const browserPdf = await verification.pdf({ path: 'output/pdf/learning-center-browser.pdf', preferCSSPageSize: true, printBackground: true })
+    expect(browserPdf.subarray(0, 5).toString()).toBe('%PDF-')
+    await verification.close()
+    await page.locator('iframe[data-document-print-frame]').evaluate(frame => frame.remove())
+    const server = await page.request.get(`/records/${recordId}/print`, { headers: { Accept: 'application/pdf' }, timeout: 60_000 })
+    expect(server.status()).toBe(200)
+    expect(server.headers()['content-type']).toBe('application/pdf')
+    const serverPdf = await server.body()
+    expect(serverPdf.subarray(0, 5).toString()).toBe('%PDF-')
+    await writeFile('output/pdf/learning-center-server.pdf', serverPdf)
+  })
+
   test('the original record route uses the advanced editor with the original Thai form and saves before printing', async ({ page }) => {
     const recordId = ownsFixture ? (legacyRecordId ||= fixture!.seedLegacyRecord()) : process.env.SENA_E2E_RECORD_ID
     test.skip(!recordId, 'Provide the ID of a dedicated isolated report fixture to test the record binding.')
@@ -513,8 +556,11 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     await expect(page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })).toBeVisible()
     await expect(page.locator('.de-source-note')).toContainText('จัดเอกสารก่อนพิมพ์')
     await expect(page.getByRole('button', { name: 'ตัวแก้ไขขั้นสูง / DOCX', exact: true })).toHaveCount(0)
-    await expect(page.locator('.record-info-row:not(.record-info-row--compact)')).toHaveCount(6)
+    await expect(page.locator('.record-info-row:not(.record-info-row--compact)')).toHaveCount(5)
     await expect(page.locator('.record-signature')).toHaveCount(3)
+    await expect(page.locator('.record-info-row:not(.record-info-row--compact)').first()).toContainText('ศูนย์การเรียนรู้')
+    await expect(page.locator('.record-info-row:not(.record-info-row--compact)').first().locator('[data-record-field="record_class_name"]')).toHaveText('กลุ่มทดสอบ มัธยมศึกษาตอนปลาย')
+    await expect(page.locator('.record-info-cell--label').filter({ hasText: /^กลุ่มเรียน$/ })).toHaveCount(0)
     await expect.poll(() => page.locator('[data-document-canvas] .document-page').count()).toBeGreaterThan(0)
     const documentId = await page.locator('script[type="application/json"][data-page]').evaluate(element => JSON.parse(element.textContent || '{}').props.document.id) as string
     await saved(page)

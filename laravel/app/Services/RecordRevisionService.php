@@ -28,13 +28,16 @@ class RecordRevisionService
                 $options->settings(array_merge($frozenSettings, $record->documentLayout?->settings ?? []), $record->images->pluck('id')->map(fn ($id) => (string) $id)->all(), $record->tambon),
             );
             $snapshot = [
-                'schema_version' => 1, 'record' => $data,
+                'schema_version' => 1, 'template_version' => RecordEditorTemplate::VERSION, 'record' => $data,
                 'images' => $record->images->map(fn ($image) => $image->only(['id', 'file_path']))->all(),
                 'attendance' => $record->attendance->toArray(), 'settings' => $settings,
                 'content' => $options->content($record),
             ];
             $legacyContent = $record->documentLayout?->content ?? [];
             $advanced = app(BoundDocumentService::class)->snapshotForRecord($record);
+            if ($advanced && (int) ($advanced['templateVersion'] ?? 1) < RecordEditorTemplate::VERSION) {
+                $advanced = app(BoundDocumentService::class)->ensureForRecordWithSnapshot($user, $record, $snapshot);
+            }
             if ($advanced) {
                 $snapshot['advanced_document'] = $advanced;
             }

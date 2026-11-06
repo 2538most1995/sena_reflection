@@ -448,6 +448,7 @@ class DraftService
 
         $snapshot = [
             'schema_version' => 1,
+            'template_version' => RecordEditorTemplate::VERSION,
             'record' => [...$record->attributesToArray(), 'tambon_name' => Tambon::query()->whereKey($scope['tambon'])->value('name') ?? '', 'teacher_name' => $teacherName],
             'images' => $images->map(fn (DraftImage $image) => [
                 'id' => $image->id,
@@ -458,7 +459,7 @@ class DraftService
             'content' => $content,
         ];
 
-        return app(BoundDocumentService::class)->attachDraftSnapshot($snapshot, $owned->id, $levelCode);
+        return app(BoundDocumentService::class)->attachDraftSnapshot($snapshot, $owned->id, $levelCode, $user, $owned->lock_version);
     }
 
     /** @param array<string, mixed> $payload */

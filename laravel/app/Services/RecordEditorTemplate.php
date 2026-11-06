@@ -10,10 +10,12 @@ use Illuminate\Support\Str;
 
 class RecordEditorTemplate
 {
+    public const VERSION = 2;
+
     private array $settings = [];
 
     /** @return array{content:array,pageSettings:array,objects:array} */
-    public function build(array $snapshot): array
+    public function build(array $snapshot, int $templateVersion = self::VERSION): array
     {
         $this->settings = $snapshot['settings'] ?? [];
         $record = array_replace($snapshot['record'] ?? [], collect($snapshot['content'] ?? [])->mapWithKeys(fn ($value, $key): array => [str_starts_with($key, 'record_') ? substr($key, 7) : $key => $value])->all());
@@ -21,10 +23,15 @@ class RecordEditorTemplate
         $months = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
         $fontSize = (float) ($this->settings['pdf_font_size_pt'] ?? 16);
         $parts = [$this->paragraph('บันทึกหลังการสอนการเรียนรู้รายสัปดาห์', null, 'recordTitle', [['type' => 'bold'], ['type' => 'textStyle', 'attrs' => ['fontSize' => ($fontSize + 4).'pt']]])];
+        $centerField = trim((string) ($record['class_name'] ?? '')) !== '' ? 'class_name' : (trim((string) ($record['class_group_code'] ?? '')) !== '' ? 'class_group_code' : null);
+        $center = $centerField ? $record[$centerField] : 'ตำบล'.($record['tambon_name'] ?? '');
         $parts[] = $this->infoRow([
-            ['ศูนย์การเรียนรู้', 18, 'ตำบล'.($record['tambon_name'] ?? ''), 22],
+            ['ศูนย์การเรียนรู้', 18, $templateVersion < 2 ? 'ตำบล'.($record['tambon_name'] ?? '') : $center, $templateVersion < 2 ? 22 : 30, $templateVersion < 2 || ! $centerField ? null : 'record_'.$centerField],
             ['ศูนย์ส่งเสริมการเรียนรู้ระดับอำเภอ', 36, 'เสนา', 16],
         ]);
+        if ($templateVersion >= 2) {
+            $parts[1]['content'][1]['attrs']['nowrap'] = false;
+        }
         $parts[] = $this->infoRow([
             ['สัปดาห์ที่', 9, $record['week'] ?? '', 8], ['วันที่', 7, $date?->day ?? '', 9],
             ['เดือน', 7, $date ? $months[$date->month] : '', 17], ['พ.ศ.', 7, $date ? $date->year + 543 : '', 13],
@@ -32,7 +39,7 @@ class RecordEditorTemplate
         $parts[] = $this->infoRow([
             ['ระดับ', 8, $record['level'] ?? '', 27], ['ภาคเรียนที่', 17, $record['semester'] ?? '', 7], ['ปีการศึกษา', 17, $record['year'] ?? '', 9],
         ]);
-        if (! empty($record['class_name']) || ! empty($record['class_group_code'])) {
+        if ($templateVersion < 2 && (! empty($record['class_name']) || ! empty($record['class_group_code']))) {
             $key = ! empty($record['class_name']) ? 'class_name' : 'class_group_code';
             $parts[] = $this->infoRow([['กลุ่มเรียน', 12, $record[$key], 88, 'record_'.$key]]);
         }

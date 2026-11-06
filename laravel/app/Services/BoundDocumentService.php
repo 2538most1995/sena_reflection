@@ -85,7 +85,7 @@ class BoundDocumentService
 
     public function snapshotForPrint(Document $document): array
     {
-        return array_intersect_key($this->documents->resource($document), array_flip(['id', 'title', 'content', 'pageSettings', 'objects', 'schemaVersion', 'revision', 'assets']));
+        return [...array_intersect_key($this->documents->resource($document), array_flip(['id', 'title', 'content', 'pageSettings', 'objects', 'schemaVersion', 'revision', 'assets'])), 'templateVersion' => (int) ($document->binding_snapshot['template_version'] ?? 1)];
     }
 
     public function snapshotForRecord(TeachingRecord $record): ?array
@@ -107,7 +107,7 @@ class BoundDocumentService
         }
 
         $document = Document::query()->where('binding_key', 'record:'.$record->id)->first();
-        if ($document && ($document->binding_snapshot['source_fingerprint'] ?? '') === $this->recordFingerprint($record)) {
+        if ($document && (int) ($document->binding_snapshot['template_version'] ?? 1) >= RecordEditorTemplate::VERSION && ($document->binding_snapshot['source_fingerprint'] ?? '') === $this->recordFingerprint($record)) {
             return $this->snapshotForPrint($document);
         }
 
@@ -115,7 +115,7 @@ class BoundDocumentService
             $record = TeachingRecord::query()->whereKey($record->id)->lockForUpdate()->firstOrFail();
             $document = Document::query()->where('binding_key', 'record:'.$record->id)->lockForUpdate()->first();
             $fingerprint = $this->recordFingerprint($record);
-            if ($document && ($document->binding_snapshot['source_fingerprint'] ?? '') === $fingerprint) {
+            if ($document && (int) ($document->binding_snapshot['template_version'] ?? 1) >= RecordEditorTemplate::VERSION && ($document->binding_snapshot['source_fingerprint'] ?? '') === $fingerprint) {
                 return $this->snapshotForPrint($document);
             }
 
@@ -135,7 +135,7 @@ class BoundDocumentService
         }, 3);
     }
 
-    public function attachDraftSnapshot(array $snapshot, string $draftId, string $levelCode): array
+    public function attachDraftSnapshot(array $snapshot, string $draftId, string $levelCode, User $user, int $lockVersion): array
     {
         if (! Schema::hasTable('documents')) {
             return $snapshot;
@@ -143,6 +143,10 @@ class BoundDocumentService
 
         $document = Document::query()->where('binding_key', 'draft:'.$draftId.':'.$levelCode)->first();
         if ($document && ($document->binding_snapshot['source_fingerprint'] ?? '') === $this->snapshotFingerprint($snapshot)) {
+            if ((int) ($document->binding_snapshot['template_version'] ?? 1) < RecordEditorTemplate::VERSION) {
+                $this->drafts->owned($user, $draftId);
+                $document = DB::transaction(fn (): Document => $this->rebase(Document::query()->whereKey($document->id)->lockForUpdate()->firstOrFail(), $user, $this->sourceSnapshot($snapshot), $this->snapshotFingerprint($snapshot), ['lock_version' => $lockVersion]), 3);
+            }
             $snapshot['advanced_document'] = $this->snapshotForPrint($document);
         }
 
@@ -236,7 +240,7 @@ class BoundDocumentService
             'user_id' => $user->id, 'title' => 'บันทึกหลังการสอน — '.($snapshot['record']['subject'] ?? ''),
             'content_json' => DocumentSchema::blankContent(), 'page_settings_json' => DocumentSchema::defaultPageSettings(),
             'objects_json' => [], 'schema_version' => 1, 'revision' => 1, 'binding_key' => $key,
-            'binding_snapshot' => [...$binding, 'template_version' => 1, 'original_snapshot' => $snapshot, 'source_snapshot' => $snapshot],
+            'binding_snapshot' => [...$binding, 'template_version' => RecordEditorTemplate::VERSION, 'original_snapshot' => $snapshot, 'source_snapshot' => $snapshot],
         ]);
         try {
             $renderSnapshot = [...$snapshot, 'images' => $this->documents->importSnapshotAssets($document, $snapshot)];
@@ -525,9 +529,10 @@ class BoundDocumentService
     private function rebase(Document $document, User $user, array $snapshot, string $fingerprint, array $metadata = []): Document
     {
         $binding = $document->binding_snapshot;
-        if (($binding['source_fingerprint'] ?? '') !== $fingerprint) {
+        $upgradeTemplate = (int) ($binding['template_version'] ?? 1) < RecordEditorTemplate::VERSION;
+        if ($upgradeTemplate || ($binding['source_fingerprint'] ?? '') !== $fingerprint) {
             $oldSnapshot = $binding['source_snapshot'];
-            $beforeTemplate = $this->template->build($oldSnapshot);
+            $beforeTemplate = $this->template->build($oldSnapshot, (int) ($binding['template_version'] ?? 1));
             $afterTemplate = $this->template->build($snapshot);
             $before = $this->templateFields($beforeTemplate['content']);
             $after = $this->templateFields($afterTemplate['content']);
@@ -540,7 +545,7 @@ class BoundDocumentService
             $content = $document->content_json;
             $this->rebaseFields($content, $changes);
             $managed = $binding['managed'] ?? $this->inferManagedState($document, $content);
-            $this->mergeInfoRows($content, $managed, $beforeTemplate['content'], $afterTemplate['content']);
+            $this->mergeInfoRows($content, $managed, $beforeTemplate['content'], $afterTemplate['content'], $upgradeTemplate);
             $objects = $document->objects_json;
             $previousAssets = $document->assets()->pluck('id')->all();
             try {
@@ -555,6 +560,7 @@ class BoundDocumentService
                 Storage::disk('local')->delete($document->assets()->whereNotIn('id', $previousAssets)->pluck('storage_path')->all());
                 throw $exception;
             }
+            $binding['template_version'] = RecordEditorTemplate::VERSION;
             $binding['managed'] = $managed;
             $binding['source_snapshot'] = $snapshot;
             $binding['source_fingerprint'] = $fingerprint;
@@ -661,7 +667,7 @@ class BoundDocumentService
         return $state;
     }
 
-    private function mergeInfoRows(array &$content, array &$managed, array $before, array $after): void
+    private function mergeInfoRows(array &$content, array &$managed, array $before, array $after, bool $upgradeTemplate = false): void
     {
         $beforeRows = [];
         $afterRows = [];
@@ -677,7 +683,7 @@ class BoundDocumentService
         }
         foreach ($afterRows as $key => $next) {
             $previous = $beforeRows[$key] ?? null;
-            if ($previous && $this->plain($previous) === $this->plain($next)) {
+            if ($previous && $this->plain($previous) === $this->plain($next) && (! $upgradeTemplate || count($previous['content']) === count($next['content']))) {
                 continue;
             }
             $matches = [];
@@ -698,6 +704,20 @@ class BoundDocumentService
                 continue;
             }
             $index = $matches[0];
+            if ($upgradeTemplate && $previous && count($previous['content']) !== count($next['content'])) {
+                $currentCells = $content['content'][$index]['content'];
+                $defaultWidths = array_column(array_column($previous['content'], 'attrs'), 'width');
+                $currentWidths = array_column(array_column($currentCells, 'attrs'), 'width');
+                $trailing = array_slice($currentCells, count($next['content']));
+                if (array_map('floatval', $currentWidths) === array_map('floatval', $defaultWidths) && collect($trailing)->every(fn (array $cell): bool => $this->plain($cell) === '' && empty($cell['attrs']['field']))) {
+                    $content['content'][$index]['content'] = array_slice($currentCells, 0, count($next['content']));
+                    foreach ($next['content'] as $cellIndex => $cell) {
+                        foreach (['width', 'unit', 'nowrap'] as $attribute) {
+                            $content['content'][$index]['content'][$cellIndex]['attrs'][$attribute] = $cell['attrs'][$attribute];
+                        }
+                    }
+                }
+            }
             foreach ($next['content'] as $cellIndex => $cell) {
                 if (! isset($previous['content'][$cellIndex]) || $this->plain($previous['content'][$cellIndex]) !== $this->plain($cell)) {
                     $current = $content['content'][$index]['content'][$cellIndex] ?? null;
@@ -705,9 +725,7 @@ class BoundDocumentService
                         $this->sourceConflict('ช่องข้อมูลหัวบันทึกไม่ครบ กรุณาเก็บสำเนาแล้วติดต่อผู้ดูแล');
                     }
                     $content['content'][$index]['content'][$cellIndex]['content'] = $this->styledReplacement($current, $cell)['content'] ?? [];
-                    if (isset($cell['attrs']['field'])) {
-                        $content['content'][$index]['content'][$cellIndex]['attrs']['field'] = $cell['attrs']['field'];
-                    }
+                    $content['content'][$index]['content'][$cellIndex]['attrs']['field'] = $cell['attrs']['field'] ?? null;
                 }
             }
         }
@@ -1063,7 +1081,10 @@ class BoundDocumentService
 
     private function snapshotFingerprint(array $snapshot): string
     {
-        return hash('sha256', json_encode($this->sourceSnapshot($snapshot), JSON_THROW_ON_ERROR));
+        $source = $this->sourceSnapshot($snapshot);
+        unset($source['template_version']);
+
+        return hash('sha256', json_encode($source, JSON_THROW_ON_ERROR));
     }
 
     private function sourceConflict(string $message): never

@@ -2793,8 +2793,11 @@ $page1Html = $styles;
 $page1Html .= '<div class="page">';
 $page1Html .= '<h2>บันทึกหลังการสอนการเรียนรู้รายสัปดาห์</h2>';
 
+$useGroupAsLearningCenter = !$hasRecordSnapshot || (int) ($recordSnapshot['template_version'] ?? 1) >= 2;
+$learningCenterField = trim((string) ($record['class_name'] ?? '')) !== '' ? 'class_name' : (trim((string) ($record['class_group_code'] ?? '')) !== '' ? 'class_group_code' : null);
+$learningCenter = $learningCenterField ? $record[$learningCenterField] : 'ตำบล' . ($record['tambon_name'] ?? '');
 $page1Html .= buildInfoRow([
-    ['label' => 'ศูนย์การเรียนรู้', 'label_width' => '18%', 'value' => 'ตำบล' . ($record['tambon_name'] ?? ''), 'width' => '22%', 'nowrap' => true],
+    ['label' => 'ศูนย์การเรียนรู้', 'label_width' => '18%', 'value' => $useGroupAsLearningCenter ? $learningCenter : 'ตำบล' . ($record['tambon_name'] ?? ''), 'width' => $useGroupAsLearningCenter ? '30%' : '22%', 'nowrap' => !$useGroupAsLearningCenter, 'editable_key' => $useGroupAsLearningCenter && $learningCenterField ? 'record_' . $learningCenterField : null],
     ['label' => 'ศูนย์ส่งเสริมการเรียนรู้ระดับอำเภอ', 'label_width' => '36%', 'value' => 'เสนา', 'width' => '16%', 'nowrap' => true],
 ]);
 
@@ -2811,7 +2814,7 @@ $page1Html .= buildInfoRow([
     ['label' => 'ปีการศึกษา', 'label_width' => '17%', 'value' => $record['year'] ?? '', 'width' => '9%'],
 ]);
 
-if (!empty($record['class_name']) || !empty($record['class_group_code'])) {
+if (!$useGroupAsLearningCenter && (!empty($record['class_name']) || !empty($record['class_group_code']))) {
     $page1Html .= buildInfoRow([
     ['label' => 'กลุ่มเรียน', 'label_width' => '12%', 'value' => $record['class_name'] ?: $record['class_group_code'], 'width' => '88%', 'editable_key' => !empty($record['class_name']) ? 'record_class_name' : 'record_class_group_code'],
     ]);
