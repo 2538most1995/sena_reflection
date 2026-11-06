@@ -1,0 +1,922 @@
+{
+  "date": "2026-11-06",
+  "baseline_commit": "35270c49196ec318e3a8b11b7f0ea1d5c3402f0a",
+  "environment": {
+    "php": "8.5.9 CLI",
+    "laravel": "13.29.0",
+    "database": "SQLite in-memory isolated fixtures",
+    "production_deployed": false,
+    "concurrency_tested": false
+  },
+  "dashboard": {
+    "before": {
+      "fixture_records": 3600,
+      "fixture_attendance": 18000,
+      "database": "SQLite in-memory",
+      "measurements": {
+        "teacher": [
+          {
+            "response_ms": 14.277,
+            "query_count": 11,
+            "query_ms": 4.66,
+            "memory_delta_mb": 4,
+            "peak_memory_mb": 70.5,
+            "response_bytes": 790837
+          },
+          {
+            "response_ms": 13.827,
+            "query_count": 11,
+            "query_ms": 4.55,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 70.5,
+            "response_bytes": 790837
+          },
+          {
+            "response_ms": 14.137,
+            "query_count": 11,
+            "query_ms": 4.76,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 70.5,
+            "response_bytes": 790837
+          },
+          {
+            "response_ms": 14.056,
+            "query_count": 11,
+            "query_ms": 4.69,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 70.5,
+            "response_bytes": 790837
+          },
+          {
+            "response_ms": 13.981,
+            "query_count": 11,
+            "query_ms": 4.68,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 70.5,
+            "response_bytes": 790837
+          },
+          {
+            "response_ms": 14.104,
+            "query_count": 11,
+            "query_ms": 4.79,
+            "memory_delta_mb": 2,
+            "peak_memory_mb": 70.5,
+            "response_bytes": 790837
+          },
+          {
+            "response_ms": 14.096,
+            "query_count": 11,
+            "query_ms": 4.79,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 70.5,
+            "response_bytes": 790837
+          }
+        ],
+        "district": [
+          {
+            "response_ms": 15.21,
+            "query_count": 12,
+            "query_ms": 5.59,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 72.5,
+            "response_bytes": 790939
+          },
+          {
+            "response_ms": 15.278,
+            "query_count": 12,
+            "query_ms": 5.55,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 72.5,
+            "response_bytes": 790939
+          },
+          {
+            "response_ms": 15.257,
+            "query_count": 12,
+            "query_ms": 5.6,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 72.5,
+            "response_bytes": 790939
+          },
+          {
+            "response_ms": 15.202,
+            "query_count": 12,
+            "query_ms": 5.61,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 72.5,
+            "response_bytes": 790939
+          },
+          {
+            "response_ms": 14.903,
+            "query_count": 12,
+            "query_ms": 5.48,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 72.5,
+            "response_bytes": 790939
+          },
+          {
+            "response_ms": 14.969,
+            "query_count": 12,
+            "query_ms": 5.5,
+            "memory_delta_mb": 2,
+            "peak_memory_mb": 72.5,
+            "response_bytes": 790939
+          },
+          {
+            "response_ms": 14.966,
+            "query_count": 12,
+            "query_ms": 5.57,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 72.5,
+            "response_bytes": 790939
+          }
+        ]
+      },
+      "plans": {
+        "teacher": [
+          {
+            "query": "select count(*) as \"aggregate\" from (select distinct \"year\", \"semester\", \"week\" from \"records\" where \"tambon\" = ? and \"year\" = ? and \"semester\" = ?) as \"visible_periods\"",
+            "plan": [
+              {
+                "id": 2,
+                "parent": 0,
+                "notused": 0,
+                "detail": "CO-ROUTINE visible_periods"
+              },
+              {
+                "id": 5,
+                "parent": 2,
+                "notused": 52,
+                "detail": "SEARCH records USING COVERING INDEX idx_records_scope_week (tambon=? AND year=? AND semester=?)"
+              },
+              {
+                "id": 26,
+                "parent": 0,
+                "notused": 15,
+                "detail": "SCAN visible_periods"
+              }
+            ]
+          },
+          {
+            "query": "select \"id\", \"weekly_submission_id\", \"tambon\", \"week\", \"date\", \"level\", \"semester\", \"year\", \"subject\", \"subject_code\", \"total\", \"present\", \"created_by\", \"created_at\", (select count(*) from \"record_images\" where \"records\".\"id\" = \"record_images\".\"record_id\") as \"images_count\" from \"records\" where \"tambon\" = ? and \"year\" = ? and \"semester\" = ? order by \"date\" desc, \"created_at\" desc limit 30 offset 0",
+            "plan": [
+              {
+                "id": 8,
+                "parent": 0,
+                "notused": 59,
+                "detail": "SEARCH records USING INDEX idx_records_scope_week (tambon=? AND year=? AND semester=?)"
+              },
+              {
+                "id": 39,
+                "parent": 0,
+                "notused": 0,
+                "detail": "CORRELATED SCALAR SUBQUERY 1"
+              },
+              {
+                "id": 44,
+                "parent": 39,
+                "notused": 54,
+                "detail": "SEARCH record_images USING COVERING INDEX idx_record_images_record_id (record_id=?)"
+              },
+              {
+                "id": 58,
+                "parent": 0,
+                "notused": 0,
+                "detail": "USE TEMP B-TREE FOR ORDER BY"
+              }
+            ]
+          },
+          {
+            "query": "select \"teaching_drafts\".*, (select count(*) from \"draft_images\" where \"teaching_drafts\".\"id\" = \"draft_images\".\"teaching_draft_id\") as \"images_count\" from \"teaching_drafts\" where \"user_id\" = ? and \"status\" = ? and \"year\" = ? and \"semester\" = ? order by \"last_saved_at\" desc limit 6",
+            "plan": [
+              {
+                "id": 5,
+                "parent": 0,
+                "notused": 61,
+                "detail": "SEARCH teaching_drafts USING INDEX idx_drafts_owner_status (user_id=? AND status=?)"
+              },
+              {
+                "id": 42,
+                "parent": 0,
+                "notused": 0,
+                "detail": "CORRELATED SCALAR SUBQUERY 1"
+              },
+              {
+                "id": 47,
+                "parent": 42,
+                "notused": 54,
+                "detail": "SEARCH draft_images USING COVERING INDEX idx_draft_images_level_order (teaching_draft_id=?)"
+              },
+              {
+                "id": 61,
+                "parent": 0,
+                "notused": 0,
+                "detail": "USE TEMP B-TREE FOR ORDER BY"
+              }
+            ]
+          }
+        ],
+        "district": [
+          {
+            "query": "select count(*) as \"aggregate\" from (select distinct \"year\", \"semester\", \"week\" from \"records\" where \"year\" = ? and \"semester\" = ?) as \"visible_periods\"",
+            "plan": [
+              {
+                "id": 2,
+                "parent": 0,
+                "notused": 0,
+                "detail": "CO-ROUTINE visible_periods"
+              },
+              {
+                "id": 5,
+                "parent": 2,
+                "notused": 53,
+                "detail": "SEARCH records USING COVERING INDEX idx_records_period_date (year=? AND semester=?)"
+              },
+              {
+                "id": 24,
+                "parent": 0,
+                "notused": 17,
+                "detail": "SCAN visible_periods"
+              }
+            ]
+          },
+          {
+            "query": "select \"id\", \"weekly_submission_id\", \"tambon\", \"week\", \"date\", \"level\", \"semester\", \"year\", \"subject\", \"subject_code\", \"total\", \"present\", \"created_by\", \"created_at\", (select count(*) from \"record_images\" where \"records\".\"id\" = \"record_images\".\"record_id\") as \"images_count\" from \"records\" where \"year\" = ? and \"semester\" = ? order by \"date\" desc, \"created_at\" desc limit 30 offset 0",
+            "plan": [
+              {
+                "id": 8,
+                "parent": 0,
+                "notused": 61,
+                "detail": "SEARCH records USING INDEX idx_records_period_date (year=? AND semester=?)"
+              },
+              {
+                "id": 37,
+                "parent": 0,
+                "notused": 0,
+                "detail": "CORRELATED SCALAR SUBQUERY 1"
+              },
+              {
+                "id": 42,
+                "parent": 37,
+                "notused": 54,
+                "detail": "SEARCH record_images USING COVERING INDEX idx_record_images_record_id (record_id=?)"
+              },
+              {
+                "id": 56,
+                "parent": 0,
+                "notused": 0,
+                "detail": "USE TEMP B-TREE FOR ORDER BY"
+              }
+            ]
+          },
+          {
+            "query": "select \"teaching_drafts\".*, (select count(*) from \"draft_images\" where \"teaching_drafts\".\"id\" = \"draft_images\".\"teaching_draft_id\") as \"images_count\" from \"teaching_drafts\" where \"user_id\" = ? and \"status\" = ? and \"year\" = ? and \"semester\" = ? order by \"last_saved_at\" desc limit 6",
+            "plan": [
+              {
+                "id": 5,
+                "parent": 0,
+                "notused": 61,
+                "detail": "SEARCH teaching_drafts USING INDEX idx_drafts_owner_status (user_id=? AND status=?)"
+              },
+              {
+                "id": 42,
+                "parent": 0,
+                "notused": 0,
+                "detail": "CORRELATED SCALAR SUBQUERY 1"
+              },
+              {
+                "id": 47,
+                "parent": 42,
+                "notused": 54,
+                "detail": "SEARCH draft_images USING COVERING INDEX idx_draft_images_level_order (teaching_draft_id=?)"
+              },
+              {
+                "id": 61,
+                "parent": 0,
+                "notused": 0,
+                "detail": "USE TEMP B-TREE FOR ORDER BY"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "after": {
+      "fixture_records": 3600,
+      "fixture_attendance": 18000,
+      "database": "SQLite in-memory",
+      "measurements": {
+        "teacher": [
+          {
+            "response_ms": 11.429,
+            "query_count": 10,
+            "query_ms": 4.68,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19189
+          },
+          {
+            "response_ms": 11.351,
+            "query_count": 10,
+            "query_ms": 4.72,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19189
+          },
+          {
+            "response_ms": 11.67,
+            "query_count": 10,
+            "query_ms": 4.7,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19189
+          },
+          {
+            "response_ms": 11.121,
+            "query_count": 10,
+            "query_ms": 4.42,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19189
+          },
+          {
+            "response_ms": 11.354,
+            "query_count": 10,
+            "query_ms": 4.52,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19189
+          },
+          {
+            "response_ms": 11.616,
+            "query_count": 10,
+            "query_ms": 4.64,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19189
+          },
+          {
+            "response_ms": 11.828,
+            "query_count": 10,
+            "query_ms": 4.77,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19189
+          }
+        ],
+        "district": [
+          {
+            "response_ms": 12.439,
+            "query_count": 11,
+            "query_ms": 5.58,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19291
+          },
+          {
+            "response_ms": 12.106,
+            "query_count": 11,
+            "query_ms": 5.26,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19291
+          },
+          {
+            "response_ms": 12.098,
+            "query_count": 11,
+            "query_ms": 5.31,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19291
+          },
+          {
+            "response_ms": 12.274,
+            "query_count": 11,
+            "query_ms": 5.46,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19291
+          },
+          {
+            "response_ms": 12.403,
+            "query_count": 11,
+            "query_ms": 5.61,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19291
+          },
+          {
+            "response_ms": 11.82,
+            "query_count": 11,
+            "query_ms": 5.13,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19291
+          },
+          {
+            "response_ms": 11.938,
+            "query_count": 11,
+            "query_ms": 5.1,
+            "memory_delta_mb": 0,
+            "peak_memory_mb": 66.5,
+            "response_bytes": 19291
+          }
+        ]
+      },
+      "plans": {
+        "teacher": [
+          {
+            "query": "select COALESCE(SUM(record_count), 0) AS record_count, COUNT(*) AS week_count, COALESCE(SUM(total_students), 0) AS total_students, COALESCE(SUM(total_present), 0) AS total_present from (select \"year\", \"semester\", \"week\", COUNT(*) AS record_count, SUM(total) AS total_students, SUM(present) AS total_present from \"records\" where \"tambon\" = ? and \"year\" = ? and \"semester\" = ? group by \"year\", \"semester\", \"week\") as \"visible_periods\" limit 1",
+            "plan": [
+              {
+                "id": 2,
+                "parent": 0,
+                "notused": 0,
+                "detail": "CO-ROUTINE visible_periods"
+              },
+              {
+                "id": 9,
+                "parent": 2,
+                "notused": 59,
+                "detail": "SEARCH records USING INDEX idx_records_scope_week (tambon=? AND year=? AND semester=?)"
+              },
+              {
+                "id": 59,
+                "parent": 0,
+                "notused": 82,
+                "detail": "SCAN visible_periods"
+              }
+            ]
+          },
+          {
+            "query": "select \"id\", \"weekly_submission_id\", \"tambon\", \"week\", \"date\", \"level\", \"semester\", \"year\", \"subject\", \"subject_code\", \"total\", \"present\", \"created_by\", \"created_at\", (select count(*) from \"record_images\" where \"records\".\"id\" = \"record_images\".\"record_id\") as \"images_count\" from \"records\" where \"tambon\" = ? and \"year\" = ? and \"semester\" = ? order by \"date\" desc, \"created_at\" desc limit 30 offset 0",
+            "plan": [
+              {
+                "id": 8,
+                "parent": 0,
+                "notused": 59,
+                "detail": "SEARCH records USING INDEX idx_records_scope_week (tambon=? AND year=? AND semester=?)"
+              },
+              {
+                "id": 39,
+                "parent": 0,
+                "notused": 0,
+                "detail": "CORRELATED SCALAR SUBQUERY 1"
+              },
+              {
+                "id": 44,
+                "parent": 39,
+                "notused": 54,
+                "detail": "SEARCH record_images USING COVERING INDEX idx_record_images_record_id (record_id=?)"
+              },
+              {
+                "id": 58,
+                "parent": 0,
+                "notused": 0,
+                "detail": "USE TEMP B-TREE FOR ORDER BY"
+              }
+            ]
+          }
+        ],
+        "district": [
+          {
+            "query": "select COALESCE(SUM(record_count), 0) AS record_count, COUNT(*) AS week_count, COALESCE(SUM(total_students), 0) AS total_students, COALESCE(SUM(total_present), 0) AS total_present from (select \"year\", \"semester\", \"week\", COUNT(*) AS record_count, SUM(total) AS total_students, SUM(present) AS total_present from \"records\" where \"year\" = ? and \"semester\" = ? group by \"year\", \"semester\", \"week\") as \"visible_periods\" limit 1",
+            "plan": [
+              {
+                "id": 2,
+                "parent": 0,
+                "notused": 0,
+                "detail": "CO-ROUTINE visible_periods"
+              },
+              {
+                "id": 9,
+                "parent": 2,
+                "notused": 61,
+                "detail": "SEARCH records USING INDEX idx_records_period_date (year=? AND semester=?)"
+              },
+              {
+                "id": 57,
+                "parent": 0,
+                "notused": 82,
+                "detail": "SCAN visible_periods"
+              }
+            ]
+          },
+          {
+            "query": "select \"id\", \"weekly_submission_id\", \"tambon\", \"week\", \"date\", \"level\", \"semester\", \"year\", \"subject\", \"subject_code\", \"total\", \"present\", \"created_by\", \"created_at\", (select count(*) from \"record_images\" where \"records\".\"id\" = \"record_images\".\"record_id\") as \"images_count\" from \"records\" where \"year\" = ? and \"semester\" = ? order by \"date\" desc, \"created_at\" desc limit 30 offset 0",
+            "plan": [
+              {
+                "id": 8,
+                "parent": 0,
+                "notused": 61,
+                "detail": "SEARCH records USING INDEX idx_records_period_date (year=? AND semester=?)"
+              },
+              {
+                "id": 37,
+                "parent": 0,
+                "notused": 0,
+                "detail": "CORRELATED SCALAR SUBQUERY 1"
+              },
+              {
+                "id": 42,
+                "parent": 37,
+                "notused": 54,
+                "detail": "SEARCH record_images USING COVERING INDEX idx_record_images_record_id (record_id=?)"
+              },
+              {
+                "id": 56,
+                "parent": 0,
+                "notused": 0,
+                "detail": "USE TEMP B-TREE FOR ORDER BY"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "finalization_service": {
+    "before": [
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "settings": 250,
+        "query_count": 115,
+        "query_ms": 4.55,
+        "service_ms": 127.245,
+        "allocated_delta_mb": 4,
+        "peak_mb": 56.5,
+        "draft_selects": 8
+      },
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "settings": 250,
+        "query_count": 115,
+        "query_ms": 4.49,
+        "service_ms": 113.763,
+        "allocated_delta_mb": 2,
+        "peak_mb": 58.5,
+        "draft_selects": 8
+      },
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "settings": 250,
+        "query_count": 115,
+        "query_ms": 5.11,
+        "service_ms": 122.502,
+        "allocated_delta_mb": 0,
+        "peak_mb": 58.5,
+        "draft_selects": 8
+      }
+    ],
+    "after": [
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "settings": 250,
+        "query_count": 100,
+        "query_ms": 3.76,
+        "service_ms": 117.776,
+        "allocated_delta_mb": 4,
+        "peak_mb": 56.5,
+        "draft_selects": 5
+      },
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "settings": 250,
+        "query_count": 100,
+        "query_ms": 3.9,
+        "service_ms": 109.664,
+        "allocated_delta_mb": 2,
+        "peak_mb": 58.5,
+        "draft_selects": 5
+      },
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "settings": 250,
+        "query_count": 100,
+        "query_ms": 4.05,
+        "service_ms": 111.071,
+        "allocated_delta_mb": 0,
+        "peak_mb": 58.5,
+        "draft_selects": 5
+      }
+    ]
+  },
+  "open_edit_draft_service": {
+    "before": [
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "images": 12,
+        "query_count": 26,
+        "query_ms": 1.15,
+        "service_ms": 24.454,
+        "allocated_delta_mb": 0,
+        "peak_mb": 59.516
+      },
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "images": 12,
+        "query_count": 26,
+        "query_ms": 1.19,
+        "service_ms": 22.24,
+        "allocated_delta_mb": 2,
+        "peak_mb": 61.516
+      },
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "images": 12,
+        "query_count": 26,
+        "query_ms": 1.18,
+        "service_ms": 22.054,
+        "allocated_delta_mb": 0,
+        "peak_mb": 61.516
+      }
+    ],
+    "after": [
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "images": 12,
+        "query_count": 21,
+        "query_ms": 0.69,
+        "service_ms": 20.164,
+        "allocated_delta_mb": 2,
+        "peak_mb": 59.516
+      },
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "images": 12,
+        "query_count": 21,
+        "query_ms": 0.74,
+        "service_ms": 18.663,
+        "allocated_delta_mb": 0,
+        "peak_mb": 61.516
+      },
+      {
+        "levels": 3,
+        "students_per_level": 200,
+        "images": 12,
+        "query_count": 21,
+        "query_ms": 0.74,
+        "service_ms": 18.558,
+        "allocated_delta_mb": 0,
+        "peak_mb": 61.516
+      }
+    ]
+  },
+  "source_configuration_microbenchmark": {
+    "before": {
+      "samples": 7,
+      "checks_per_sample": 30,
+      "connection_rows": 1,
+      "measurements": [
+        {
+          "queries": 240,
+          "db_ms": 2.23,
+          "service_ms": 9.656,
+          "peak_mb": 0.355
+        },
+        {
+          "queries": 240,
+          "db_ms": 2.15,
+          "service_ms": 7.988,
+          "peak_mb": 0.179
+        },
+        {
+          "queries": 240,
+          "db_ms": 2.14,
+          "service_ms": 8.054,
+          "peak_mb": 0.179
+        },
+        {
+          "queries": 240,
+          "db_ms": 2.15,
+          "service_ms": 7.886,
+          "peak_mb": 0.179
+        },
+        {
+          "queries": 240,
+          "db_ms": 2.27,
+          "service_ms": 8.509,
+          "peak_mb": 0.179
+        },
+        {
+          "queries": 240,
+          "db_ms": 2.22,
+          "service_ms": 8.292,
+          "peak_mb": 0.179
+        },
+        {
+          "queries": 240,
+          "db_ms": 2.11,
+          "service_ms": 7.93,
+          "peak_mb": 0.179
+        }
+      ]
+    },
+    "after": {
+      "samples": 7,
+      "checks_per_sample": 30,
+      "connection_rows": 1,
+      "measurements": [
+        {
+          "queries": 2,
+          "db_ms": 0.03,
+          "service_ms": 0.8,
+          "peak_mb": 0.245
+        },
+        {
+          "queries": 2,
+          "db_ms": 0.02,
+          "service_ms": 0.269,
+          "peak_mb": 0.009
+        },
+        {
+          "queries": 2,
+          "db_ms": 0.02,
+          "service_ms": 0.258,
+          "peak_mb": 0.009
+        },
+        {
+          "queries": 2,
+          "db_ms": 0.02,
+          "service_ms": 0.256,
+          "peak_mb": 0.009
+        },
+        {
+          "queries": 2,
+          "db_ms": 0.02,
+          "service_ms": 0.25,
+          "peak_mb": 0.009
+        },
+        {
+          "queries": 2,
+          "db_ms": 0.02,
+          "service_ms": 0.251,
+          "peak_mb": 0.009
+        },
+        {
+          "queries": 2,
+          "db_ms": 0.02,
+          "service_ms": 0.249,
+          "peak_mb": 0.009
+        }
+      ]
+    }
+  },
+  "attendance_http_kernel": {
+    "before": {
+      "engine": "sqlite",
+      "records": 180,
+      "attendance_rows": 18000,
+      "visible_rows": 12000,
+      "samples": 5,
+      "measurements": [
+        {
+          "queries": 15,
+          "db_ms": 18.39,
+          "response_ms": 309.166,
+          "peak_mb": 35.421,
+          "json_bytes": 1532937,
+          "report_sha256": "7a73c0b482d2b3955c99a8e5565ffcd9772d90dd2d2e3abf3986706c74190a2a"
+        },
+        {
+          "queries": 15,
+          "db_ms": 18.1,
+          "response_ms": 302.879,
+          "peak_mb": 32.252,
+          "json_bytes": 1532937,
+          "report_sha256": "7a73c0b482d2b3955c99a8e5565ffcd9772d90dd2d2e3abf3986706c74190a2a"
+        },
+        {
+          "queries": 15,
+          "db_ms": 18.52,
+          "response_ms": 306.603,
+          "peak_mb": 32.251,
+          "json_bytes": 1532937,
+          "report_sha256": "7a73c0b482d2b3955c99a8e5565ffcd9772d90dd2d2e3abf3986706c74190a2a"
+        },
+        {
+          "queries": 15,
+          "db_ms": 20.26,
+          "response_ms": 306.317,
+          "peak_mb": 32.251,
+          "json_bytes": 1532937,
+          "report_sha256": "7a73c0b482d2b3955c99a8e5565ffcd9772d90dd2d2e3abf3986706c74190a2a"
+        },
+        {
+          "queries": 15,
+          "db_ms": 18.79,
+          "response_ms": 317.163,
+          "peak_mb": 32.251,
+          "json_bytes": 1532937,
+          "report_sha256": "7a73c0b482d2b3955c99a8e5565ffcd9772d90dd2d2e3abf3986706c74190a2a"
+        }
+      ]
+    },
+    "after": {
+      "engine": "sqlite",
+      "records": 180,
+      "attendance_rows": 18000,
+      "visible_rows": 12000,
+      "samples": 5,
+      "measurements": [
+        {
+          "queries": 3,
+          "db_ms": 6.98,
+          "response_ms": 70.332,
+          "peak_mb": 14.414,
+          "json_bytes": 1532937,
+          "report_sha256": "7a73c0b482d2b3955c99a8e5565ffcd9772d90dd2d2e3abf3986706c74190a2a"
+        },
+        {
+          "queries": 3,
+          "db_ms": 7.24,
+          "response_ms": 57.258,
+          "peak_mb": 11.078,
+          "json_bytes": 1532937,
+          "report_sha256": "7a73c0b482d2b3955c99a8e5565ffcd9772d90dd2d2e3abf3986706c74190a2a"
+        },
+        {
+          "queries": 3,
+          "db_ms": 7.19,
+          "response_ms": 57.256,
+          "peak_mb": 11.078,
+          "json_bytes": 1532937,
+          "report_sha256": "7a73c0b482d2b3955c99a8e5565ffcd9772d90dd2d2e3abf3986706c74190a2a"
+        },
+        {
+          "queries": 3,
+          "db_ms": 6.85,
+          "response_ms": 57.418,
+          "peak_mb": 11.078,
+          "json_bytes": 1532937,
+          "report_sha256": "7a73c0b482d2b3955c99a8e5565ffcd9772d90dd2d2e3abf3986706c74190a2a"
+        },
+        {
+          "queries": 3,
+          "db_ms": 6.72,
+          "response_ms": 57.599,
+          "peak_mb": 11.078,
+          "json_bytes": 1532937,
+          "report_sha256": "7a73c0b482d2b3955c99a8e5565ffcd9772d90dd2d2e3abf3986706c74190a2a"
+        }
+      ]
+    }
+  },
+  "public_login_network_only": [
+    {
+      "status": 200,
+      "connect_ms": 18.0,
+      "ttfb_ms": 375.18,
+      "total_ms": 376.66
+    },
+    {
+      "status": 200,
+      "connect_ms": 18.48,
+      "ttfb_ms": 261.33,
+      "total_ms": 261.98
+    },
+    {
+      "status": 200,
+      "connect_ms": 19.76,
+      "ttfb_ms": 261.71,
+      "total_ms": 262.31
+    },
+    {
+      "status": 200,
+      "connect_ms": 19.14,
+      "ttfb_ms": 264.29,
+      "total_ms": 264.83
+    },
+    {
+      "status": 200,
+      "connect_ms": 19.56,
+      "ttfb_ms": 260.0,
+      "total_ms": 260.54
+    }
+  ],
+  "verification": {
+    "phpunit": {
+      "tests": 372,
+      "passed": 362,
+      "skipped": 10,
+      "assertions": 5006,
+      "memory_limit_mb": 512
+    },
+    "frontend_tests_passed": 112,
+    "browser_tests_passed": 8,
+    "production_build_checks_passed": 5,
+    "typecheck": "passed",
+    "pint": "passed",
+    "php_syntax": "passed"
+  }
+}

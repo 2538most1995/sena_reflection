@@ -2,7 +2,7 @@ import { AppLink as Link } from '@/components/app-link'
 import { appRouter as router } from '@/lib/app-router'
 import { appFetch as fetch, appUrl } from '@/lib/app-url'
 import { Head, usePage } from '@inertiajs/react'
-import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, Eye, FilePdf, Funnel, MagnifyingGlass, NotePencil, Plus, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
+import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, Eye, FilePdf, Funnel, MagnifyingGlass, NotePencil, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
 import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
 import { AcademicTermNotice, type ActiveAcademicTerm } from '@/components/academic-term-notice'
@@ -882,12 +882,6 @@ export default function Dashboard(props: Props) {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">ติดตามรายการ ตรวจสอบการเข้าเรียน และส่งออกเอกสาร</p>
         </div>
-        <Button asChild size="lg" className="h-11 rounded-lg px-5 font-semibold shadow-none shrink-0">
-          <Link href="/records/create">
-            <Plus size={18} weight="bold" />
-            สร้างบันทึกหลังสอน
-          </Link>
-        </Button>
       </div>
 
       <FlashMessages />

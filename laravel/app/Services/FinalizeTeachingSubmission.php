@@ -169,8 +169,8 @@ class FinalizeTeachingSubmission
                     if ($reviewedLevelCodes !== null && ! is_array($reviewedSettings)) {
                         throw ValidationException::withMessages(['reviewed_level_codes' => 'ตัวอย่าง PDF หมดอายุหรือร่างเปลี่ยนแปลง กรุณาสร้างตัวอย่างใหม่ก่อนยืนยัน']);
                     }
-                    $documentSnapshot = $this->drafts->snapshotForPreview($user, $lockedDraft, $levelCode, is_array($reviewedSettings) ? ['settings' => $reviewedSettings] : []);
-                    $documentSettings = is_array($reviewedSettings) ? $reviewedSettings : $documentSnapshot['settings'];
+                    $validatedSettings = $this->drafts->settingsForFinalization($user, $lockedDraft, $levelCode, is_array($reviewedSettings) ? ['settings' => $reviewedSettings] : []);
+                    $documentSettings = is_array($reviewedSettings) ? $reviewedSettings : $validatedSettings;
                     $attendance = collect($entry['attendance'] ?? [])->unique('student_id')->values();
                     $isRoster = ($entry['attendance_mode'] ?? 'counts') === 'roster';
                     $recordData = [

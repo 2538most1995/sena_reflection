@@ -69,6 +69,26 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     await page.goto('/records/create')
   })
 
+  test('dashboard offers one create-record button at desktop and mobile sizes and opens the editor without duplicate options requests', async ({ page }) => {
+    await page.goto('/')
+    const create = page.locator('a[href="/records/create"]')
+    await expect(create).toHaveCount(1)
+    await expect(create).toBeVisible()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(create).toHaveCount(1)
+    await expect(create).toBeVisible()
+    const requests: string[] = []
+    page.on('request', request => {
+      const path = new URL(request.url()).pathname
+      if (path === '/records/create' || path.startsWith('/record-options/')) requests.push(path)
+    })
+    await create.click()
+    await expect(page).toHaveURL(/\/records\/create$/)
+    await expect(page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true })).toBeVisible()
+    expect(requests).toEqual(['/records/create'])
+    await expect(page.locator('a[href="/records/create"]')).toHaveCount(0)
+  })
+
   test('orientation can be selected without a subject catalog and saves its name without an invented code', async ({ page }) => {
     await onlyLevels(page, ['1'])
     await page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true }).selectOption('4')

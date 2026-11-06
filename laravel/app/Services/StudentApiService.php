@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\StudentApiConnection;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -18,18 +19,26 @@ class StudentApiService
 
     private ?array $resolvedConfiguration = null;
 
+    private ?Request $configurationRequest = null;
+
+    private ?string $resolvedLatestTerm = null;
+
     public function __construct(private readonly AcademicTermService $terms, private readonly EducationLevelService $levels) {}
 
     /** @return array<string, mixed> */
     private function configuration(): array
     {
-        if ($this->resolvedConfiguration !== null) {
+        $request = app('request');
+        if ($this->resolvedConfiguration !== null && $this->configurationRequest === $request) {
             return $this->resolvedConfiguration;
         }
+        $this->configurationRequest = $request;
+        $this->resolvedLatestTerm = null;
         $configuration = config('student_api');
         if (Schema::hasTable('student_api_connections')) {
             $connection = StudentApiConnection::query()->find(1);
             if ($connection !== null) {
+                $this->resolvedLatestTerm = $connection->latest_term;
                 $configuration['driver'] = 'sdl';
                 $configuration['url'] = self::SDL_URL;
                 try {
@@ -40,7 +49,7 @@ class StudentApiService
             }
         }
 
-        return $configuration;
+        return $this->resolvedConfiguration = $configuration;
     }
 
     /** @return array{driver: string, url: string, token_configured: bool, latest_term: ?string, source_label: string} */
@@ -52,7 +61,7 @@ class StudentApiService
             'driver' => $this->isSdl() ? 'sdl' : 'legacy',
             'url' => $this->publicUrl((string) $configuration['url']),
             'token_configured' => $this->isSdl() && trim((string) $configuration['token']) !== '',
-            'latest_term' => Schema::hasTable('student_api_connections') ? StudentApiConnection::query()->whereKey(1)->value('latest_term') : null,
+            'latest_term' => $this->resolvedLatestTerm,
             'source_label' => $this->isSdl() ? 'SDL School' : 'SENA Care เดิม',
         ];
     }
@@ -66,6 +75,7 @@ class StudentApiService
             throw new RuntimeException('กรุณาระบุ API token ของ SDL School');
         }
         $probe = new self($this->terms, $this->levels);
+        $probe->configurationRequest = app('request');
         $probe->resolvedConfiguration = ['driver' => 'sdl', 'url' => self::SDL_URL, 'token' => $token, 'key' => '', 'fallback_urls' => []];
         [$rows, $meta] = $probe->requestPages(self::SDL_URL, $token, [], false);
         $probe->teachers(self::SDL_URL, $token, true, true);
@@ -144,6 +154,7 @@ class StudentApiService
             });
         }
         Cache::forever($cacheKey, $best);
+        $this->resolvedConfiguration = null;
     }
 
     /** @return Collection<int, array{subject: string, subject_code: string, level: string, source: string}> */

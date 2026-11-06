@@ -10,6 +10,7 @@ use App\Models\TeachingRecord;
 use App\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -63,8 +64,9 @@ class DraftService
                 throw (new ModelNotFoundException)->setModel(TeachingRecord::class, [$sourceRecordId]);
             }
 
-            $payload = $this->payloadFromRecord($source);
-            $payload['source_fingerprint'] = $this->sourceFingerprint($source);
+            $sourceRecords = $this->sourceRecordsForDraft($source);
+            $payload = $this->payloadFromRecord($source, $sourceRecords);
+            $payload['source_fingerprint'] = $this->fingerprintRecords($sourceRecords);
         } else {
             $source = null;
             $payload = $this->normalizePayload($data['payload'] ?? [], $user);
@@ -87,7 +89,7 @@ class DraftService
         ]);
 
         if ($source) {
-            $this->importSourceImages($draft, $source, $storedPaths);
+            $this->importSourceImages($draft, $sourceRecords, $storedPaths);
         }
 
         return $draft->load('images');
@@ -239,11 +241,13 @@ class DraftService
     }
 
     /** @return list<array<string, mixed>> */
-    public function activeSummaries(User $user, int $limit = 20): array
+    public function activeSummaries(User $user, int $limit = 20, array $filters = []): array
     {
         return TeachingDraft::query()
             ->where('user_id', $user->id)
             ->where('status', 'active')
+            ->when(! empty($filters['year']), fn ($query) => $query->where('year', $filters['year']))
+            ->when(! empty($filters['semester']), fn ($query) => $query->where('semester', $filters['semester']))
             ->with('images:id,teaching_draft_id,level_code')
             ->latest('last_saved_at')
             ->limit($limit)
@@ -284,18 +288,27 @@ class DraftService
                 'present' => ['required', 'integer', 'between:0,10000', 'lte:total'],
             ])->passes();
         }
-        if (is_array($entry['attendance'] ?? null)) {
-            $entry['attendance'] = $this->normalizeAttendanceRows($entry['attendance']);
+        if (! is_array($entry['attendance'] ?? null) || count($entry['attendance']) < 1 || count($entry['attendance']) > 2000) {
+            return false;
         }
-        $valid = Validator::make($entry, [
-            'attendance' => ['required', 'array', 'min:1', 'max:2000'],
-            'attendance.*.student_id' => ['required', 'string', 'max:50', 'distinct'],
-            'attendance.*.full_name' => ['required', 'string', 'max:255'],
-            'attendance.*.present' => ['required', 'boolean'],
-            'attendance.*.learning_method' => ['nullable', 'in:พบกลุ่ม,ออนไลน์'],
-        ])->passes();
+        $studentIds = [];
+        foreach ($this->normalizeAttendanceRows($entry['attendance']) as $row) {
+            if (! is_array($row)) {
+                return false;
+            }
+            $studentId = $row['student_id'];
+            $name = $row['full_name'];
+            if (! is_string($studentId) || $studentId === '' || mb_strlen($studentId) > 50
+                || ! is_string($name) || $name === '' || mb_strlen($name) > 255
+                || in_array($studentId, $studentIds)
+                || ($row['learning_method'] !== null && ! in_array($row['learning_method'], ['พบกลุ่ม', 'ออนไลน์'], true))
+                || (! empty($row['group_code']) && ! empty($entry['class_group_code']) && $row['group_code'] !== trim((string) $entry['class_group_code']))) {
+                return false;
+            }
+            $studentIds[] = $studentId;
+        }
 
-        return $valid && collect($entry['attendance'])->every(static fn (array $row): bool => empty($row['group_code']) || empty($entry['class_group_code']) || $row['group_code'] === trim((string) $entry['class_group_code']));
+        return true;
     }
 
     public function assertVersion(User $user, TeachingDraft|string $draft, int $lockVersion): TeachingDraft
@@ -364,8 +377,19 @@ class DraftService
         });
     }
 
+    /** @param array<string, mixed> $document @return array<string, string> */
+    public function settingsForFinalization(User $user, TeachingDraft $lockedDraft, string $levelCode, array $document = []): array
+    {
+        if ((string) $lockedDraft->user_id !== (string) $user->id) {
+            throw (new ModelNotFoundException)->setModel(TeachingDraft::class, [$lockedDraft->id]);
+        }
+        $lockedDraft->loadMissing('images');
+
+        return $this->buildPreviewSnapshot($user, $lockedDraft, $levelCode, $document, false)['settings'];
+    }
+
     /** @param array<string, mixed> $document @return array<string, mixed> */
-    private function buildPreviewSnapshot(User $user, TeachingDraft $owned, string $levelCode, array $document): array
+    private function buildPreviewSnapshot(User $user, TeachingDraft $owned, string $levelCode, array $document, bool $includePreview = true): array
     {
         if (! in_array($levelCode, EducationLevelService::enabledCodes($owned->payload), true)) {
             throw ValidationException::withMessages(['level_code' => 'ระดับชั้นนี้ไม่ได้เลือกสอนในสัปดาห์นี้']);
@@ -407,6 +431,9 @@ class DraftService
             ),
             'content' => $content,
         ])['settings'];
+        if (! $includePreview) {
+            return ['settings' => array_merge($this->documentOptions->legacySettings($scope['tambon'], $user), $settings)];
+        }
         $teacherName = $user->name;
         if ($owned->source_record_id) {
             $source = TeachingRecord::query()->visibleTo($user)->find($owned->source_record_id);
@@ -543,11 +570,17 @@ class DraftService
         }
     }
 
-    private function payloadFromRecord(TeachingRecord $source): array
+    /** @return Collection<int, TeachingRecord> */
+    private function sourceRecordsForDraft(TeachingRecord $source): Collection
     {
-        $records = $source->weekly_submission_id
-            ? TeachingRecord::query()->where('weekly_submission_id', $source->weekly_submission_id)->orderBy('id')->lockForUpdate()->with(['attendance', 'documentLayout'])->get()
-            : collect([$source->load(['attendance', 'documentLayout'])]);
+        return $source->weekly_submission_id
+            ? TeachingRecord::query()->where('weekly_submission_id', $source->weekly_submission_id)->orderBy('id')->lockForUpdate()->with(['attendance', 'images', 'documentLayout'])->get()
+            : collect([$source->load(['attendance', 'images', 'documentLayout'])]);
+    }
+
+    /** @param Collection<int, TeachingRecord> $records */
+    private function payloadFromRecord(TeachingRecord $source, Collection $records): array
+    {
         $levels = [];
         foreach ($records as $record) {
             $code = $this->levels->code($record->level);
@@ -605,6 +638,13 @@ class DraftService
                 fn ($query) => $query->where('weekly_submission_id', $source->weekly_submission_id),
                 fn ($query) => $query->whereKey($source->id))
             ->with(['attendance', 'images', 'documentLayout'])->orderBy('id')->get();
+
+        return $this->fingerprintRecords($records);
+    }
+
+    /** @param Collection<int, TeachingRecord> $records */
+    private function fingerprintRecords(Collection $records): string
+    {
         $snapshot = $records->map(fn (TeachingRecord $record): array => [
             'record' => $record->attributesToArray(),
             'attendance' => $record->attendance->sortBy('student_id')->values()->toArray(),
@@ -636,12 +676,9 @@ class DraftService
         }, $rows));
     }
 
-    /** @param list<string> $storedPaths */
-    private function importSourceImages(TeachingDraft $draft, TeachingRecord $source, array &$storedPaths): void
+    /** @param Collection<int, TeachingRecord> $records @param list<string> $storedPaths */
+    private function importSourceImages(TeachingDraft $draft, Collection $records, array &$storedPaths): void
     {
-        $records = $source->weekly_submission_id
-            ? TeachingRecord::query()->where('weekly_submission_id', $source->weekly_submission_id)->with('images')->get()
-            : collect([$source->load('images')]);
         $payload = $draft->payload;
         foreach ($records as $record) {
             $code = $this->levels->code($record->level);

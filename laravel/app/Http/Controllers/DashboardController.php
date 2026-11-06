@@ -3,10 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Tambon;
-use App\Models\TeachingDraft;
 use App\Models\TeachingRecord;
 use App\Services\AcademicTermService;
 use App\Services\ActiveAcademicTermService;
+use App\Services\DraftService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +15,7 @@ use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function __invoke(Request $request, ActiveAcademicTermService $activeTerms): Response
+    public function __invoke(Request $request, ActiveAcademicTermService $activeTerms, DraftService $draftService): Response
     {
         $filters = $request->validate([
             'year' => ['nullable', 'string', 'max:10'],
@@ -39,13 +39,12 @@ class DashboardController extends Controller
         $base = TeachingRecord::query()->visibleTo($user);
         $this->applyFilters($base, $filters, $user->isDistrict());
 
-        $summary = (clone $base)->selectRaw(
-            'COUNT(*) as record_count, COALESCE(SUM(total), 0) as total_students, COALESCE(SUM(present), 0) as total_present'
+        $periods = (clone $base)->select(['year', 'semester', 'week'])
+            ->selectRaw('COUNT(*) AS record_count, SUM(total) AS total_students, SUM(present) AS total_present')
+            ->groupBy('year', 'semester', 'week');
+        $summary = DB::query()->fromSub($periods, 'visible_periods')->selectRaw(
+            'COALESCE(SUM(record_count), 0) AS record_count, COUNT(*) AS week_count, COALESCE(SUM(total_students), 0) AS total_students, COALESCE(SUM(total_present), 0) AS total_present'
         )->first();
-        $summary->week_count = DB::query()->fromSub(
-            (clone $base)->select(['year', 'semester', 'week'])->distinct(),
-            'visible_periods'
-        )->count();
         $uniquePresentStudents = DB::table('record_attendance')
             ->whereIn('record_id', (clone $base)->select('id'))
             ->where('present', true)
@@ -59,7 +58,7 @@ class DashboardController extends Controller
             ->withCount('images')
             ->orderByDesc('date')
             ->orderByDesc('created_at')
-            ->paginate(30)
+            ->paginate(30, total: (int) $summary->record_count)
             ->appends(array_filter($filters, static fn ($value): bool => $value !== null && $value !== ''))
             ->through(function (TeachingRecord $record): array {
                 $payload = $record->toArray();
@@ -93,6 +92,8 @@ class DashboardController extends Controller
                     && [(int) $period->year, (int) $period->semester] < [(int) $activeTerm['year'], (int) $activeTerm['semester']];
             });
 
+        $drafts = $draftService->activeSummaries($user, 6, $filters);
+
         return Inertia::render('dashboard', [
             'records' => $records,
             'summary' => $summaryPayload,
@@ -101,14 +102,7 @@ class DashboardController extends Controller
             'filters' => $filters,
             'activeTerm' => $activeTerm,
             'olderRecordCount' => (int) $olderPeriods->sum('records'),
-            'drafts' => TeachingDraft::query()->where('user_id', $user->id)->where('status', 'active')
-                ->when($filters['year'] ?? null, fn ($query, $year) => $query->where('year', $year))
-                ->when($filters['semester'] ?? null, fn ($query, $semester) => $query->where('semester', $semester))
-                ->withCount('images')
-                ->latest('last_saved_at')->limit(6)->get()->map(fn (TeachingDraft $draft) => [
-                    'id' => $draft->id, 'last_saved_at' => $draft->last_saved_at?->toIso8601String(),
-                    'payload' => $draft->payload, 'images_count' => $draft->images_count,
-                ]),
+            'drafts' => $drafts,
             'weeklyDefaults' => [
                 'year' => $activeTerm['year'],
                 'semester' => $activeTerm['semester'],

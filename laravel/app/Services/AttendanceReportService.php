@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Models\TeachingRecord;
 use App\Models\User;
-use Illuminate\Support\Collection;
+use Carbon\CarbonImmutable;
 
 class AttendanceReportService
 {
@@ -33,20 +33,25 @@ class AttendanceReportService
             ->where('ra.student_id', '<>', '')
             ->selectRaw("records.id as record_id, records.tambon, t.name as tambon_name, records.week, records.date, records.level, records.subject, records.subject_code, COALESCE(NULLIF(ra.group_code, ''), records.class_group_code, '') as group_code, COALESCE(NULLIF(ra.class_name, ''), records.class_name, '') as class_name, ra.student_id, ra.full_name, ra.present, ra.learning_method")
             ->orderBy('records.date')->orderBy('records.week')->orderBy('class_name')->orderBy('ra.full_name')
-            ->get();
+            ->toBase()->cursor();
 
         return $this->aggregate($rows, (string) ($filters['student_id'] ?? ''));
     }
 
-    private function aggregate(Collection $rows, string $selectedStudent): array
+    private function aggregate(iterable $rows, string $selectedStudent): array
     {
-        $summary = ['sessions' => $rows->pluck('record_id')->unique()->count(), 'students' => $rows->pluck('student_id')->unique()->count(), 'present' => 0, 'absent' => 0, 'onsite' => 0, 'online' => 0, 'rate' => 0];
+        $summary = ['sessions' => 0, 'students' => 0, 'present' => 0, 'absent' => 0, 'onsite' => 0, 'online' => 0, 'rate' => 0];
         $levels = [];
         $classes = [];
         $students = [];
         $timeline = [];
+        $sessions = [];
+        $dates = [];
 
         foreach ($rows as $row) {
+            $rawDate = (string) $row->date;
+            $row->date = $dates[$rawDate] ??= (string) CarbonImmutable::parse($rawDate)->startOfDay();
+            $sessions[(string) $row->record_id] = true;
             $present = (bool) $row->present;
             $method = $row->learning_method === 'ออนไลน์' ? 'ออนไลน์' : 'พบกลุ่ม';
             $present ? $summary['present']++ : $summary['absent']++;
@@ -82,6 +87,8 @@ class AttendanceReportService
             }
         }
 
+        $summary['sessions'] = count(array_unique(array_keys($sessions), SORT_REGULAR));
+        $summary['students'] = count(array_unique(array_keys($students), SORT_REGULAR));
         $summary['rate'] = $this->rate($summary['present'], $summary['present'] + $summary['absent']);
         foreach ($levels as &$group) {
             $this->finishGroup($group);

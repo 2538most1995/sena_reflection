@@ -61,14 +61,14 @@ class ActiveAcademicTermTest extends TestCase
         $old->attendance()->create(['student_id' => 'S-OLD', 'full_name' => 'Old', 'present' => true]);
         $current->attendance()->create(['student_id' => 'S-NEW', 'full_name' => 'New', 'present' => true]);
         $this->draft('1', 'old-private-draft');
-        $this->draft('2', 'current-private-draft');
+        $currentDraft = $this->draft('2', 'current-private-draft');
         $this->draft('2', 'foreign-private-draft', 'another-owner');
 
         $this->actingAs($this->teacher)->get(route('dashboard'))->assertOk()->assertDontSee('old-private-draft')->assertDontSee('foreign-private-draft')
             ->assertInertia(fn (Assert $page) => $page->component('dashboard')->where('filters.year', '2569')->where('filters.semester', '2')
                 ->where('activeTerm.term', '2/2569')->where('activeTerm.source', 'sdl')->where('summary.record_count', 1)
                 ->where('summary.unique_present_students', 1)->where('olderRecordCount', 1)->where('weeklyDefaults.semester', '2')
-                ->has('drafts', 1)->where('drafts.0.payload.levels.1.subject', 'current-private-draft'));
+                ->has('drafts', 1)->where('drafts.0.id', $currentDraft->id)->where('drafts.0.scope.semester', '2')->missing('drafts.0.payload'));
         $this->get(route('dashboard', ['year' => '2569', 'semester' => '1']))->assertOk()->assertInertia(fn (Assert $page) => $page
             ->where('filters.semester', '1')->where('summary.record_count', 1)->where('records.data.0.id', 'old-record')->has('drafts', 1));
         $this->get(route('dashboard', ['scope' => 'all']))->assertOk()->assertInertia(fn (Assert $page) => $page
