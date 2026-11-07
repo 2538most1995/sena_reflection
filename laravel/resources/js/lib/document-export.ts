@@ -343,7 +343,10 @@ async function paragraph(node: JSONContent, context: Context, list?: ListContext
     ...defaults.indent,
     ...(list && !list.first ? { left: 360 * (list.level + 1) } : {}),
     ...(attrs.indent ? { left: mmToTwips(numberValue(attrs.indent)) } : {}),
-    ...(attrs.firstIndent !== null && attrs.firstIndent !== undefined ? { firstLine: pxToTwips(numberValue(attrs.firstIndent)) } : {}),
+    ...(attrs.rightIndent !== null && attrs.rightIndent !== undefined ? { right: mmToTwips(numberValue(attrs.rightIndent)) } : {}),
+    ...(attrs.firstIndent !== null && attrs.firstIndent !== undefined ? numberValue(attrs.firstIndent) < 0
+      ? { firstLine: undefined, hanging: pxToTwips(-numberValue(attrs.firstIndent)) }
+      : { firstLine: pxToTwips(numberValue(attrs.firstIndent)), hanging: undefined } : {}),
   }
   const options: IParagraphOptions = {
     ...defaults,

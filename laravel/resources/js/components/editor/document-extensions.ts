@@ -5,6 +5,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import interact from 'interactjs'
 import type { DocumentObject } from '@/lib/document-model'
+import type { IndentTarget } from '../../lib/document-indent'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -47,6 +48,7 @@ export const ParagraphFormatting = Extension.create({
         spaceBefore: { default: 0, parseHTML: element => parseFloat(element.style.marginTop) || 0, renderHTML: attrs => ({ style: `margin-top:${Number(attrs.spaceBefore) || 0}pt` }) },
         spaceAfter: { default: null, parseHTML: element => element.style.marginBottom ? parseFloat(element.style.marginBottom) : null, renderHTML: attrs => attrs.spaceAfter !== null ? { style: `margin-bottom:${Number(attrs.spaceAfter) || 0}pt` } : {} },
         indent: { default: 0, parseHTML: element => parseFloat(element.getAttribute('data-indent') || '') || 0, renderHTML: attrs => ({ 'data-indent': Number(attrs.indent) || 0, style: `margin-left:${Number(attrs.indent) || 0}mm` }) },
+        rightIndent: { default: 0, parseHTML: element => Number(element.getAttribute('data-right-indent')) || 0, renderHTML: attrs => attrs.rightIndent ? { 'data-right-indent': Number(attrs.rightIndent), style: `margin-right:${Number(attrs.rightIndent)}mm` } : {} },
         offsetX: { default: 0, parseHTML: element => Number(element.getAttribute('data-record-offset-x')) || 0, renderHTML: attrs => attrs.offsetX ? { 'data-record-offset-x': Number(attrs.offsetX), style: `margin-left:calc(${Number(attrs.indent) || 0}mm + ${Number(attrs.offsetX) || 0}px)` } : {} },
         offsetY: { default: 0, keepOnSplit: false, parseHTML: element => Number(element.getAttribute('data-record-offset-y')) || 0, renderHTML: attrs => attrs.offsetY ? { 'data-record-offset-y': Number(attrs.offsetY), style: `margin-top:calc(${Number(attrs.spaceBefore) || 0}pt + ${Number(attrs.offsetY) || 0}px)` } : {} },
       },
@@ -103,7 +105,20 @@ export const ParagraphFormatting = Extension.create({
     }
   },
   addProseMirrorPlugins() {
-    return [new Plugin({
+    return [new Plugin<IndentTarget[]>({
+      key: paragraphIndentPreviewKey,
+      state: {
+        init: () => [],
+        apply: (transaction, previous) => transaction.getMeta(paragraphIndentPreviewKey) ?? (transaction.docChanged ? [] : previous),
+      },
+      props: { decorations(state) {
+        return DecorationSet.create(state.doc, (paragraphIndentPreviewKey.getState(state) || []).flatMap(target => {
+          const node = state.doc.nodeAt(target.position)
+          if (!node) return []
+          return [Decoration.node(target.position, target.position + node.nodeSize, { style: `margin-left:calc(${target.indent}mm + ${Number(node.attrs.offsetX) || 0}px);margin-right:${target.rightIndent}mm;text-indent:${target.firstIndent}px;width:auto` })]
+        }))
+      } },
+    }), new Plugin({
       key: new PluginKey('documentParagraphIds'),
       appendTransaction(transactions, _old, state) {
         if (!transactions.some(transaction => transaction.docChanged)) return null
@@ -123,6 +138,8 @@ export const ParagraphFormatting = Extension.create({
     })]
   },
 })
+
+export const paragraphIndentPreviewKey = new PluginKey<IndentTarget[]>('paragraphIndentPreview')
 
 export const formattingMarksKey = new PluginKey<DecorationSet>('documentFormattingMarks')
 

@@ -75,6 +75,22 @@ class DocumentApiTest extends TestCase
         $this->putJson('/api/documents/'.$document->id, ['revision' => 1, 'title' => 'เขตแก้ไข'])->assertOk()->assertJsonPath('document.revision', 2);
     }
 
+    public function test_signed_paragraph_indents_survive_save_and_reopen_and_invalid_boundaries_do_not_overwrite(): void
+    {
+        $content = ['type' => 'doc', 'content' => [['type' => 'paragraph', 'attrs' => ['id' => 'ruler-paragraph', 'indent' => 20, 'rightIndent' => 15, 'firstIndent' => -48], 'content' => [['type' => 'text', 'text' => 'ย่อหน้าห้อยภาษาไทย']]]]];
+        $id = $this->actingAs($this->owner)->postJson('/api/documents', ['content' => $content])->assertCreated()->json('document.id');
+        $this->getJson('/api/documents/'.$id)->assertOk()->assertJsonPath('document.content', $content);
+        $this->assertSame($content, Document::findOrFail($id)->content_json);
+
+        foreach (['rightIndent' => -1, 'firstIndent' => -1601] as $attribute => $value) {
+            $invalid = $content;
+            $invalid['content'][0]['attrs'][$attribute] = $value;
+            $this->putJson('/api/documents/'.$id, ['revision' => 1, 'content' => $invalid])->assertUnprocessable()->assertJsonValidationErrors('content.content.0.attrs.'.$attribute);
+        }
+        $this->assertSame($content, Document::findOrFail($id)->content_json);
+        $this->assertSame(1, Document::findOrFail($id)->revision);
+    }
+
     public function test_upload_is_private_and_images_remain_available_after_save_reopen_and_version_restore(): void
     {
         $id = $this->actingAs($this->owner)->postJson('/api/documents', [])->assertCreated()->json('document.id');

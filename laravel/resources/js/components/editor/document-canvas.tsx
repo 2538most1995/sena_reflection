@@ -14,6 +14,7 @@ import { Copy, Grip, RotateCw, Trash2 } from 'lucide-react'
 import { MM_TO_PX, PAGE_GAP, pageDimensions, type DocumentObject, type WebDocument } from '@/lib/document-model'
 import { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectAnchorAfterMove, objectCanvasTop, objectFlowOffset, snapMillimeters, type CanvasPage } from '@/lib/document-layout'
 import { hasDocumentContent, FormattingMarks, ObjectTextFlow, objectFlowKey, objectFlowAfterText, ParagraphFormatting, RecordTemplate, type FlowReservation } from './document-extensions'
+import { HorizontalRuler, HORIZONTAL_RULER_HEIGHT } from './horizontal-ruler'
 
 export type { CanvasPage } from '@/lib/document-layout'
 
@@ -36,6 +37,7 @@ const canvasStyles = `
 .document-page{position:absolute;left:0;pointer-events:none;box-shadow:0 3px 16px #0f172a18;box-sizing:border-box;z-index:-1}
 .document-editor-surface{position:relative;z-index:1}
 .document-body-editor{outline:none;box-sizing:border-box!important;border:0!important;background:transparent;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;caret-color:#2563eb}
+.document-body-editor :is(p,h1,h2,h3),.document-textbox-editor :is(p,h1,h2,h3){display:block!important;width:auto!important}
 .document-body-editor p,.document-textbox-editor p{margin:0 0 8pt;min-height:1.5em;word-break:normal;line-break:auto}
 .document-body-editor h1,.document-textbox-editor h1{font-size:30pt;font-weight:700;line-height:1.3;margin:14pt 0 10pt}
 .document-body-editor h2,.document-textbox-editor h2{font-size:23pt;font-weight:700;line-height:1.35;margin:12pt 0 8pt}
@@ -76,7 +78,17 @@ const canvasStyles = `
 .document-textbox-editor{outline:none;width:100%;min-height:100%;overflow-wrap:anywhere;white-space:pre-wrap;cursor:text;touch-action:auto}.document-textbox-editor p:last-child{margin-bottom:0}.document-textbox-editor[contenteditable=false]{cursor:move}
 .document-page-grid{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(to right,#2563eb0d 1px,transparent 1px),linear-gradient(to bottom,#2563eb0d 1px,transparent 1px);background-size:${5 * MM_TO_PX}px ${5 * MM_TO_PX}px}
 .document-alignment-guide{position:absolute;top:0;bottom:0;border-left:1px dashed #f43f5e;z-index:10;pointer-events:none}
-.document-ruler{position:relative;height:24px;background:#fbfdff;color:#7c8da6;font-size:9px;font-family:Arial,sans-serif;border-bottom:1px solid #dbe3ed;user-select:none}.document-ruler span{position:absolute;bottom:0;border-left:1px solid #cbd5e1;height:7px;padding-left:3px;line-height:8px}.document-ruler span:nth-child(even){height:12px}
+.document-ruler{position:relative;height:36px;background:#fff;color:#64748b;font:10px/1 Arial,sans-serif;border:1px solid #dbe3ed;border-bottom-color:#cbd5e1;user-select:none;z-index:8;isolation:isolate}
+.document-ruler-margin{position:absolute;top:0;bottom:0;left:0;background:#e8edf4;pointer-events:none;z-index:-1}
+.document-ruler-tick{position:absolute;top:10px;height:6px;border-left:1px solid #cbd5e1;padding-left:3px;line-height:10px;pointer-events:none}.document-ruler-tick.is-major{top:7px;height:15px;border-color:#94a3b8}
+.document-indent-marker{position:absolute!important;display:flex;align-items:center;justify-content:center;width:24px;height:15px;padding:0;border:0;background:transparent;color:#2563eb;transform:translateX(-50%);cursor:ew-resize;touch-action:none;z-index:2;outline:none}
+.document-indent-marker>span{display:block;width:12px;height:10px;background:currentColor;filter:drop-shadow(0 1px 1px #0f172a22)}
+.document-indent-marker--first{top:-3px}.document-indent-marker--first>span{clip-path:polygon(0 0,100% 0,50% 100%)}
+.document-indent-marker--hanging,.document-indent-marker--right{top:13px}.document-indent-marker--hanging>span,.document-indent-marker--right>span{clip-path:polygon(50% 0,100% 100%,0 100%)}
+.document-indent-marker--left{top:26px;height:13px}.document-indent-marker--left>span{height:6px;border:1px solid #1d4ed8;border-radius:1px}
+.document-indent-marker:hover,.document-indent-marker:focus-visible,.document-indent-marker.is-active{color:#1e40af;background:#dbeafe;border-radius:3px;z-index:3}.document-indent-marker:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}.document-indent-marker:disabled{color:#94a3b8;cursor:default;background:transparent}
+.document-indent-guide{position:absolute;top:35px;border-left:1px dashed #3b82f6;pointer-events:none;z-index:5}
+.document-indent-value{position:absolute;top:40px;min-width:160px;padding:6px 9px;border-radius:5px;background:#172033;color:white;font:11px/16px Anuphan,sans-serif;white-space:nowrap;box-shadow:0 2px 6px #0f172a20;pointer-events:none;z-index:6}
 .document-vertical-ruler{position:absolute;left:-28px;top:0;width:23px;height:100%;background:#f8fafc;border-right:1px solid #dbe3ed;color:#94a3b8;font-size:9px;font-family:Arial,sans-serif;user-select:none;pointer-events:none}.document-vertical-ruler span{position:absolute;left:0;width:100%;border-top:1px solid #cbd5e1;padding-top:2px;padding-left:4px}
 .document-canvas.is-record-template{color:#000;font-synthesis:style;letter-spacing:0;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
 .document-canvas.is-record-template .document-body-editor{white-space:break-spaces;overflow-wrap:break-word;word-break:break-word}
@@ -94,7 +106,7 @@ const canvasStyles = `
 .document-body-editor table.record-info-row--compact td.record-info-cell{font-size:inherit;line-height:1.1;padding:0;white-space:nowrap;min-height:0}
 .document-body-editor table.record-info-row--compact td.record-info-cell--dotted{height:18px;padding:0}
 .document-body-editor .record-body{margin:0;padding:0;font-size:inherit;line-height:var(--record-body-line,26px);background-image:radial-gradient(circle at .75px calc(var(--record-body-line,26px) - .85px),#000 .55px,transparent .65px);background-size:4px var(--record-body-line,26px);background-position:left top;background-repeat:repeat;white-space:break-spaces;tab-size:4}
-.document-body-editor .record-body p{display:block!important;margin:0;padding:0;min-height:var(--record-body-line,26px);font-size:inherit;line-height:var(--record-body-line,26px);text-align:var(--record-body-align,justify);text-align-last:left;text-justify:inter-character;white-space:break-spaces;tab-size:4;overflow-wrap:break-word;word-break:break-word;width:100%;box-sizing:border-box}
+.document-body-editor .record-body p{display:block!important;margin:0;padding:0;min-height:var(--record-body-line,26px);font-size:inherit;line-height:var(--record-body-line,26px);text-align:var(--record-body-align,justify);text-align-last:left;text-justify:inter-character;white-space:break-spaces;tab-size:4;overflow-wrap:break-word;word-break:break-word;width:auto;box-sizing:border-box}
 .document-body-editor .record-body>p:first-child{ text-indent:var(--record-first-indent,42px)}
 .document-body-editor .record-body ul,.document-body-editor .record-body ol{margin:0;padding-left:32px;text-indent:0}
 .document-body-editor .record-body li,.document-body-editor .record-body li p{text-indent:0}
@@ -129,6 +141,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
   const [pageCount, setPageCount] = useState(1)
   const [paragraphVersion, setParagraphVersion] = useState(0)
   const [centerGuide, setCenterGuide] = useState(false)
+  const [rulerEditor, setRulerEditor] = useState<Editor | null>(null)
   const layoutRequest = useRef<number>(0)
   const layoutTick = useRef<() => void>(() => {})
   const lastContent = useRef(JSON.stringify(model.content))
@@ -167,6 +180,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
     },
     onSelectionUpdate: () => scheduleLayout(),
     onFocus: ({ editor: current }) => {
+      setRulerEditor(current)
       callbacks.current.onEditor(current)
       callbacks.current.onSelectObject(null)
     },
@@ -177,6 +191,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
   useEffect(() => {
     if (!editor) return
     callbacks.current.onEditor(editor)
+    setRulerEditor(editor)
     return () => { callbacks.current.onEditor(null) }
   }, [editor])
 
@@ -324,6 +339,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
     callbacks.current.onChange({ objects: callbacks.current.document.objects.filter(object => object.id !== id) })
     callbacks.current.onSelectObject(null)
     callbacks.current.onEditor(editor)
+    setRulerEditor(editor)
   }, [editor])
   const duplicateObject = useCallback((id: string) => {
     const current = callbacks.current.document
@@ -372,7 +388,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
       const object = callbacks.current.document.objects.find(candidate => candidate.id === callbacks.current.selectedObjectId)
       if (!object) return
       if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteObject(object.id) }
-      if (event.key === 'Escape') { callbacks.current.onSelectObject(null); callbacks.current.onEditor(editor) }
+      if (event.key === 'Escape') { callbacks.current.onSelectObject(null); callbacks.current.onEditor(editor); setRulerEditor(editor) }
       const moves: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
       if (moves[event.key]) {
         event.preventDefault()
@@ -392,13 +408,13 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
     return () => window.removeEventListener('keydown', onKey)
   }, [readOnly, changeObject, deleteObject, duplicateObject, editor])
 
-  return <div className="document-canvas-zoom-space" style={{ width: physicalWidth * zoom, minWidth: physicalWidth * zoom, height: (canvasHeight + (showRuler ? 24 : 0)) * zoom, position: 'relative', margin: '0 auto' }}>
+  return <div className="document-canvas-zoom-space" style={{ width: physicalWidth * zoom, minWidth: physicalWidth * zoom, height: canvasHeight * zoom + (showRuler ? HORIZONTAL_RULER_HEIGHT : 0), position: 'relative', margin: '0 auto' }}>
+    {showRuler && <HorizontalRuler editor={rulerEditor || editor} canvas={canvasRef} width={physicalWidth} left={marginPx.left} right={marginPx.right} zoom={zoom} height={canvasHeight * zoom} disabled={readOnly || (!!selectedObjectId && rulerEditor === editor)} />}
     <div className="document-canvas-scale" style={{ width: physicalWidth, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
-      {showRuler && <div className="document-ruler" data-print-hidden>{Array.from({ length: Math.floor(dimensions.width / 5) + 1 }, (_, index) => <span key={index} style={{ left: index * 5 * MM_TO_PX }}>{index % 2 === 0 ? index / 2 : ''}</span>)}</div>}
       <div ref={canvasRef} data-document-canvas data-page-width={physicalWidth} data-page-height={physicalHeight} data-page-gap={PAGE_GAP} data-document-template={templateSettings.template || undefined} className={`document-canvas${isRecordTemplate ? ' is-record-template' : ''}${showMarks ? ' show-marks' : ''}`} style={{ width: physicalWidth, minHeight: canvasHeight, height: canvasHeight, fontFamily: templateSettings.fontFamily || undefined, fontSize: templateSettings.fontSize ? `${templateSettings.fontSize}pt` : undefined, lineHeight: templateSettings.lineHeight || undefined, '--document-ui-scale': 1 / zoom, '--record-title-size': `${20 + ((templateSettings.fontSize || 16) - 16)}pt`, '--record-section-size': `${17 + ((templateSettings.fontSize || 16) - 16)}pt` } as CSSProperties} onPointerDown={event => {
         if (!(event.target instanceof Element) || event.target.closest('.document-object')) return
         callbacks.current.onSelectObject(null)
-        if (editor) callbacks.current.onEditor(editor)
+        if (editor) { callbacks.current.onEditor(editor); setRulerEditor(editor) }
       }}>
         <style>{canvasStyles}</style>
         {pages.map(page => <div key={page.index} className="document-page" data-page-number={page.index + 1} style={{ top: page.top, width: page.width, height: page.height, background: settings.background, border: settings.border === 'none' ? undefined : `1px solid ${settings.border}` }}>
@@ -407,7 +423,7 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
         </div>)}
         <div className="document-editor-surface"><EditorContent editor={editor} /></div>
         <div className="document-object-layer">
-          {resolvedObjects.map(object => <FloatingObject key={object.id} object={object} selected={selectedObjectId === object.id} readOnly={readOnly} zoom={zoom} grid={showGrid} pageSettings={settings} onChange={(changes, options) => changeObject(object.id, changes, options)} onSelect={() => callbacks.current.onSelectObject(object.id)} onEditor={active => callbacks.current.onEditor(active || editor)} onDelete={() => deleteObject(object.id)} onDuplicate={() => duplicateObject(object.id)} onGuide={setCenterGuide} />)}
+          {resolvedObjects.map(object => <FloatingObject key={object.id} object={object} selected={selectedObjectId === object.id} readOnly={readOnly} zoom={zoom} grid={showGrid} pageSettings={settings} onChange={(changes, options) => changeObject(object.id, changes, options)} onSelect={() => callbacks.current.onSelectObject(object.id)} onEditor={active => { callbacks.current.onEditor(active || editor); setRulerEditor(active || editor) }} onDelete={() => deleteObject(object.id)} onDuplicate={() => duplicateObject(object.id)} onGuide={setCenterGuide} />)}
         </div>
         {centerGuide && <div className="document-alignment-guide" data-print-hidden style={{ left: physicalWidth / 2 }} />}
       </div>
@@ -439,7 +455,7 @@ function FloatingObject(props: FloatingObjectProps) {
     extensions: commonExtensions(!readOnly), content: hasDocumentContent(object.content), editable: false,
     immediatelyRender: false, shouldRerenderOnTransaction: false,
     editorProps: { attributes: { class: 'document-textbox-editor', lang: 'th', 'aria-label': 'ข้อความในกล่องข้อความ' } },
-    onUpdate: ({ editor }) => { const content = editor.getJSON(); lastContent.current = JSON.stringify(content); latest.current.onChange({ content }) },
+    onUpdate: ({ editor, transaction }) => { const content = editor.getJSON(); lastContent.current = JSON.stringify(content); latest.current.onChange({ content }, transaction.getMeta('documentGestureBoundary') ? { historyBoundary: true } : undefined) },
     onFocus: ({ editor }) => latest.current.onEditor(editor),
   }, [object.id])
   useEffect(() => {

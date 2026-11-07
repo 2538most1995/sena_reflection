@@ -45,7 +45,7 @@ test('Thai content, stable paragraph anchors and paragraph formatting survive JS
   ] })
   const restored = schema.nodeFromJSON(JSON.parse(JSON.stringify(node.toJSON())))
   assert.equal(restored.textContent, `${text}หน้าถัดไป`)
-  assert.deepEqual({ ...restored.firstChild.attrs }, { id: 'paragraph-stable', field: null, role: null, firstIndent: null, recordLine: false, lineHeight: 1.75, spaceBefore: 6, spaceAfter: 12, indent: 10, offsetX: 0, offsetY: 0 })
+  assert.deepEqual({ ...restored.firstChild.attrs }, { id: 'paragraph-stable', field: null, role: null, firstIndent: null, recordLine: false, lineHeight: 1.75, spaceBefore: 6, spaceAfter: 12, indent: 10, rightIndent: 0, offsetX: 0, offsetY: 0 })
   assert.equal(restored.firstChild.firstChild.marks[0].type.name, 'bold')
   assert.equal(restored.child(1).type.name, 'pageBreak')
   assert.equal(restored.child(1).isAtom, true)

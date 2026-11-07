@@ -136,10 +136,11 @@ class DocumentSchema
             'spaceBefore' => ['nullable', 'numeric', 'between:0,120'], 'spaceAfter' => ['nullable', 'numeric', 'between:0,120'],
             'spacingBefore' => ['nullable', 'numeric', 'between:0,120'], 'spacingAfter' => ['nullable', 'numeric', 'between:0,120'],
             'indent' => ['nullable', 'numeric', 'between:0,120'], 'textIndent' => ['nullable', 'numeric', 'between:0,120'],
+            'rightIndent' => ['nullable', 'numeric', 'between:0,120'],
             'fontFamily' => ['nullable', Rule::in(self::FONTS)], 'fontSize' => ['nullable', $this->fontSizeRule()],
             'field' => ['nullable', Rule::in([...RecordDocumentOptions::CONTENT_KEYS, ...RecordDocumentOptions::RICH_TEXT_KEYS])],
             'role' => ['nullable', Rule::in(['recordTitle', 'signatureName', 'signaturePosition', 'signatureLine'])],
-            'firstIndent' => ['nullable', 'numeric', 'between:0,160'], 'recordLine' => ['nullable', 'boolean'],
+            'firstIndent' => ['nullable', 'numeric', 'between:-1600,1600'], 'recordLine' => ['nullable', 'boolean'],
             'offsetX' => ['nullable', 'numeric', 'between:-2400,2400'], 'offsetY' => ['nullable', 'numeric', 'between:-2400,2400'],
         ];
         $rules = array_merge($rules, match ($type) {
@@ -153,7 +154,7 @@ class DocumentSchema
             'recordInfoRow' => ['compact' => ['nullable', 'boolean']],
             'recordInfoCell' => ['width' => ['nullable', 'numeric', 'between:0,1000'], 'unit' => ['nullable', Rule::in(['percent', 'px'])], 'dotted' => ['nullable', 'boolean'], 'label' => ['nullable', 'boolean'], 'nowrap' => ['nullable', 'boolean']],
             'recordSectionTitle' => ['spaceBefore' => ['nullable', 'numeric', 'between:0,300']],
-            'recordBody' => ['minLines' => ['nullable', 'integer', 'between:0,100'], 'lineSpacing' => ['nullable', 'numeric', 'between:12,100'], 'align' => ['nullable', Rule::in(['left', 'center', 'right', 'justify', 'thai-distributed'])], 'spaceAfter' => ['nullable', 'numeric', 'between:0,300']],
+            'recordBody' => ['minLines' => ['nullable', 'integer', 'between:0,100'], 'lineSpacing' => ['nullable', 'numeric', 'between:12,100'], 'align' => ['nullable', Rule::in(['left', 'center', 'right', 'justify', 'thai-distributed'])], 'spaceAfter' => ['nullable', 'numeric', 'between:0,300'], 'firstIndent' => ['nullable', 'numeric', 'between:0,160']],
             'recordSignature' => ['index' => ['required', 'integer', 'between:1,3'], 'align' => ['nullable', Rule::in(['left', 'center', 'right'])], 'width' => ['nullable', 'numeric', 'between:80,1000'], 'marginTop' => ['nullable', 'numeric', 'between:0,500']],
             'recordGroup' => ['spaceBefore' => ['nullable', 'numeric', 'between:-120,500'], 'borderTop' => ['nullable', 'boolean']],
             default => [],

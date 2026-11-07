@@ -30,6 +30,29 @@ async function archive(model, options) {
   return { ...result, zip, xml: await zip.file('word/document.xml').async('string') }
 }
 const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jhx0AAAAASUVORK5CYII=', 'base64'))
+
+test('DOCX exports signed hanging indents and both paragraph boundaries without conflicting firstLine values', async () => {
+  const { xml } = await archive(fixture({ content: { type: 'doc', content: [paragraph('ย่อหน้าห้อย', { indent: 20, rightIndent: 15, firstIndent: -48 }), paragraph('ย่อหน้าแรก', { indent: 10, rightIndent: 5, firstIndent: 24 })] } }))
+  const hanging = paragraphWith(xml, 'ย่อหน้าห้อย')
+  assert.match(hanging, /w:left="1134"/)
+  assert.match(hanging, /w:right="850"/)
+  assert.match(hanging, /w:hanging="720"/)
+  assert.doesNotMatch(hanging, /w:firstLine=/)
+  const first = paragraphWith(xml, 'ย่อหน้าแรก')
+  assert.match(first, /w:firstLine="360"/)
+  assert.doesNotMatch(first, /w:hanging=/)
+})
+
+test('record body hanging overrides replace the inherited first line in DOCX', async () => {
+  const model = recordTemplateFixture()
+  const body = model.content.content.find(node => node.type === 'recordBody')
+  body.content[0].attrs = { ...body.content[0].attrs, indent: 20, rightIndent: 10, firstIndent: -24 }
+  const { xml } = await archive(model)
+  const output = paragraphWith(xml, 'ผู้เรียนสามารถอ่านและเขียนภาษาไทยได้ถูกต้อง')
+  assert.match(output, /w:hanging="360"/)
+  assert.match(output, /w:right="567"/)
+  assert.doesNotMatch(output, /w:firstLine=/)
+})
 const options = { baseUrl: 'https://school.test/reflection/documents/one', fetch: async () => new Response(png, { headers: { 'Content-Type': 'image/png' } }) }
 function object(type, overrides = {}) {
   return { id: `${type}-one`, type, page: 1, x: 25, y: 35, width: 60, height: 35, rotation: 15, zIndex: 2, opacity: 1, wrap: 'square', anchor: { kind: 'page', page: 1 }, fill: '#dbeafe', border: '#2563eb', borderWidth: 1, padding: 3, shape: 'rect', ...overrides }

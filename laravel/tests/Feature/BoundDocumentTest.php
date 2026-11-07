@@ -474,7 +474,7 @@ class BoundDocumentTest extends TestCase
         $replace = function (array &$node) use (&$replace): void {
             if (($node['attrs']['field'] ?? null) === 'record_result') {
                 $node['content'] = [
-                    ['type' => 'paragraph', 'attrs' => ['id' => 'word-paragraph-one'], 'content' => [['type' => 'text', 'text' => 'ย่อหน้าแรก']]],
+                    ['type' => 'paragraph', 'attrs' => ['id' => 'word-paragraph-one', 'indent' => 20, 'rightIndent' => 15, 'firstIndent' => -48], 'content' => [['type' => 'text', 'text' => 'ย่อหน้าแรก']]],
                     ['type' => 'paragraph', 'attrs' => ['id' => 'word-paragraph-empty']],
                     ['type' => 'paragraph', 'attrs' => ['id' => 'word-paragraph-three'], 'content' => [['type' => 'text', 'text' => 'บรรทัดแรก'], ['type' => 'hardBreak'], ['type' => 'text', 'text' => 'บรรทัดต่อเนื่อง']]],
                 ];
