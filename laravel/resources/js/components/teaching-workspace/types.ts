@@ -41,6 +41,7 @@ export type TeachingLevelDraft = {
   subject_code: string
   class_group_code: string
   class_name: string
+  class_groups?: { group_code: string; class_name: string }[]
   total: number
   present: number
   result: string
@@ -130,6 +131,7 @@ export function emptyTeachingLevel(): TeachingLevelDraft {
     subject_code: '',
     class_group_code: '',
     class_name: '',
+    class_groups: [],
     total: 0,
     present: 0,
     result: '',
@@ -161,4 +163,42 @@ export function selectedTeachingLevels(payload?: TeachingDraftPayload | null) {
   if (!payload) return []
   const codes = payload.enabled_level_codes ?? teachingLevels.map((level) => level.code)
   return teachingLevels.filter((level) => codes.includes(level.code))
+}
+
+export type TeachingGroup = { group_code: string; class_name: string }
+
+export function selectedTeachingGroups(value: Pick<TeachingLevelDraft, 'class_groups' | 'class_group_code' | 'class_name'>): TeachingGroup[] {
+  const groups = value.class_groups?.length ? value.class_groups : value.class_group_code || value.class_name ? [{ group_code: value.class_group_code, class_name: value.class_name }] : []
+  const seen = new Set<string>()
+  return groups.map(group => ({ group_code: String(group.group_code || '').trim(), class_name: String(group.class_name || '').trim() })).filter(group => {
+    const key = group.group_code || group.class_name
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+export function teachingGroupFields(groups: TeachingGroup[]) {
+  const selected = selectedTeachingGroups({ class_groups: groups, class_group_code: '', class_name: '' })
+  if (selected.length > 20) throw new Error('เลือกกลุ่มเรียนได้ไม่เกิน 20 กลุ่ม')
+  const name = [...new Set(selected.map(group => group.class_name || group.group_code))].join(' / ')
+  if (Array.from(name).length > 255) throw new Error('ชื่อกลุ่มเรียนรวมยาวเกิน 255 ตัวอักษร กรุณาลดจำนวนกลุ่ม')
+  return { class_groups: selected, class_group_code: selected[0]?.group_code || '', class_name: name }
+}
+
+/** New API rows never mark anyone present; retained students keep the teacher's own attendance. */
+export function mergeTeachingGroupRosters(groups: TeachingGroup[], lists: WorkspaceAttendanceRow[][], existing: WorkspaceAttendanceRow[]) {
+  const previous = new Map(existing.map(row => [row.student_id.trim(), row]))
+  const merged = new Map<string, WorkspaceAttendanceRow>()
+  groups.forEach((group, index) => {
+    for (const row of lists[index]) {
+      const id = String(row.student_id || '').trim()
+      if (!id || (row.group_code?.trim() && row.group_code.trim() !== group.group_code)) throw new Error('รายชื่อที่ได้รับไม่ตรงกับกลุ่มที่เลือก ข้อมูลเดิมยังคงอยู่ กรุณาลองใหม่')
+      if (merged.has(id)) continue
+      const saved = previous.get(id)
+      merged.set(id, { ...row, student_id: id, full_name: String(row.full_name || '').trim(), group_code: group.group_code, class_name: row.class_name?.trim() || group.class_name, present: saved?.present === true, learning_method: saved?.present ? saved.learning_method || 'พบกลุ่ม' : null })
+    }
+  })
+  if (merged.size > 2000) throw new Error('รายชื่อรวมเกิน 2,000 คน กรุณาลดจำนวนกลุ่มเรียน')
+  return [...merged.values()]
 }

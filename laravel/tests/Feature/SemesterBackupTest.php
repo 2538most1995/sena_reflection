@@ -41,6 +41,7 @@ class SemesterBackupTest extends TestCase
     public function test_verified_backup_archives_and_restores_exact_graph_and_assets_without_touching_another_term_or_private_drafts(): void
     {
         $this->seedGraph();
+        TeachingRecord::findOrFail('record-old')->update(['class_groups' => [['group_code' => 'G1', 'class_name' => 'กลุ่มหนึ่ง'], ['group_code' => 'G2', 'class_name' => 'กลุ่มสอง']]]);
         $before = $this->graphRows();
         $draft = TeachingDraft::query()->create(['user_id' => $this->district->id, 'tambon' => 't1', 'year' => '2569', 'semester' => '2', 'status' => 'active', 'payload' => ['private' => 'never export']]);
         $backup = $this->createBackup();
@@ -506,6 +507,14 @@ class SemesterBackupTest extends TestCase
                     $file['entry'] = 'files/'.$index;
                 }
                 unset($file, $manifest['readable_files'], $manifest['signature']);
+                $tables = json_decode($zip->getFromName('data.json'), true, 512, JSON_THROW_ON_ERROR);
+                foreach ($tables['records'] as &$record) {
+                    unset($record['class_groups']);
+                }
+                unset($record);
+                $data = json_encode($tables, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $zip->addFromString('data.json', $data);
+                $manifest['data_sha256'] = hash('sha256', $data);
                 $manifest['version'] = $version;
                 if ($version === 1) {
                     unset($manifest['missing_files'], $manifest['legacy_scope']);

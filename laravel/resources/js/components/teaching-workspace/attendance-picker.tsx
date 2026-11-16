@@ -11,7 +11,7 @@ import { attendanceRowIssues } from './review-state'
 type Props = {
   rows: WorkspaceAttendanceRow[]
   levelCode: LevelCode
-  groupCode: string
+  groupCode: string | string[]
   state: WorkspaceLoadState
   onReload: () => void
   onChange: (rows: WorkspaceAttendanceRow[]) => void
@@ -31,7 +31,7 @@ export function AttendancePicker({ rows, levelCode, groupCode, state, onChange, 
   const normalizedSearch = (search || '').trim().toLocaleLowerCase('th')
   const visibleRows = useMemo(() => rows.map((row, index) => ({ row, index })).filter(({ row }) => {
     if (!normalizedSearch) return true
-    return `${row.student_id} ${row.full_name}`.toLocaleLowerCase('th').includes(normalizedSearch)
+    return `${row.student_id} ${row.full_name} ${row.group_code} ${row.class_name}`.toLocaleLowerCase('th').includes(normalizedSearch)
   }), [normalizedSearch, rows])
   const selected = rows.filter((row) => row.present).length
 
@@ -82,7 +82,7 @@ export function AttendancePicker({ rows, levelCode, groupCode, state, onChange, 
         <label className="focus-within:ring-ring flex min-w-0 cursor-pointer items-center gap-3 rounded-md focus-within:ring-2">
           <input data-workspace-field={`attendance.${index}.present`} type="checkbox" checked={row.present} onChange={(event) => updateRow(index, { present: event.target.checked, learning_method: event.target.checked ? (row.learning_method || 'พบกลุ่ม') : null })} className="size-4 accent-primary" />
           <span className="grid size-8 shrink-0 place-items-center rounded-md bg-secondary text-xs font-bold text-secondary-foreground">{index + 1}</span>
-          <span className="min-w-0"><b className="block truncate text-sm">{row.full_name || 'ยังไม่มีชื่อผู้เรียน'}</b><small className="block truncate text-muted-foreground">{row.student_id || 'ยังไม่มีรหัสนักศึกษา'}</small></span>
+          <span className="min-w-0"><b className="block truncate text-sm">{row.full_name || 'ยังไม่มีชื่อผู้เรียน'}</b><small className="block truncate text-muted-foreground">{row.student_id || 'ยังไม่มีรหัสนักศึกษา'}</small>{Array.isArray(groupCode) && groupCode.length > 1 && <small className="block truncate text-muted-foreground">{row.class_name || row.group_code} ({row.group_code})</small>}</span>
           {row.present && <Check size={17} className="ml-auto shrink-0 text-primary sm:hidden" weight="bold" />}
         </label>
         <Badge className="w-fit" variant={row.present ? 'default' : 'outline'}>{row.present ? 'มาเรียน' : 'ขาดเรียน'}</Badge>

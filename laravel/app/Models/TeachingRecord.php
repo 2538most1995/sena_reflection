@@ -20,7 +20,7 @@ class TeachingRecord extends Model
 
     protected $fillable = [
         'id', 'weekly_submission_id', 'tambon', 'week', 'date', 'level', 'semester', 'year',
-        'subject', 'subject_code', 'class_group_code', 'class_name', 'total', 'present',
+        'subject', 'subject_code', 'class_group_code', 'class_name', 'class_groups', 'total', 'present',
         'result', 'problem', 'suggestion', 'supervisor_comment', 'created_by',
     ];
 
@@ -31,6 +31,7 @@ class TeachingRecord extends Model
             'date' => 'date',
             'total' => 'integer',
             'present' => 'integer',
+            'class_groups' => 'array',
         ];
     }
 

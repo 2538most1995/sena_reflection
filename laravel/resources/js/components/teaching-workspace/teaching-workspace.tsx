@@ -32,7 +32,7 @@ import type {
   WorkspaceAttendanceRow,
   WorkspaceLoadState,
 } from './types'
-import { emptyTeachingDraft, selectedTeachingLevels, teachingLevels } from './types'
+import { emptyTeachingDraft, selectedTeachingLevels, teachingLevels, selectedTeachingGroups, teachingGroupFields, mergeTeachingGroupRosters } from './types'
 import { WeeklyLevelNavigation } from './weekly-level-navigation'
 
 type DraftEnvelope = { message?: string; code?: string; errors?: Record<string, string[]>; data?: { draft?: TeachingDraft; image?: TeachingDraftImage; images?: TeachingDraftImage[]; lock_version?: number; last_saved_at?: string; redirect_url?: string } }
@@ -56,6 +56,7 @@ function normalizeDraftPayload(payload: Partial<TeachingDraftPayload> | null | u
     return {
       ...value,
       subject: value.subject || '', subject_code: value.subject_code || '', class_group_code: String(value.class_group_code || '').trim(), class_name: String(value.class_name || '').trim(),
+      class_groups: Array.isArray(value.class_groups) ? value.class_groups : [],
       result: value.result || '', problem: value.problem || '', suggestion: value.suggestion || '',
       total: Number(value.total) || 0, present: Number(value.present) || 0,
       attendance: normalizeTeachingAttendance(value.attendance), image_ids: Array.isArray(value.image_ids) ? value.image_ids : [],
@@ -573,7 +574,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   }
 
   const changeTambon = (tambon: string) => {
-    const clearGroup = (value: TeachingDraftPayload['levels'][LevelCode]) => ({ ...value, class_group_code: '', class_name: '', attendance: [], total: 0, present: 0, attendance_reviewed: false })
+    const clearGroup = (value: TeachingDraftPayload['levels'][LevelCode]) => ({ ...value, class_group_code: '', class_name: '', class_groups: [], attendance: [], total: 0, present: 0, attendance_reviewed: false })
     teachingLevels.forEach(({ code }) => { requestSerial.current[code] += 1 })
     setAvailableGroups([])
     setAvailableSubjects([])
@@ -581,32 +582,40 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
     markChanged((current) => ({ ...current, scope: { ...current.scope, tambon }, levels: { '1': clearGroup(current.levels['1']), '2': clearGroup(current.levels['2']), '3': clearGroup(current.levels['3']) } }))
   }
 
-  const loadStudents = async (levelCode: LevelCode, group: GroupOption) => {
+  const loadStudents = async (levelCode: LevelCode, groups: GroupOption[]) => {
     const serial = ++requestSerial.current[levelCode]
     const current = payloadRef.current.levels[levelCode]
-    const sameGroup = current.class_group_code === group.group_code
-    const matchedTambon = district ? tambonOptions.find((t) => t.name && group.class_name.includes(t.name)) : undefined
+    const scope = { ...payloadRef.current.scope }
+    const previousGroups = selectedTeachingGroups(current)
+    const matchedTambon = district ? tambonOptions.find((t) => t.name && groups.some(group => group.class_name.includes(t.name))) : undefined
     setLoadStates((values) => ({ ...values, [levelCode]: { ...values[levelCode], loading: true, error: null } }))
     try {
-      const query = new URLSearchParams({ group_code: group.group_code, level: levelCode, year: payloadRef.current.scope.year, semester: payloadRef.current.scope.semester, ...(district && payloadRef.current.scope.tambon ? { tambon: payloadRef.current.scope.tambon } : {}), ...(sameGroup ? { refresh: '1' } : {}) })
-      const response = await fetch(`/record-options/students?${query}`, { headers: { Accept: 'application/json' } })
-      const envelope = await response.json() as { status?: string; message?: string; data?: { items?: WorkspaceAttendanceRow[]; source?: string } }
-      if (!response.ok || envelope.status !== 'success') throw new Error(envelope.message || 'โหลดรายชื่อนักศึกษาไม่สำเร็จ')
+      const fields = teachingGroupFields(groups)
+      if (!groups.length) throw new Error('เลือกกลุ่มเรียนอย่างน้อย 1 กลุ่ม')
+      const responses: { items: WorkspaceAttendanceRow[]; source?: string }[] = []
+      for (let offset = 0; offset < groups.length; offset += 4) {
+        const batch = await Promise.all(groups.slice(offset, offset + 4).map(async group => {
+          const sameGroup = previousGroups.some(previous => previous.group_code === group.group_code)
+          const query = new URLSearchParams({ group_code: group.group_code, level: levelCode, year: scope.year, semester: scope.semester, ...(district && scope.tambon ? { tambon: scope.tambon } : {}), ...(sameGroup ? { refresh: '1' } : {}) })
+          const response = await fetch(`/record-options/students?${query}`, { headers: { Accept: 'application/json' } })
+          const envelope = await response.json() as { status?: string; message?: string; data?: { items?: WorkspaceAttendanceRow[]; source?: string } }
+          if (!response.ok || envelope.status !== 'success') throw new Error(envelope.message || `โหลดรายชื่อกลุ่ม ${group.class_name || group.group_code} ไม่สำเร็จ`)
+          if (!Array.isArray(envelope.data?.items)) throw new Error('ข้อมูลรายชื่อไม่สมบูรณ์ รายชื่อเดิมยังคงอยู่ กรุณาลองอัปเดตอีกครั้ง')
+          if (current.attendance.some(row => row.group_code === group.group_code || (!row.group_code && current.class_group_code === group.group_code)) && envelope.data.items.length === 0) throw new Error('ไม่พบรายชื่อจากกลุ่มนี้ในการอัปเดต รายชื่อและสถานะเช็กชื่อเดิมยังคงอยู่ กรุณาตรวจกลุ่มเรียนและภาคเรียนแล้วลองใหม่')
+          return { items: envelope.data.items, source: envelope.data.source }
+        }))
+        responses.push(...batch)
+        if (!mounted.current || serial !== requestSerial.current[levelCode]) return
+      }
       if (!mounted.current || serial !== requestSerial.current[levelCode]) return
-      const existingRows = sameGroup ? new Map(payloadRef.current.levels[levelCode].attendance.map((row) => [row.student_id, row])) : new Map<string, WorkspaceAttendanceRow>()
-      if (!Array.isArray(envelope.data?.items)) throw new Error('ข้อมูลรายชื่อไม่สมบูรณ์ รายชื่อเดิมยังคงอยู่ กรุณาลองอัปเดตอีกครั้ง')
-      if (sameGroup && existingRows.size > 0 && envelope.data.items.length === 0) throw new Error('ไม่พบรายชื่อจากกลุ่มนี้ในการอัปเดต รายชื่อและสถานะเช็กชื่อเดิมยังคงอยู่ กรุณาตรวจกลุ่มเรียนและภาคเรียนแล้วลองใหม่')
-      const attendance = envelope.data.items.map((student) => {
-        const existing = existingRows.get(student.student_id)
-        return { ...student, present: existing?.present || false, learning_method: existing?.present ? existing.learning_method : null }
-      })
       const latest = payloadRef.current.levels[levelCode]
+      const attendance = mergeTeachingGroupRosters(groups, responses.map(response => response.items), latest.attendance)
       markChanged(value => ({
         ...value,
         scope: district && matchedTambon && !value.scope.tambon ? { ...value.scope, tambon: matchedTambon.id } : value.scope,
-        levels: { ...value.levels, [levelCode]: { ...latest, class_group_code: group.group_code, class_name: group.class_name, attendance, attendance_term: `${value.scope.semester}/${value.scope.year}`, attendance_mode: 'roster', attendance_reviewed: false, total: attendance.length, present: attendance.filter(row => row.present).length } },
+        levels: { ...value.levels, [levelCode]: { ...latest, ...fields, attendance, attendance_term: `${value.scope.semester}/${value.scope.year}`, attendance_mode: 'roster', attendance_reviewed: false, total: attendance.length, present: attendance.filter(row => row.present).length } },
       }))
-      setLoadStates((values) => ({ ...values, [levelCode]: { loading: false, error: null, source: envelope.data?.source || values[levelCode].source } }))
+      setLoadStates((values) => ({ ...values, [levelCode]: { loading: false, error: null, source: responses[0]?.source || values[levelCode].source } }))
     } catch (error) {
       if (!mounted.current || serial !== requestSerial.current[levelCode]) return
       setLoadStates((values) => ({ ...values, [levelCode]: { ...values[levelCode], loading: false, error: error instanceof Error ? error.message : 'โหลดรายชื่อนักศึกษาไม่สำเร็จ' } }))

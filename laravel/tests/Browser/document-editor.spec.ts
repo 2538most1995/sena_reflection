@@ -276,6 +276,111 @@ test.describe('Web document editor against an isolated Laravel fixture', () => {
     expect(stored.objects[0].content!.content![0].attrs!.indent).toBe(5)
   })
 
+  test('vertical rulers preview margins and paragraph spacing with cancel, undo, reload and clean print', async ({ page }, testInfo) => {
+    test.setTimeout(60_000)
+    const document = await createDocument(page, { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'vertical-paragraph', spaceBefore: 6, spaceAfter: 4 }, content: [{ type: 'text', text: 'ทดสอบระยะก่อนและหลังย่อหน้า พร้อมขอบกระดาษแนวตั้ง' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'ย่อหน้าถัดไป' }] }] })
+    await page.getByRole('slider', { name: 'ซูมเอกสาร', exact: true }).fill('1')
+    const paragraph = page.locator('[data-paragraph-id=vertical-paragraph]')
+    await paragraph.click()
+    const drag = async (name: string, amount: number, unit: 'mm' | 'pt', zoom: number, cancel = false) => {
+      const slider = page.getByRole('group', { name: 'ไม้บรรทัดแนวตั้งหน้า 1', exact: true }).getByRole('slider', { name, exact: true })
+      await expect(slider).toBeEnabled()
+      await slider.scrollIntoViewIfNeeded()
+      const box = (await slider.boundingBox())!
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + amount * (unit === 'mm' ? 96 / 25.4 : 96 / 72) * zoom, { steps: 8 })
+      await expect(page.locator('.document-vertical-guide')).toBeVisible()
+      if (cancel) await page.keyboard.press('Escape')
+      await page.mouse.up()
+    }
+    await drag('ระยะก่อนย่อหน้า', 12, 'pt', 1)
+    await expect(paragraph).toHaveCSS('margin-top', '24px')
+    await drag('ระยะหลังย่อหน้า', 8, 'pt', 1)
+    await expect(paragraph).toHaveCSS('margin-bottom', '16px')
+    await page.getByRole('button', { name: 'ย้อนกลับ', exact: true }).click()
+    await expect(paragraph).toHaveCSS('margin-bottom', '5.33333px')
+    await page.getByRole('button', { name: 'ทำซ้ำ', exact: true }).click()
+    await expect(paragraph).toHaveCSS('margin-bottom', '16px')
+    await drag('ระยะก่อนย่อหน้า', 12, 'pt', 1, true)
+    await expect(paragraph).toHaveCSS('margin-top', '24px')
+    await page.getByRole('slider', { name: 'ซูมเอกสาร', exact: true }).fill('0.5')
+    await drag('ขอบบนกระดาษ', 5, 'mm', 0.5)
+    await page.getByRole('slider', { name: 'ซูมเอกสาร', exact: true }).fill('1.5')
+    await drag('ขอบล่างกระดาษ', -5, 'mm', 1.5)
+    await saved(page)
+    const stored = (await api<{ document: StoredDocument & { pageSettings: { margins: { top: number; bottom: number } } } }>(page, 'GET', `/api/documents/${document.id}`)).data.document
+    expect(stored.pageSettings.margins.top).toBe(20)
+    expect(stored.pageSettings.margins.bottom).toBe(20)
+    expect(stored.content.content![0].attrs).toMatchObject({ spaceBefore: 18, spaceAfter: 12 })
+    await page.reload()
+    await paragraph.click()
+    await page.getByRole('slider', { name: 'ซูมเอกสาร', exact: true }).fill('1')
+    await page.screenshot({ path: testInfo.outputPath('vertical-ruler.png') })
+    await page.getByRole('button', { name: 'พิมพ์ / PDF', exact: true }).click()
+    await expect(page.locator('iframe[data-document-print-ready=true]')).toHaveCount(1)
+    const print = page.frameLocator('iframe[data-document-print-frame]')
+    await expect(print.locator('.document-vertical-ruler-control,.document-vertical-guide')).toHaveCount(0)
+    await expect(print.locator('[data-paragraph-id=vertical-paragraph]')).toHaveCSS('margin-top', '24px')
+    const printHandle = await page.locator('iframe[data-document-print-frame]').elementHandle()
+    const printDocument = await printHandle!.contentFrame()
+    const verification = await page.context().newPage()
+    await verification.goto('/')
+    await verification.setContent(await printDocument!.content())
+    await verification.evaluate(() => window.document.fonts.ready)
+    await verification.emulateMedia({ media: 'print' })
+    await mkdir('output/pdf', { recursive: true })
+    const pdf = await verification.pdf({ path: 'output/pdf/vertical-ruler-spacing.pdf', preferCSSPageSize: true, printBackground: true })
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-')
+    await verification.close()
+  })
+
+  test('mouse selection retains Thai ranges across paragraphs and signatures at multiple zoom levels', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    const document = await createDocument(page, { type: 'doc', content: [
+      { type: 'recordBody', content: [{ type: 'paragraph', attrs: { id: 'select-first' }, content: [{ type: 'text', text: 'ข้อความไทย ABCDEFGHIJ ย่อหน้าแรก' }] }, { type: 'paragraph', attrs: { id: 'select-second' }, content: [{ type: 'text', text: 'ย่อหน้าต่อไป KLMNOPQRST จบข้อความ' }] }] },
+      { type: 'recordSignature', attrs: { index: 1 }, content: [{ type: 'paragraph', attrs: { id: 'select-signature' }, content: [{ type: 'text', text: 'ลายเซ็นภาษาไทย UVWXYZ' }] }] },
+    ] })
+    await page.getByRole('tab', { name: 'ตรวจทาน', exact: true }).click()
+    await page.getByRole('button', { name: 'แสดงอักขระ', exact: true }).click()
+    const point = (id: string, word: string, end = false) => page.locator(`[data-paragraph-id=${id}]`).evaluate((element, { word, end }) => {
+      const walker = window.document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const index = node.textContent?.indexOf(word) ?? -1
+        if (index < 0) continue
+        const range = window.document.createRange()
+        const at = index + (end ? word.length - 1 : 0)
+        range.setStart(node, at); range.setEnd(node, at + 1)
+        const rect = range.getBoundingClientRect()
+        return { x: end ? rect.right - 0.1 : rect.left + 0.1, y: (rect.top + rect.bottom) / 2 }
+      }
+      throw new Error('Selection word not found')
+    }, { word, end })
+    const before = (await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document.content
+    for (const zoom of ['0.5', '1', '1.5']) {
+      await page.getByRole('slider', { name: 'ซูมเอกสาร', exact: true }).fill(zoom)
+      await page.locator('[data-paragraph-id=select-first]').scrollIntoViewIfNeeded()
+      const first = await point('select-first', 'ABCDEFGHIJ')
+      const last = await point('select-second', 'KLMNOPQRST', true)
+      await page.mouse.move(first.x, first.y); await page.mouse.down()
+      await page.mouse.move(last.x, last.y, { steps: 20 }); await page.mouse.up()
+      await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toContain('ABCDEFGHIJ')
+      expect(await page.evaluate(() => window.getSelection()?.toString())).toContain('KLMNOPQRST')
+      await page.locator('[data-paragraph-id=select-signature]').scrollIntoViewIfNeeded()
+      const start = await point('select-signature', 'UVWXYZ'), finish = await point('select-signature', 'UVWXYZ', true)
+      await page.mouse.move(finish.x, finish.y); await page.mouse.down()
+      await page.mouse.move(start.x, start.y, { steps: 15 })
+      await page.mouse.up()
+      await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('UVWXYZ')
+    }
+    const word = await point('select-signature', 'UVWXYZ')
+    await page.mouse.dblclick(word.x + 4, word.y)
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('UVWXYZ')
+    expect((await api<{ document: StoredDocument }>(page, 'GET', `/api/documents/${document.id}`)).data.document.content).toEqual(before)
+    expect(errors).toEqual([])
+  })
+
   test('clicking before a Thai photo caption inside a signature places the caret before its first character at different zooms', async ({ page }, testInfo) => {
     const title = 'ภาพประกอบการจัดการเรียนการสอน'
     const document = await createDocument(page, { type: 'doc', content: [

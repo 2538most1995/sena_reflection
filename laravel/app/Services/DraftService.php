@@ -292,6 +292,7 @@ class DraftService
             return false;
         }
         $studentIds = [];
+        $groupCodes = TeachingGroups::codes($entry);
         foreach ($this->normalizeAttendanceRows($entry['attendance']) as $row) {
             if (! is_array($row)) {
                 return false;
@@ -302,7 +303,7 @@ class DraftService
                 || ! is_string($name) || $name === '' || mb_strlen($name) > 255
                 || in_array($studentId, $studentIds)
                 || ($row['learning_method'] !== null && ! in_array($row['learning_method'], ['พบกลุ่ม', 'ออนไลน์'], true))
-                || (! empty($row['group_code']) && ! empty($entry['class_group_code']) && $row['group_code'] !== trim((string) $entry['class_group_code']))) {
+                || (! empty($row['group_code']) && $groupCodes !== [] && ! in_array($row['group_code'], $groupCodes, true))) {
                 return false;
             }
             $studentIds[] = $studentId;
@@ -487,8 +488,9 @@ class DraftService
             if (! is_array($entry) || ! ($code = $this->levels->code($key))) {
                 continue;
             }
+            $entry = TeachingGroups::normalize($entry, "payload.levels.{$code}");
             $normalizedLevels[$code] = collect($entry)->only([
-                'subject', 'subject_code', 'class_group_code', 'class_name', 'total', 'present',
+                'subject', 'subject_code', 'class_group_code', 'class_name', 'class_groups', 'total', 'present',
                 'result', 'problem', 'suggestion', 'supervisor_comment', 'attendance_reviewed', 'attendance_mode',
                 'attendance', 'image_ids', 'document',
             ])->all();
@@ -589,7 +591,7 @@ class DraftService
                 continue;
             }
             $levels[$code] = [
-                ...$record->only(['subject', 'subject_code', 'class_group_code', 'class_name', 'total', 'present', 'result', 'problem', 'suggestion', 'supervisor_comment']),
+                ...$record->only(['subject', 'subject_code', 'class_group_code', 'class_name', 'class_groups', 'total', 'present', 'result', 'problem', 'suggestion', 'supervisor_comment']),
                 'attendance_reviewed' => true,
                 'attendance_mode' => $record->attendance->isNotEmpty() ? 'roster' : 'counts',
                 'attendance_term' => app(AcademicTermService::class)->normalize($record->semester.'/'.$record->year),
@@ -647,7 +649,7 @@ class DraftService
     private function fingerprintRecords(Collection $records): string
     {
         $snapshot = $records->map(fn (TeachingRecord $record): array => [
-            'record' => $record->attributesToArray(),
+            'record' => TeachingGroups::fingerprintAttributes($record->attributesToArray()),
             'attendance' => $record->attendance->sortBy('student_id')->values()->toArray(),
             'images' => $record->images->sortBy('id')->values()->toArray(),
             'document' => $record->documentLayout?->toArray(),

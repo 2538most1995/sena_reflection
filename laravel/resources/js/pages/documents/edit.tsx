@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { EditorRibbon, type EditorView } from '@/components/editor/editor-ribbon'
 import { ObjectProperties } from '@/components/editor/object-properties'
 import { DocumentCanvas } from '@/components/editor/document-canvas'
+import { nativeTextSelectionActive } from '@/components/editor/document-native-selection'
 import { useDocumentAutosave } from '@/hooks/use-document-autosave'
 import { documentRequest } from '@/lib/document-api'
 import { appRouter } from '@/lib/app-router'
@@ -128,7 +129,7 @@ export default function DocumentEdit({ document: initial, editorContext }: { doc
   }, [autosave.error, autosave.status])
   useEffect(() => {
     if (!editor) return
-    const update = () => selectionTick((value) => value + 1)
+    const update = () => { if (!nativeTextSelectionActive(editor.view)) selectionTick((value) => value + 1) }
     editor.on('selectionUpdate', update); editor.on('transaction', update)
     return () => { editor.off('selectionUpdate', update); editor.off('transaction', update) }
   }, [editor])

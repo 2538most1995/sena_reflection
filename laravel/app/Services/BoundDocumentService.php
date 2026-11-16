@@ -1068,6 +1068,9 @@ class BoundDocumentService
     private function sourceSnapshot(array $snapshot): array
     {
         unset($snapshot['advanced_document']);
+        if (isset($snapshot['record']) && is_array($snapshot['record'])) {
+            $snapshot['record'] = TeachingGroups::fingerprintAttributes($snapshot['record']);
+        }
 
         return $snapshot;
     }
@@ -1076,7 +1079,7 @@ class BoundDocumentService
     {
         $record->refresh()->load(['images', 'attendance', 'documentLayout']);
 
-        return hash('sha256', json_encode(['record' => $record->attributesToArray(), 'images' => $record->images->toArray(), 'attendance' => $record->attendance->toArray(), 'layout' => $record->documentLayout?->toArray()], JSON_THROW_ON_ERROR));
+        return hash('sha256', json_encode(['record' => TeachingGroups::fingerprintAttributes($record->attributesToArray()), 'images' => $record->images->toArray(), 'attendance' => $record->attendance->toArray(), 'layout' => $record->documentLayout?->toArray()], JSON_THROW_ON_ERROR));
     }
 
     private function snapshotFingerprint(array $snapshot): string

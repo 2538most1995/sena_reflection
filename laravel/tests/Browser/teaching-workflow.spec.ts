@@ -433,4 +433,62 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     await expect(page).toHaveURL(filteredList)
   })
 
+  test('multiple groups merge into one saved record and a failed group refresh retains the whole roster', async ({ page }) => {
+    const groups = [{ group_code: 'MULTI-A', class_name: 'กลุ่มพระดาบส', level: '1' }, { group_code: 'MULTI-B', class_name: 'กลุ่มบ้านแพน', level: '1' }]
+    let fail = false
+    await page.route('**/record-options/workspace?**', route => route.fulfill({ json: { status: 'success', data: { groups, subjects: [], subject_source: 'sdl', subject_term: '2/2569' } } }))
+    await page.route('**/record-options/students?**', route => {
+      const code = new URL(route.request().url()).searchParams.get('group_code')!
+      if (fail && code === 'MULTI-B') return route.fulfill({ status: 503, json: { status: 'error', message: 'กลุ่มบ้านแพนไม่พร้อม' } })
+      const ids = code === 'MULTI-A' ? ['M1', 'M2'] : ['M2', 'M3']
+      return route.fulfill({ json: { status: 'success', data: { source: 'student_api', items: ids.map(student_id => ({ student_id, full_name: `ผู้เรียน ${student_id}`, group_code: code, class_name: groups.find(group => group.group_code === code)!.class_name, present: true })) } } })
+    })
+    await onlyLevels(page, ['1'])
+    await page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true }).selectOption('18')
+    await page.getByRole('button', { name: 'อัปเดตรายวิชา', exact: true }).click()
+    await closeActionNotice(page, 'อัปเดตรายวิชาจากระบบเรียบร้อยแล้ว')
+    await page.getByRole('button', { name: 'เลือกหลายกลุ่ม', exact: true }).click()
+    await page.getByRole('checkbox', { name: 'กลุ่มพระดาบส (MULTI-A)', exact: true }).check()
+    await page.getByRole('checkbox', { name: 'กลุ่มบ้านแพน (MULTI-B)', exact: true }).check()
+    await page.getByRole('button', { name: 'ใช้กลุ่มที่เลือกและรวมรายชื่อ (2)', exact: true }).click()
+    await expect(page.getByText('มาเรียน 0 จาก 3 คน', { exact: true })).toBeVisible()
+    await page.getByRole('checkbox', { name: /ผู้เรียน M1/ }).check()
+    await page.getByRole('checkbox', { name: /ผู้เรียน M3/ }).check()
+    await page.getByRole('button', { name: 'กรอกรายวิชาเอง', exact: true }).click()
+    const subject = `หลายกลุ่ม ${randomUUID()}`
+    await page.getByRole('textbox', { name: 'ชื่อรายวิชา *', exact: true }).fill(subject)
+    await page.getByRole('textbox', { name: 'ผลการจัดการเรียนรู้ *', exact: true }).fill('จัดกิจกรรมร่วมกันทั้งสองกลุ่ม')
+    await page.getByRole('button', { name: 'เก็บร่างตอนนี้', exact: true }).click()
+    await closeActionNotice(page, 'เก็บฉบับร่างแล้ว')
+    const before = (await draftFromPage(page)).payload.levels['1']
+    await page.reload()
+    await expect(page.getByRole('checkbox', { name: 'กลุ่มพระดาบส (MULTI-A)', exact: true })).toBeChecked()
+    await expect(page.getByRole('checkbox', { name: /ผู้เรียน M3/ })).toBeChecked()
+    fail = true
+    await page.getByRole('button', { name: 'อัปเดตรายชื่อจาก 2 กลุ่ม', exact: true }).click()
+    await expect(page.getByRole('alert').filter({ hasText: 'กลุ่มบ้านแพนไม่พร้อม' })).toBeVisible()
+    expect((await draftFromPage(page)).payload.levels['1']).toEqual(before)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.getByRole('group', { name: 'เลือกกลุ่มเรียนที่จะรวมในบันทึกเดียว', exact: true }).scrollIntoViewIfNeeded()
+    await page.screenshot({ path: 'output/playwright/multiple-groups-mobile.png' })
+    await page.getByRole('button', { name: 'บันทึก 1 ระดับ', exact: true }).last().click()
+    const confirmation = page.getByRole('dialog', { name: 'ยืนยันบันทึกประจำสัปดาห์', exact: true })
+    await expect(confirmation).toContainText('กลุ่มพระดาบส / กลุ่มบ้านแพน')
+    const complete = page.waitForResponse(response => /\/teaching-drafts\/[^/]+\/finalize$/.test(new URL(response.url()).pathname))
+    await confirmation.getByRole('button', { name: 'ยืนยันบันทึก 1 ระดับ', exact: true }).click()
+    expect((await complete).status()).toBe(200)
+    const records = fixture.records().filter(record => record.subject === subject)
+    expect(records).toHaveLength(1)
+    expect(records[0].total).toBe(3)
+    expect(records[0].present).toBe(2)
+    await page.goto(`/records/${records[0].id}`)
+    await page.getByRole('link', { name: 'จัดเอกสารก่อนพิมพ์', exact: true }).click()
+    const editor = page.getByRole('textbox', { name: 'เนื้อหาเอกสาร', exact: true })
+    await expect(editor).toContainText('กลุ่มพระดาบส / กลุ่มบ้านแพน')
+    await page.getByRole('button', { name: 'บันทึกและพิมพ์', exact: true }).click()
+    await expect(page.locator('iframe[data-document-print-ready=true]')).toHaveCount(1)
+    await expect(page.frameLocator('iframe[data-document-print-frame]').locator('body')).toContainText('กลุ่มพระดาบส / กลุ่มบ้านแพน')
+  })
+
 })

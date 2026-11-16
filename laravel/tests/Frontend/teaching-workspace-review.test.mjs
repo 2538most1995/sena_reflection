@@ -7,8 +7,33 @@ const hook = registerHooks({ resolve(specifier, context, nextResolve) {
   return nextResolve(specifier, context)
 } })
 const { attendanceRowIssues, normalizeTeachingAttendance, reviewIssues, teachingAttendanceReady, teachingLevelReady, teachingSaveSummary } = await import('../../resources/js/components/teaching-workspace/review-state.ts')
-const { emptyTeachingDraft } = await import('../../resources/js/components/teaching-workspace/types.ts')
+const { emptyTeachingDraft, selectedTeachingGroups, teachingGroupFields, mergeTeachingGroupRosters } = await import('../../resources/js/components/teaching-workspace/types.ts')
 hook.deregister()
+
+test('multiple group rosters deduplicate identities and retain only the teachers existing presence and method', () => {
+  const groups = [{ group_code: 'G1', class_name: 'หนึ่ง' }, { group_code: 'G2', class_name: 'สอง' }]
+  const row = (id, group_code, present = true) => ({ student_id: id, group_code, full_name: `คน ${id}`, class_name: '', present, learning_method: 'พบกลุ่ม' })
+  const merged = mergeTeachingGroupRosters(groups, [[row('S1', 'G1'), row('S2', 'G1')], [row('S2', 'G2'), row('S3', 'G2')]], [{ ...row('S1', 'G1'), learning_method: 'ออนไลน์' }])
+  assert.equal(merged.length, 3)
+  assert.deepEqual(merged.map(row => row.present), [true, false, false])
+  assert.equal(merged[0].learning_method, 'ออนไลน์')
+  assert.equal(merged[2].learning_method, null)
+  assert.equal(merged[2].class_name, 'สอง')
+  const retained = mergeTeachingGroupRosters([groups[1]], [[row('S1', 'G2')]], [{ ...row('S1', 'G1'), learning_method: 'ออนไลน์' }])
+  assert.equal(retained[0].present, true)
+  assert.equal(retained[0].learning_method, 'ออนไลน์')
+  const level = { ...fixture().levels['1'], ...teachingGroupFields(groups), attendance_mode: 'roster', attendance: merged }
+  assert.equal(teachingAttendanceReady(level), true)
+  assert.equal(attendanceRowIssues([...merged, row('S4', 'G3')], ['G1', 'G2']).some(issue => issue.field === 'group_code'), true)
+  assert.throws(() => mergeTeachingGroupRosters(groups, [[row('S1', 'G9')], []], []), /ไม่ตรง/)
+})
+
+test('multiple group fields preserve individual identities and legacy single groups', () => {
+  const groups = [{ group_code: 'G1', class_name: 'หนึ่ง' }, { group_code: 'G2', class_name: 'สอง' }]
+  assert.deepEqual(teachingGroupFields(groups), { class_group_code: 'G1', class_name: 'หนึ่ง / สอง', class_groups: groups })
+  assert.deepEqual(selectedTeachingGroups({ class_group_code: 'OLD', class_name: 'เดิม' }), [{ group_code: 'OLD', class_name: 'เดิม' }])
+  assert.throws(() => teachingGroupFields([{ group_code: 'G', class_name: 'ก'.repeat(256) }]), /255/)
+})
 
 function fixture() {
   const payload = emptyTeachingDraft({ year: '2569', semester: '1', date: '2026-10-24' })

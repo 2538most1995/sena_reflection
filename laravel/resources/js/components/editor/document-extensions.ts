@@ -118,6 +118,15 @@ export const ParagraphFormatting = Extension.create({
           return [Decoration.node(target.position, target.position + node.nodeSize, { style: `margin-left:calc(${target.indent}mm + ${Number(node.attrs.offsetX) || 0}px);margin-right:${target.rightIndent}mm;text-indent:${target.firstIndent}px;width:auto` })]
         }))
       } },
+    }), new Plugin<ParagraphSpacingTarget[]>({
+      key: paragraphSpacingPreviewKey,
+      state: { init: () => [], apply: (transaction, previous) => transaction.getMeta(paragraphSpacingPreviewKey) ?? (transaction.docChanged ? [] : previous) },
+      props: { decorations(state) {
+        return DecorationSet.create(state.doc, (paragraphSpacingPreviewKey.getState(state) || []).flatMap(target => {
+          const node = state.doc.nodeAt(target.position)
+          return node ? [Decoration.node(target.position, target.position + node.nodeSize, { style: `margin-top:calc(${target.before}pt + ${Number(node.attrs.offsetY) || 0}px);margin-bottom:${target.after}pt` })] : []
+        }))
+      } },
     }), new Plugin({
       key: new PluginKey('documentParagraphIds'),
       appendTransaction(transactions, _old, state) {
@@ -140,6 +149,8 @@ export const ParagraphFormatting = Extension.create({
 })
 
 export const paragraphIndentPreviewKey = new PluginKey<IndentTarget[]>('paragraphIndentPreview')
+export type ParagraphSpacingTarget = { position: number; before: number; after: number }
+export const paragraphSpacingPreviewKey = new PluginKey<ParagraphSpacingTarget[]>('paragraphSpacingPreview')
 
 export const formattingMarksKey = new PluginKey<DecorationSet>('documentFormattingMarks')
 
@@ -174,7 +185,7 @@ function formattingMarkDecorations(doc: ProseMirrorNode): DecorationSet {
 }
 
 /** Measure the caret before drawing; the zero-size widgets never change line wrapping or pagination. */
-function formattingMarkView(view: EditorView) {
+function formattingMarkView(view: EditorView, shouldDefer: () => boolean) {
   const ownerWindow = view.dom.ownerDocument.defaultView!
   let canvas: HTMLElement | null = null
   let frame = 0
@@ -188,7 +199,7 @@ function formattingMarkView(view: EditorView) {
   }
   const position = () => {
     frame = 0
-    if (destroyed) return
+    if (destroyed || shouldDefer()) return
     const nextCanvas = view.dom.closest<HTMLElement>('[data-document-canvas]')
     if (nextCanvas !== canvas) {
       mutation.disconnect()
@@ -281,7 +292,7 @@ function formattingMarkView(view: EditorView) {
 /** Formatting marks are decorations only; historical paragraphs and hard breaks stay unchanged. */
 export const FormattingMarks = Extension.create({
   name: 'documentFormattingMarks',
-  addOptions() { return { renderWhenReadOnly: false } },
+  addOptions() { return { renderWhenReadOnly: false, deferUpdate: (_view: EditorView): boolean => false } },
   addProseMirrorPlugins() {
     const editor = this.editor
     const renderWhenReadOnly = this.options.renderWhenReadOnly
@@ -292,7 +303,7 @@ export const FormattingMarks = Extension.create({
         apply: (transaction, previous) => transaction.docChanged ? formattingMarkDecorations(transaction.doc) : previous,
       },
       props: { decorations: state => editor.isEditable || renderWhenReadOnly ? formattingMarksKey.getState(state) : DecorationSet.empty },
-      view: formattingMarkView,
+      view: view => formattingMarkView(view, () => this.options.deferUpdate?.(view) || false),
     })]
   },
 })
@@ -400,7 +411,6 @@ export const RecordSignature = Node.create({
       const dom = document.createElement('div')
       dom.className = 'record-signature'
       dom.dataset.recordNode = 'signature'
-      dom.tabIndex = -1
       const box = document.createElement('div')
       box.className = 'record-signature-content'
       const contentDOM = document.createElement('div')

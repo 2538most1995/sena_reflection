@@ -197,6 +197,9 @@ class FinalizeTeachingSubmission
                     if (! $record && $sourceRecord && ! $sourceRecord->weekly_submission_id && $sourceRecord->level === $levelName) {
                         $record = $sourceRecord;
                     }
+                    if (count($entry['class_groups'] ?? []) > 1 || $record?->class_groups !== null) {
+                        $recordData['class_groups'] = count($entry['class_groups'] ?? []) > 1 ? $entry['class_groups'] : null;
+                    }
                     if ($record) {
                         $recordData['created_by'] = $record->created_by;
                         $record->update($recordData);
@@ -350,13 +353,14 @@ class FinalizeTeachingSubmission
                     "payload.levels.{$levelCode}.attendance.*.learning_method" => ['nullable', 'in:พบกลุ่ม,ออนไลน์'],
                 ])->validate();
                 $studentIds = [];
+                $groupCodes = TeachingGroups::codes($entry);
                 foreach ($entry['attendance'] as $row) {
                     if (in_array($row['student_id'], $studentIds, true)) {
                         throw ValidationException::withMessages(["payload.levels.{$levelCode}.attendance" => 'มีรหัสนักศึกษาซ้ำในระดับชั้นเดียวกัน']);
                     }
                     $studentIds[] = $row['student_id'];
-                    if (! empty($row['group_code']) && ! empty($entry['class_group_code'])
-                        && $row['group_code'] !== $entry['class_group_code']) {
+                    if (! empty($row['group_code']) && $groupCodes !== []
+                        && ! in_array($row['group_code'], $groupCodes, true)) {
                         throw ValidationException::withMessages(["payload.levels.{$levelCode}.attendance" => 'รายชื่อผู้เรียนไม่ตรงกับกลุ่มที่เลือก กรุณาโหลดรายชื่อใหม่']);
                     }
                 }

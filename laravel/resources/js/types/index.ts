@@ -29,6 +29,7 @@ export type RecordRow = {
   subject_code?: string | null
   class_group_code?: string | null
   class_name?: string | null
+  class_groups?: { group_code: string; class_name: string }[] | null
   total: number
   present: number
   result?: string | null

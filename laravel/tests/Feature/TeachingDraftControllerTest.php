@@ -71,6 +71,66 @@ class TeachingDraftControllerTest extends TestCase
         $this->assertDatabaseCount('records', 1);
     }
 
+    public function test_multiple_groups_finalize_once_as_one_record_and_reopen_with_both_groups(): void
+    {
+        $user = $this->createTeacher('u1', 't1');
+        $payload = $this->draftPayload();
+        $payload['enabled_level_codes'] = ['1'];
+        $groups = [['group_code' => 'G1', 'class_name' => 'กลุ่มหนึ่ง'], ['group_code' => 'G2', 'class_name' => 'กลุ่มสอง']];
+        $payload['levels']['1'] = [...$payload['levels']['1'], 'class_groups' => $groups, 'attendance_mode' => 'roster', 'attendance' => [
+            ['student_id' => 'S1', 'full_name' => 'คนหนึ่ง', 'group_code' => 'G1', 'present' => true, 'learning_method' => 'ออนไลน์'],
+            ['student_id' => 'S2', 'full_name' => 'คนสอง', 'group_code' => 'G2', 'present' => false, 'learning_method' => null],
+        ]];
+        $id = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->assertJsonPath('data.draft.payload.levels.1.class_groups', $groups)->json('data.draft.id');
+        $key = (string) Str::uuid();
+        $result = $this->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 1, 'idempotency_key' => $key, 'confirmed' => true])->assertOk()->assertJsonCount(1, 'data.record_ids');
+        $this->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 1, 'idempotency_key' => $key, 'confirmed' => true])->assertOk();
+        $record = TeachingRecord::findOrFail($result->json('data.record_ids.0'));
+        $this->assertSame($groups, $record->class_groups);
+        $this->assertSame('กลุ่มหนึ่ง / กลุ่มสอง', $record->class_name);
+        $this->assertSame(2, $record->total);
+        $this->assertSame(1, $record->present);
+        $this->assertDatabaseCount('records', 1);
+        $this->assertDatabaseCount('record_attendance', 2);
+        $this->postJson(route('teaching-drafts.store'), ['source_record_id' => $record->id])->assertCreated()->assertJsonPath('data.draft.payload.levels.1.class_groups', $groups);
+    }
+
+    public function test_multiple_groups_reject_foreign_attendance_without_creating_any_record(): void
+    {
+        $user = $this->createTeacher('u1', 't1');
+        $payload = $this->draftPayload();
+        $payload['enabled_level_codes'] = ['1'];
+        $payload['levels']['1'] = [...$payload['levels']['1'], 'class_groups' => [['group_code' => 'G1', 'class_name' => 'หนึ่ง'], ['group_code' => 'G2', 'class_name' => 'สอง']], 'attendance_mode' => 'roster', 'attendance' => [['student_id' => 'S1', 'full_name' => 'คนหนึ่ง', 'group_code' => 'G3', 'present' => false]]];
+        $id = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->json('data.draft.id');
+        $this->postJson(route('teaching-drafts.finalize', $id), ['lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true])->assertUnprocessable()->assertJsonValidationErrors('payload.levels.1.attendance');
+        $this->assertDatabaseCount('records', 0);
+        $this->assertDatabaseCount('weekly_submissions', 0);
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $id, 'status' => 'active']);
+    }
+
+    public function test_duplicate_group_codes_are_rejected_before_saving_a_draft(): void
+    {
+        $user = $this->createTeacher('u1', 't1');
+        $payload = $this->draftPayload();
+        $payload['levels']['1']['class_groups'] = [['group_code' => 'G1', 'class_name' => 'หนึ่ง'], ['group_code' => 'G1', 'class_name' => 'ชื่ออื่น']];
+        $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertUnprocessable()->assertJsonValidationErrors('payload.levels.1.class_groups');
+        $this->assertDatabaseCount('teaching_drafts', 0);
+    }
+
+    public function test_legacy_source_fingerprint_is_unchanged_by_the_nullable_group_column(): void
+    {
+        $user = $this->createTeacher('u1', 't1');
+        $record = TeachingRecord::create(['id' => 'legacy-group-source', 'tambon' => 't1', 'week' => 4, 'date' => '2026-11-13', 'year' => '2569', 'semester' => '2', 'level' => 'ประถมศึกษา', 'subject' => 'ภาษาไทย', 'class_group_code' => 'G1', 'class_name' => 'กลุ่มเดิม', 'result' => 'ผลเดิม', 'total' => 1, 'present' => 0, 'created_by' => $user->id]);
+        $record->refresh()->load(['attendance', 'images', 'documentLayout']);
+        $attributes = $record->attributesToArray();
+        unset($attributes['class_groups']);
+        $legacy = hash('sha256', json_encode([['record' => $attributes, 'attendance' => [], 'images' => [], 'document' => null]], JSON_THROW_ON_ERROR));
+
+        $this->assertSame($legacy, app(DraftService::class)->sourceFingerprint($record));
+        $record->update(['class_groups' => [['group_code' => 'G1', 'class_name' => 'กลุ่มเดิม'], ['group_code' => 'G2', 'class_name' => 'กลุ่มใหม่']]]);
+        $this->assertNotSame($legacy, app(DraftService::class)->sourceFingerprint($record));
+    }
+
     public function test_resuming_a_finalized_draft_returns_to_its_saved_week_without_opening_an_editing_draft(): void
     {
         $user = $this->createTeacher('u1', 't1');

@@ -33,7 +33,7 @@ class SemesterBackupService
         'record_revisions' => 'ฉบับย้อนหลังของบันทึก',
     ];
 
-    private const JSON_COLUMNS = ['settings', 'content', 'content_json', 'page_settings_json', 'objects_json', 'binding_snapshot', 'snapshot_json', 'snapshot'];
+    private const JSON_COLUMNS = ['settings', 'content', 'class_groups', 'content_json', 'page_settings_json', 'objects_json', 'binding_snapshot', 'snapshot_json', 'snapshot'];
 
     public function index(int $page = 1): array
     {
@@ -737,7 +737,8 @@ class SemesterBackupService
         foreach (self::TABLES as $table) {
             $columns = Schema::getColumnListing($table);
             foreach ($tables[$table] as $row) {
-                if (! is_array($row) || array_diff(array_keys($row), $columns) !== [] || array_diff($columns, array_keys($row)) !== []) {
+                $optionalLegacyColumns = $table === 'records' ? ['class_groups'] : [];
+                if (! is_array($row) || array_diff(array_keys($row), $columns) !== [] || array_diff($columns, array_keys($row), $optionalLegacyColumns) !== []) {
                     $this->fail('โครงสร้างฐานข้อมูลไม่ตรงกับไฟล์สำรอง กรุณาอัปเดตระบบให้เป็นรุ่นเดียวกัน');
                 }
                 foreach ($row as $key => $value) {
@@ -1041,6 +1042,12 @@ class SemesterBackupService
 
     private function fingerprint(array $tables): string
     {
+        foreach ($tables['records'] ?? [] as $index => $record) {
+            if (($record['class_groups'] ?? null) === null) {
+                unset($tables['records'][$index]['class_groups']);
+            }
+        }
+
         return hash('sha256', $this->json($tables));
     }
 

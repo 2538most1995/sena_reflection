@@ -15,6 +15,8 @@ import { MM_TO_PX, PAGE_GAP, pageDimensions, type DocumentObject, type WebDocume
 import { canvasPageDimensions, canvasPages, canvasPositionToPage, constrainObject, escapeHeaderText, objectAnchorAfterMove, objectCanvasTop, objectFlowOffset, snapMillimeters, type CanvasPage } from '@/lib/document-layout'
 import { hasDocumentContent, FormattingMarks, ObjectTextFlow, objectFlowKey, objectFlowAfterText, ParagraphFormatting, RecordTemplate, type FlowReservation } from './document-extensions'
 import { HorizontalRuler, HORIZONTAL_RULER_HEIGHT } from './horizontal-ruler'
+import { NativeTextSelection, nativeTextSelectionActive } from './document-native-selection'
+import { VerticalRuler, VERTICAL_RULER_GUTTER } from './vertical-ruler'
 
 export type { CanvasPage } from '@/lib/document-layout'
 
@@ -36,7 +38,7 @@ const canvasStyles = `
 .document-canvas{position:relative;isolation:isolate;color:#172033;font-family:Sarabun,"Noto Sans Thai",sans-serif;font-size:16pt;line-height:1.5;text-wrap:wrap}
 .document-page{position:absolute;left:0;pointer-events:none;box-shadow:0 3px 16px #0f172a18;box-sizing:border-box;z-index:-1}
 .document-editor-surface{position:relative;z-index:1}
-.document-body-editor{outline:none;box-sizing:border-box!important;border:0!important;background:transparent;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;caret-color:#2563eb}
+.document-body-editor{outline:none;box-sizing:border-box!important;border:0!important;background:transparent;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;caret-color:#2563eb;user-select:text;-webkit-user-select:text}
 .document-body-editor :is(p,h1,h2,h3),.document-textbox-editor :is(p,h1,h2,h3){display:block!important;width:auto!important}
 .document-body-editor p,.document-textbox-editor p{margin:0 0 8pt;min-height:1.5em;word-break:normal;line-break:auto}
 .document-body-editor h1,.document-textbox-editor h1{font-size:30pt;font-weight:700;line-height:1.3;margin:14pt 0 10pt}
@@ -90,6 +92,14 @@ const canvasStyles = `
 .document-indent-guide{position:absolute;top:35px;border-left:1px dashed #3b82f6;pointer-events:none;z-index:5}
 .document-indent-value{position:absolute;top:40px;min-width:160px;padding:6px 9px;border-radius:5px;background:#172033;color:white;font:11px/16px Anuphan,sans-serif;white-space:nowrap;box-shadow:0 2px 6px #0f172a20;pointer-events:none;z-index:6}
 .document-vertical-ruler{position:absolute;left:-28px;top:0;width:23px;height:100%;background:#f8fafc;border-right:1px solid #dbe3ed;color:#94a3b8;font-size:9px;font-family:Arial,sans-serif;user-select:none;pointer-events:none}.document-vertical-ruler span{position:absolute;left:0;width:100%;border-top:1px solid #cbd5e1;padding-top:2px;padding-left:4px}
+.document-vertical-ruler-control{position:absolute;left:0;width:40px;background:#fff;border:1px solid #dbe3ed;color:#64748b;font:10px/1 Arial,sans-serif;user-select:none;z-index:9}
+.document-vertical-margin{position:absolute;left:0;right:0;top:0;background:#e8edf4;pointer-events:none}
+.document-vertical-tick{position:absolute;left:0;width:100%;height:8px;padding:2px 0 0 2px;border-top:1px solid #cbd5e1;pointer-events:none}
+.document-vertical-marker{position:absolute;left:0;display:grid;place-items:center;width:19px;height:22px;padding:0;border:0;background:transparent;transform:translateY(-50%);color:#2563eb;cursor:ns-resize;touch-action:none;z-index:2}
+.document-vertical-marker>span{width:10px;height:12px;background:currentColor;clip-path:polygon(0 0,100% 50%,0 100%)}
+.document-vertical-marker--before,.document-vertical-marker--after{left:20px}.document-vertical-marker--before>span,.document-vertical-marker--after>span{width:11px;height:7px;clip-path:none;border:1px solid #1d4ed8;background:#dbeafe;border-radius:1px}
+.document-vertical-marker:hover,.document-vertical-marker:focus-visible{background:#dbeafe;border-radius:3px;outline:2px solid #93c5fd}.document-vertical-marker:disabled{color:#94a3b8;cursor:default}
+.document-vertical-guide{position:absolute;left:48px;border-top:1px dashed #3b82f6;pointer-events:none;z-index:4}.document-vertical-value{position:absolute;left:48px;padding:6px 9px;border-radius:5px;background:#172033;color:white;font:11px/16px Anuphan,sans-serif;white-space:nowrap;pointer-events:none;z-index:5}
 .document-canvas.is-record-template{color:#000;font-synthesis:style;letter-spacing:0;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
 .document-canvas.is-record-template .document-body-editor{white-space:break-spaces;overflow-wrap:break-word;word-break:break-word}
 .document-body-editor p[data-record-role="recordTitle"]{font-size:var(--record-title-size,20pt);line-height:1.1;font-weight:700;text-align:center;margin:0 0 8px;min-height:0}
@@ -126,7 +136,7 @@ const canvasStyles = `
 `
 
 function commonExtensions(marksInReadOnlyTextboxes = false) {
-  return [StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }), TextStyleKit, Highlight.configure({ multicolor: true }), Subscript, Superscript, TextAlign.configure({ types: ['heading', 'paragraph', 'recordSectionTitle', 'recordInfoCell'] }), ParagraphFormatting, FormattingMarks.configure({ renderWhenReadOnly: marksInReadOnlyTextboxes }), RecordTemplate]
+  return [StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }), NativeTextSelection, TextStyleKit, Highlight.configure({ multicolor: true }), Subscript, Superscript, TextAlign.configure({ types: ['heading', 'paragraph', 'recordSectionTitle', 'recordInfoCell'] }), ParagraphFormatting, FormattingMarks.configure({ renderWhenReadOnly: marksInReadOnlyTextboxes, deferUpdate: nativeTextSelectionActive }), RecordTemplate]
 }
 
 type ParagraphLocation = { id: string; position: number; nodeSize: number; top: number; bottom: number }
@@ -142,12 +152,13 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
   const [paragraphVersion, setParagraphVersion] = useState(0)
   const [centerGuide, setCenterGuide] = useState(false)
   const [rulerEditor, setRulerEditor] = useState<Editor | null>(null)
+  const [marginPreview, setMarginPreview] = useState<{ margins: WebDocument['pageSettings']['margins']; minimumPages: number } | null>(null)
   const layoutRequest = useRef<number>(0)
   const layoutTick = useRef<() => void>(() => {})
   const lastContent = useRef(JSON.stringify(model.content))
   const lastFlow = useRef('')
   const lastGeometry = useRef('')
-  const settings = model.pageSettings
+  const settings = useMemo(() => marginPreview ? { ...model.pageSettings, margins: marginPreview.margins } : model.pageSettings, [model.pageSettings, marginPreview])
   const templateSettings = settings as typeof settings & { template?: string; fontFamily?: string; fontSize?: number; lineHeight?: number }
   const isRecordTemplate = templateSettings.template === 'weekly-record'
   const dimensions = pageDimensions(settings)
@@ -231,12 +242,13 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
     const position = canvasPositionToPage(canvasTop, settings)
     return { ...object, ...position, canvasTop }
   }), [model.objects, settings, paragraphVersion])
-  const actualPageCount = Math.max(pageCount, ...resolvedObjects.map(object => object.page), 1)
+  const actualPageCount = Math.max(pageCount, ...resolvedObjects.map(object => object.page), marginPreview?.minimumPages || 1)
   const pages = useMemo(() => canvasPages(settings, actualPageCount), [settings, actualPageCount])
   const canvasHeight = actualPageCount * physicalHeight + (actualPageCount - 1) * PAGE_GAP
 
   layoutTick.current = () => {
     if (!editor || editor.isDestroyed || !canvasRef.current) return
+    if (nativeTextSelectionActive(editor.view)) return
     const root = editor.view.dom
     const rootRect = root.getBoundingClientRect()
     const factor = rootRect.width / physicalWidth || 1
@@ -408,9 +420,10 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
     return () => window.removeEventListener('keydown', onKey)
   }, [readOnly, changeObject, deleteObject, duplicateObject, editor])
 
-  return <div className="document-canvas-zoom-space" style={{ width: physicalWidth * zoom, minWidth: physicalWidth * zoom, height: canvasHeight * zoom + (showRuler ? HORIZONTAL_RULER_HEIGHT : 0), position: 'relative', margin: '0 auto' }}>
-    {showRuler && <HorizontalRuler editor={rulerEditor || editor} canvas={canvasRef} width={physicalWidth} left={marginPx.left} right={marginPx.right} zoom={zoom} height={canvasHeight * zoom} disabled={readOnly || (!!selectedObjectId && rulerEditor === editor)} />}
-    <div className="document-canvas-scale" style={{ width: physicalWidth, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
+  const gutter = showRuler ? VERTICAL_RULER_GUTTER : 0
+  return <div className="document-canvas-zoom-space" style={{ width: physicalWidth * zoom + gutter, minWidth: physicalWidth * zoom + gutter, height: canvasHeight * zoom + (showRuler ? HORIZONTAL_RULER_HEIGHT : 0), position: 'relative', margin: '0 auto' }}>
+    {showRuler && <><div style={{ marginLeft: gutter }}><HorizontalRuler editor={rulerEditor || editor} canvas={canvasRef} width={physicalWidth} left={marginPx.left} right={marginPx.right} zoom={zoom} height={canvasHeight * zoom} disabled={readOnly || (!!selectedObjectId && rulerEditor === editor)} /></div>{pages.map(page => <VerticalRuler key={page.index} editor={rulerEditor || editor} canvas={canvasRef} page={page.index} top={HORIZONTAL_RULER_HEIGHT + page.top * zoom} width={physicalWidth} height={physicalHeight} zoom={zoom} margins={settings.margins} disabled={readOnly} onPreviewMargins={margins => setMarginPreview(current => margins ? { margins, minimumPages: current?.minimumPages || actualPageCount } : null)} onCommitMargins={margins => callbacks.current.onChange({ pageSettings: { ...callbacks.current.document.pageSettings, margins } }, { historyBoundary: true })} />)}</>}
+    <div className="document-canvas-scale" style={{ width: physicalWidth, marginLeft: gutter, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
       <div ref={canvasRef} data-document-canvas data-page-width={physicalWidth} data-page-height={physicalHeight} data-page-gap={PAGE_GAP} data-document-template={templateSettings.template || undefined} className={`document-canvas${isRecordTemplate ? ' is-record-template' : ''}${showMarks ? ' show-marks' : ''}`} style={{ width: physicalWidth, minHeight: canvasHeight, height: canvasHeight, fontFamily: templateSettings.fontFamily || undefined, fontSize: templateSettings.fontSize ? `${templateSettings.fontSize}pt` : undefined, lineHeight: templateSettings.lineHeight || undefined, '--document-ui-scale': 1 / zoom, '--record-title-size': `${20 + ((templateSettings.fontSize || 16) - 16)}pt`, '--record-section-size': `${17 + ((templateSettings.fontSize || 16) - 16)}pt` } as CSSProperties} onPointerDown={event => {
         if (!(event.target instanceof Element) || event.target.closest('.document-object')) return
         callbacks.current.onSelectObject(null)
@@ -419,7 +432,6 @@ export function DocumentCanvas(props: DocumentCanvasProps) {
         <style>{canvasStyles}</style>
         {pages.map(page => <div key={page.index} className="document-page" data-page-number={page.index + 1} style={{ top: page.top, width: page.width, height: page.height, background: settings.background, border: settings.border === 'none' ? undefined : `1px solid ${settings.border}` }}>
           {showGrid && <div className="document-page-grid" data-print-hidden />}
-          {showRuler && <div className="document-vertical-ruler" data-print-hidden>{Array.from({ length: Math.floor(dimensions.height / 10) }, (_, index) => <span key={index} style={{ top: index * 10 * MM_TO_PX }}>{index}</span>)}</div>}
         </div>)}
         <div className="document-editor-surface"><EditorContent editor={editor} /></div>
         <div className="document-object-layer">

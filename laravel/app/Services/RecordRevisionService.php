@@ -16,7 +16,7 @@ class RecordRevisionService
             $record = TeachingRecord::query()->whereKey($record->id)->lockForUpdate()->firstOrFail();
             $record->load(['images', 'attendance', 'documentLayout', 'tambonRelation']);
             $options = app(RecordDocumentOptions::class);
-            $data = $record->attributesToArray();
+            $data = TeachingGroups::fingerprintAttributes($record->attributesToArray());
             $data['date'] = $record->date?->format('Y-m-d');
             $data['tambon_name'] = $record->tambonRelation?->name ?? '';
             $data['teacher_name'] = User::query()->whereKey($record->created_by)->value('name') ?? $user->name;

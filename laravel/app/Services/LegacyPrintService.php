@@ -38,7 +38,7 @@ class LegacyPrintService
         User $fallbackTeacher,
     ): array {
         $record->loadMissing(['tambonRelation:id,name', 'images:id,record_id,file_path', 'attendance']);
-        $attributes = $record->attributesToArray();
+        $attributes = TeachingGroups::fingerprintAttributes($record->attributesToArray());
         $attributes['date'] = $record->date?->format('Y-m-d');
         $attributes['tambon_name'] = $record->tambonRelation?->name ?? '';
         $attributes['teacher_name'] = User::query()->whereKey($record->created_by)->value('name') ?? $fallbackTeacher->name;
