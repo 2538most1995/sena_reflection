@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
-import { cn, thaiDate } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import type { GroupOption, LevelCode, SubjectOption, TeachingDraftImage, TeachingLevelDraft, WorkspaceLoadState } from './types'
 import { teachingLevels, selectedTeachingGroups } from './types'
 import { searchSubjects, subjectsForLevel, withOrientationSubject } from './subject-options'
@@ -16,7 +16,6 @@ import { searchSubjects, subjectsForLevel, withOrientationSubject } from './subj
 type Props = {
   levelCode: LevelCode
   value: TeachingLevelDraft
-  defaultDate?: string
   groups: GroupOption[]
   subjects: SubjectOption[]
   subjectsLoading?: boolean
@@ -40,7 +39,6 @@ type Props = {
 export function TeachingDetailsForm({
   levelCode,
   value,
-  defaultDate = '',
   groups,
   subjects,
   subjectsLoading = false,
@@ -156,41 +154,7 @@ export function TeachingDetailsForm({
         <Badge variant="outline"><Database size={14} />{sourceLabel}{value.attendance.length > 0 && value.attendance_term ? ` · ${value.attendance_term}` : ''}</Badge>
       </div>
 
-      <div className="grid gap-4 rounded-xl border bg-muted/15 p-4">
-        <div className="flex flex-col gap-2 rounded-lg border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-            <FormField label={`วันที่สอน (${level.shortName}) *`} className="sm:w-56">
-              <Input
-                data-workspace-field="level.date"
-                type="date"
-                value={value.date || defaultDate || ''}
-                onChange={(event) => onChange({ ...value, date: event.target.value })}
-              />
-            </FormField>
-            {value.date && defaultDate && value.date !== defaultDate ? (
-              <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
-                (กำหนดวันสอนเฉพาะ{level.shortName} ไม่ตรงกับวันที่ร่วมสัปดาห์)
-              </span>
-            ) : defaultDate ? (
-              <span className="text-xs text-muted-foreground">
-                (ใช้วันที่ร่วมกับสัปดาห์)
-              </span>
-            ) : null}
-          </div>
-          {value.date && defaultDate && value.date !== defaultDate && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 self-start text-xs sm:self-auto"
-              onClick={() => onChange({ ...value, date: defaultDate })}
-            >
-              รีเซ็ตใช้วันที่ร่วม ({thaiDate(defaultDate)})
-            </Button>
-          )}
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 rounded-xl border bg-muted/15 p-4 md:grid-cols-2">
         <div className="grid content-start gap-3">
           <div className="flex items-center justify-between gap-2">
             <b className="text-sm">กลุ่มเรียน</b>
@@ -457,7 +421,6 @@ export function TeachingDetailsForm({
             <span>{subjectError}</span>
           </div>
         )}
-        </div>
       </div>
     </section>
 

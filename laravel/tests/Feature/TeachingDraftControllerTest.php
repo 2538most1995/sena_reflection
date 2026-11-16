@@ -71,46 +71,6 @@ class TeachingDraftControllerTest extends TestCase
         $this->assertDatabaseCount('records', 1);
     }
 
-    public function test_different_levels_can_have_different_teaching_dates_and_finalize_independently(): void
-    {
-        $user = $this->createTeacher('u1', 't1');
-        $payload = $this->draftPayload();
-        $payload['enabled_level_codes'] = ['1', '2', '3'];
-        $payload['scope']['date'] = '2026-10-16';
-        $payload['levels']['1']['date'] = '2026-10-16';
-        $payload['levels']['2']['date'] = '2026-10-17';
-        $payload['levels']['3']['date'] = '2026-10-18';
-
-        $storeResponse = $this->actingAs($user)->postJson(route('teaching-drafts.store'), ['payload' => $payload])
-            ->assertCreated()
-            ->assertJsonPath('data.draft.payload.levels.1.date', '2026-10-16')
-            ->assertJsonPath('data.draft.payload.levels.2.date', '2026-10-17')
-            ->assertJsonPath('data.draft.payload.levels.3.date', '2026-10-18');
-
-        $id = $storeResponse->json('data.draft.id');
-
-        $this->postJson(route('teaching-drafts.finalize', $id), [
-            'lock_version' => 1,
-            'idempotency_key' => (string) Str::uuid(),
-            'confirmed' => true,
-        ])->assertOk()->assertJsonCount(3, 'data.record_ids');
-
-        $r1 = TeachingRecord::query()->where('level', 'ประถมศึกษา')->firstOrFail();
-        $r2 = TeachingRecord::query()->where('level', 'มัธยมศึกษาตอนต้น')->firstOrFail();
-        $r3 = TeachingRecord::query()->where('level', 'มัธยมศึกษาตอนปลาย')->firstOrFail();
-
-        $this->assertSame('2026-10-16', $r1->date->format('Y-m-d'));
-        $this->assertSame('2026-10-17', $r2->date->format('Y-m-d'));
-        $this->assertSame('2026-10-18', $r3->date->format('Y-m-d'));
-
-        // When reopening draft from source record, each level retains its distinct date
-        $this->postJson(route('teaching-drafts.store'), ['source_record_id' => $r1->id])
-            ->assertCreated()
-            ->assertJsonPath('data.draft.payload.levels.1.date', '2026-10-16')
-            ->assertJsonPath('data.draft.payload.levels.2.date', '2026-10-17')
-            ->assertJsonPath('data.draft.payload.levels.3.date', '2026-10-18');
-    }
-
     public function test_multiple_groups_finalize_once_as_one_record_and_reopen_with_both_groups(): void
     {
         $user = $this->createTeacher('u1', 't1');

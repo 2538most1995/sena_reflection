@@ -70,13 +70,11 @@ export function reviewIssues(payload: TeachingDraftPayload, images: TeachingDraf
   if (!/^25\d{2}$/.test(String(payload.scope?.year || ''))) scopeIssues.push({ levelCode: scopeLevel, message: 'ระบุปีการศึกษาเป็น พ.ศ. 4 หลัก', field: 'scope.year' })
   if (!['1', '2', '3'].includes(String(payload.scope?.semester || ''))) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกภาคเรียน', field: 'scope.semester' })
   if (!payload.scope?.week || !Number.isInteger(Number(payload.scope?.week)) || Number(payload.scope?.week) < 1 || Number(payload.scope?.week) > 20) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกสัปดาห์ที่ 1-20', field: 'scope.week' })
-  if (!payload.scope?.date && !selectedLevels.some(l => payload.levels?.[l.code]?.date)) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกวันที่สอน', field: 'scope.date' })
+  if (!payload.scope?.date) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกวันที่สอน', field: 'scope.date' })
   return [...scopeIssues, ...selectedLevels.flatMap(({ code }) => {
     const level = payload.levels?.[code]
     if (!level) return []
     const issues: LevelIssue[] = []
-    const levelDate = level.date || payload.scope?.date
-    if (!levelDate) issues.push({ levelCode: code, message: 'ยังไม่ได้เลือกวันที่สอน', field: 'date' })
     const className = scalarText(level.class_name)
     const classGroupCode = scalarText(level.class_group_code)
     const subject = scalarText(level.subject)
@@ -109,7 +107,6 @@ export function teachingSaveSummary(payload: TeachingDraftPayload, images: Teach
     return {
       ...level,
       ...teachingAttendanceCounts(draftLevel),
-      date: draftLevel?.date || payload.scope?.date || '',
       subject: draftLevel?.subject || '',
       group: draftLevel?.class_name || draftLevel?.class_group_code || '',
       images: safeImages.filter(image => image?.level_code === level.code).length,
