@@ -177,7 +177,7 @@ class FinalizeTeachingSubmission
                         'weekly_submission_id' => $submission->id,
                         'tambon' => $tambon,
                         'week' => (int) $scope['week'],
-                        'date' => $scope['date'],
+                        'date' => ! empty($entry['date']) ? $entry['date'] : $scope['date'],
                         'level' => $levelName,
                         'semester' => (string) $scope['semester'],
                         'year' => (string) $scope['year'],
@@ -333,6 +333,11 @@ class FinalizeTeachingSubmission
             }
             if (trim((string) ($entry['result'] ?? '')) === '') {
                 throw ValidationException::withMessages(["payload.levels.{$levelCode}.result" => 'กรุณาบันทึกผลการจัดการเรียนการสอน']);
+            }
+            if (! empty($entry['date'])) {
+                Validator::make(['payload' => ['levels' => [$levelCode => ['date' => $entry['date']]]]], [
+                    "payload.levels.{$levelCode}.date" => ['date_format:Y-m-d'],
+                ])->validate();
             }
             $mode = $entry['attendance_mode'] ?? 'counts';
             if ($mode === 'roster' && ((! $confirmed && empty($entry['attendance_reviewed'])) || empty($entry['attendance']))) {

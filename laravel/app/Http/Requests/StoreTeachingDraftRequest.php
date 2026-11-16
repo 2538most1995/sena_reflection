@@ -47,6 +47,7 @@ class StoreTeachingDraftRequest extends FormRequest
             $prefix.'enabled_level_codes.*' => ['required', 'distinct', Rule::in(['1', '2', '3'])],
             $prefix.'levels' => ['nullable', 'array', 'max:3'],
             $prefix.'levels.*' => ['array'],
+            $prefix.'levels.*.date' => ['nullable', 'date_format:Y-m-d'],
             $prefix.'levels.*.subject' => ['nullable', 'string', 'max:150'],
             $prefix.'levels.*.subject_code' => ['nullable', 'string', 'max:50'],
             $prefix.'levels.*.class_group_code' => ['nullable', 'string', 'max:50'],

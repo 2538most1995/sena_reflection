@@ -3,7 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { ArrowLeft, CheckCircle, FilePdf, NotePencil, WarningCircle } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { cn, thaiDate } from '@/lib/utils'
 import type { LevelCode, TeachingDraftImage, TeachingDraftPayload } from './types'
 import { selectedTeachingLevels, teachingLevels } from './types'
 import { reviewIssues, teachingAttendanceCounts, teachingSaveSummary, type LevelIssue } from './review-state'
@@ -26,10 +26,15 @@ export function WorkspaceSummary({ payload, images, activeLevel, onSelectLevel }
       const value = payload.levels[item.code]
       const counts = teachingAttendanceCounts(value)
       const count = images.filter(image => image.level_code === item.code).length
+      const levelDate = value?.date || payload.scope?.date
       return <button key={item.code} type="button" onClick={() => onSelectLevel(item.code)} className={cn('focus-ring rounded-xl border p-3 text-left transition-[border-color,background-color,transform] duration-150 active:scale-[.99]', activeLevel === item.code ? 'border-primary/35 bg-primary/[.055]' : 'hover:bg-muted/30')}>
         <div className="flex items-center justify-between gap-2"><b className="text-xs">{item.shortName}</b>{issues.some(issue => issue.levelCode === item.code) ? <WarningCircle size={17} className="text-amber-600" weight="fill" /> : <CheckCircle size={17} className="text-primary" weight="fill" />}</div>
         <p className="mt-1 truncate text-xs text-muted-foreground">{value.subject || 'ยังไม่ระบุวิชา'}</p>
-        <div className="mt-2 flex gap-3 text-[10px] text-muted-foreground"><span>มาเรียน {counts.present}/{counts.total} คน</span><span>{count} รูป</span></div>
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+          {levelDate && <span>สอน {thaiDate(levelDate)}</span>}
+          <span>มาเรียน {counts.present}/{counts.total} คน</span>
+          <span>{count} รูป</span>
+        </div>
       </button>
     })}</div>
   </div>
@@ -39,12 +44,24 @@ export function RecordSaveConfirmation({ open, onOpenChange, payload, images, fi
   open: boolean; onOpenChange: (open: boolean) => void; payload: TeachingDraftPayload; images: TeachingDraftImage[]; finalizing: boolean; busy: boolean; error: string | null; onConfirm: () => Promise<void>; onReturnFocus: () => void
 }) {
   const levels = teachingSaveSummary(payload, images)
+  const allSameDate = levels.length > 0 && levels.every(l => l.date === levels[0].date)
+  const commonDate = levels[0]?.date || payload.scope.date
   return <Dialog.Root open={open} onOpenChange={value => { if (!finalizing) onOpenChange(value) }}><Dialog.Portal>
     <Dialog.Overlay className="fixed inset-0 z-40 bg-foreground/35 backdrop-blur-sm" />
     <Dialog.Content onCloseAutoFocus={event => { event.preventDefault(); onReturnFocus() }} className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[min(92vw,480px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl outline-none sm:p-6" onEscapeKeyDown={event => { if (finalizing) event.preventDefault() }} onPointerDownOutside={event => { if (finalizing) event.preventDefault() }}>
       <Dialog.Title className="text-lg font-semibold">ยืนยันบันทึกประจำสัปดาห์</Dialog.Title>
-      <Dialog.Description className="mt-2 text-sm text-muted-foreground">สัปดาห์ {payload.scope.week} · วันที่ {payload.scope.date} · บันทึก {levels.length} ระดับที่เลือกเป็นบันทึกจริง</Dialog.Description>
-      <ul className="my-5 grid gap-3">{levels.map(level => <li key={level.code} className="rounded-lg border bg-muted/20 px-3 py-2.5"><b className="text-sm">{level.name}</b><p className="mt-0.5 text-xs text-muted-foreground">{level.group} · {level.subject} · มาเรียน {level.present}/{level.total} คน · {level.images} รูป</p></li>)}</ul>
+      <Dialog.Description className="mt-2 text-sm text-muted-foreground">
+        สัปดาห์ {payload.scope.week} · {allSameDate && commonDate ? `วันที่ ${thaiDate(commonDate)}` : 'วันที่สอนตามแต่ละระดับ'} · บันทึก {levels.length} ระดับที่เลือกเป็นบันทึกจริง
+      </Dialog.Description>
+      <ul className="my-5 grid gap-3">{levels.map(level => (
+        <li key={level.code} className="rounded-lg border bg-muted/20 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <b className="text-sm">{level.name}</b>
+            {level.date && <span className="text-xs text-muted-foreground font-medium">วันที่สอน: {thaiDate(level.date)}</span>}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">{level.group} · {level.subject} · มาเรียน {level.present}/{level.total} คน · {level.images} รูป</p>
+        </li>
+      ))}</ul>
       {levels.some(level => { const entry = payload.levels[level.code]; return entry.attendance_mode === 'roster' && entry.attendance.length > 0 && entry.attendance_term !== `${payload.scope.semester}/${payload.scope.year}` }) && <p role="status" className="mb-4 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">มีรายชื่อจากภาคเรียนอื่นหรือยังไม่ระบุภาคเรียน กรุณากลับไปอัปเดตรายชื่อและตรวจผู้มาเรียนให้ตรงกับภาคเรียนนี้ สถานะเช็กชื่อเดิมยังคงอยู่</p>}
       {error && <p role="alert" className="mb-4 text-sm text-destructive">{error}</p>}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Dialog.Close asChild><Button type="button" variant="outline" disabled={finalizing}>กลับไปแก้ไข</Button></Dialog.Close><Button type="button" disabled={finalizing || busy} onClick={() => void onConfirm()}>{finalizing ? 'กำลังบันทึก...' : `ยืนยันบันทึก ${levels.length} ระดับ`}<CheckCircle size={18} weight="bold" /></Button></div>

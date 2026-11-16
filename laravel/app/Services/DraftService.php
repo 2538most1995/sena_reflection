@@ -400,12 +400,13 @@ class DraftService
             throw ValidationException::withMessages(['level_code' => 'ไม่พบข้อมูลระดับชั้นในร่าง']);
         }
         $scope = $owned->payload['scope'];
+        $recordDate = ! empty($entry['date']) ? $entry['date'] : ($scope['date'] ?? null);
         $record = new TeachingRecord([
             ...$entry,
             'id' => 'draft-'.$owned->id,
             'tambon' => $scope['tambon'],
             'week' => $scope['week'],
-            'date' => $scope['date'],
+            'date' => $recordDate,
             'semester' => $scope['semester'],
             'year' => $scope['year'],
             'level' => EducationLevelService::NAMES[$levelCode],
@@ -490,10 +491,11 @@ class DraftService
             }
             $entry = TeachingGroups::normalize($entry, "payload.levels.{$code}");
             $normalizedLevels[$code] = collect($entry)->only([
-                'subject', 'subject_code', 'class_group_code', 'class_name', 'class_groups', 'total', 'present',
+                'date', 'subject', 'subject_code', 'class_group_code', 'class_name', 'class_groups', 'total', 'present',
                 'result', 'problem', 'suggestion', 'supervisor_comment', 'attendance_reviewed', 'attendance_mode',
                 'attendance', 'image_ids', 'document',
             ])->all();
+            $normalizedLevels[$code]['date'] = ! empty($entry['date']) ? trim((string) $entry['date']) : null;
             $normalizedLevels[$code]['attendance'] = $this->normalizeAttendanceRows($entry['attendance'] ?? []);
             $normalizedLevels[$code]['attendance_term'] = app(AcademicTermService::class)->normalize(
                 array_key_exists('attendance_term', $entry) ? $entry['attendance_term'] : ($scope['semester'] ?? '').'/'.($scope['year'] ?? '')
@@ -592,6 +594,7 @@ class DraftService
             }
             $levels[$code] = [
                 ...$record->only(['subject', 'subject_code', 'class_group_code', 'class_name', 'class_groups', 'total', 'present', 'result', 'problem', 'suggestion', 'supervisor_comment']),
+                'date' => $record->date?->format('Y-m-d'),
                 'attendance_reviewed' => true,
                 'attendance_mode' => $record->attendance->isNotEmpty() ? 'roster' : 'counts',
                 'attendance_term' => app(AcademicTermService::class)->normalize($record->semester.'/'.$record->year),
@@ -611,6 +614,7 @@ class DraftService
         foreach (['1', '2', '3'] as $c) {
             if (! isset($levels[$c])) {
                 $levels[$c] = [
+                    'date' => $source->date?->format('Y-m-d'),
                     'subject' => '', 'subject_code' => '', 'class_group_code' => '', 'class_name' => '',
                     'total' => 0, 'present' => 0, 'result' => '', 'problem' => '', 'suggestion' => '',
                     'supervisor_comment' => '', 'attendance_reviewed' => false, 'attendance_mode' => 'roster',
