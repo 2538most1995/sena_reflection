@@ -37,6 +37,7 @@ export type WorkspaceAttendanceRow = Omit<AttendanceRow, 'present' | 'learning_m
 }
 
 export type TeachingLevelDraft = {
+  date?: string
   subject: string
   subject_code: string
   class_group_code: string
@@ -125,8 +126,9 @@ export type WorkspaceLoadState = {
 
 export type DraftSaveState = 'idle' | 'saving' | 'saved' | 'error' | 'conflict'
 
-export function emptyTeachingLevel(): TeachingLevelDraft {
+export function emptyTeachingLevel(defaultDate = ''): TeachingLevelDraft {
   return {
+    date: defaultDate,
     subject: '',
     subject_code: '',
     class_group_code: '',
@@ -150,9 +152,9 @@ export function emptyTeachingDraft(defaults: TeachingWorkspaceProps['defaults'])
     schema_version: 1,
     scope: { tambon: '', year: defaults.year, semester: defaults.semester, week: '', date: defaults.date },
     levels: {
-      '1': emptyTeachingLevel(),
-      '2': emptyTeachingLevel(),
-      '3': emptyTeachingLevel(),
+      '1': emptyTeachingLevel(defaults.date),
+      '2': emptyTeachingLevel(defaults.date),
+      '3': emptyTeachingLevel(defaults.date),
     },
     active_level_code: '1',
     enabled_level_codes: ['1', '2', '3'],

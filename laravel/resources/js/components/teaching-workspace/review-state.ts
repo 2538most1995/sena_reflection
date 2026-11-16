@@ -1,5 +1,5 @@
 import type { LevelCode, TeachingDraftImage, TeachingDraftPayload, TeachingLevelDraft, WorkspaceAttendanceRow } from './types'
-import { selectedTeachingLevels, selectedTeachingGroups } from './types'
+import { selectedTeachingLevels, selectedTeachingGroups, teachingLevels } from './types'
 
 export type LevelIssue = { levelCode: LevelCode; message: string; field: string }
 export type AttendanceIssue = { index: number; field: 'student_id' | 'full_name' | 'group_code' | 'present' | 'learning_method'; message: string }
@@ -70,11 +70,12 @@ export function reviewIssues(payload: TeachingDraftPayload, images: TeachingDraf
   if (!/^25\d{2}$/.test(String(payload.scope?.year || ''))) scopeIssues.push({ levelCode: scopeLevel, message: 'ระบุปีการศึกษาเป็น พ.ศ. 4 หลัก', field: 'scope.year' })
   if (!['1', '2', '3'].includes(String(payload.scope?.semester || ''))) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกภาคเรียน', field: 'scope.semester' })
   if (!payload.scope?.week || !Number.isInteger(Number(payload.scope?.week)) || Number(payload.scope?.week) < 1 || Number(payload.scope?.week) > 20) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกสัปดาห์ที่ 1-20', field: 'scope.week' })
-  if (!payload.scope?.date) scopeIssues.push({ levelCode: scopeLevel, message: 'เลือกวันที่สอน', field: 'scope.date' })
   return [...scopeIssues, ...selectedLevels.flatMap(({ code }) => {
     const level = payload.levels?.[code]
     if (!level) return []
     const issues: LevelIssue[] = []
+    const levelDate = level.date || payload.scope?.date
+    if (!levelDate) issues.push({ levelCode: code, message: `เลือกวันที่สอน (${teachingLevels.find(l => l.code === code)?.shortName || code})`, field: `scope.date_${code}` })
     const className = scalarText(level.class_name)
     const classGroupCode = scalarText(level.class_group_code)
     const subject = scalarText(level.subject)
@@ -107,6 +108,7 @@ export function teachingSaveSummary(payload: TeachingDraftPayload, images: Teach
     return {
       ...level,
       ...teachingAttendanceCounts(draftLevel),
+      date: draftLevel?.date || payload.scope?.date || '',
       subject: draftLevel?.subject || '',
       group: draftLevel?.class_name || draftLevel?.class_group_code || '',
       images: safeImages.filter(image => image?.level_code === level.code).length,

@@ -55,6 +55,7 @@ function normalizeDraftPayload(payload: Partial<TeachingDraftPayload> | null | u
     const value = { ...fallback.levels[code], ...(payload?.levels?.[code] || {}) }
     return {
       ...value,
+      date: value.date || payload?.scope?.date || fallback.scope.date || '',
       subject: value.subject || '', subject_code: value.subject_code || '', class_group_code: String(value.class_group_code || '').trim(), class_name: String(value.class_name || '').trim(),
       class_groups: Array.isArray(value.class_groups) ? value.class_groups : [],
       result: value.result || '', problem: value.problem || '', suggestion: value.suggestion || '',
@@ -875,11 +876,10 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
 
     <Card className="mb-5">
       <CardHeader className="gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle>ข้อมูลร่วมของสัปดาห์</CardTitle><p className="mt-1 text-sm text-muted-foreground">ใช้กับบันทึกระดับชั้นที่เลือก</p></div><div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">{saveState === 'saving' ? <CloudArrowUp size={18} className="animate-pulse text-primary" /> : saveState === 'saved' ? <CloudCheck size={18} className="text-primary" weight="fill" /> : <FloppyDisk size={17} />}<span>{saveState === 'saving' ? 'กำลังบันทึก...' : saveState === 'error' ? 'บันทึกไม่สำเร็จ กรุณาลองใหม่' : saveState === 'conflict' ? 'พบการแก้ไขจากอีกหน้าต่าง' : !draft && !payload.scope.week ? 'เลือกสัปดาห์เพื่อเริ่มเก็บร่าง' : saveState === 'idle' && changeVersion > savedVersionRef.current ? 'มีการแก้ไข รอบันทึก' : savedAtLabel(lastSavedAt)}</span>{saveState !== 'saving' && saveState !== 'conflict' && <Button type="button" variant="ghost" size="sm" disabled={finalizing || imageBusy} onClick={() => void saveDraftManually()}>เก็บร่างตอนนี้</Button>}</div></CardHeader>
-      <CardContent><fieldset id="workspace-scope" disabled={finalizing} className="grid min-w-0 scroll-mt-28 grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <CardContent><fieldset id="workspace-scope" disabled={finalizing} className="grid min-w-0 scroll-mt-28 grid-cols-1 gap-4 sm:grid-cols-3">
         <FormField label="ปีการศึกษา (พ.ศ.) *"><NativeSelect data-workspace-field="scope.year" value={payload.scope.year} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, year: event.target.value } }))}>{!/^25\d{2}$/.test(payload.scope.year) && <option value={payload.scope.year} disabled>{payload.scope.year ? `${payload.scope.year} · ปีเดิมไม่ถูกต้อง กรุณาเลือกใหม่` : 'เลือกปีการศึกษา'}</option>}{Array.from({ length: 100 }, (_, index) => String(2500 + index)).map(year => <option key={year} value={year}>{year}</option>)}</NativeSelect></FormField>
         <FormField label="ภาคเรียน *"><NativeSelect data-workspace-field="scope.semester" value={payload.scope.semester} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, semester: event.target.value } }))}>{['1', '2', '3'].map((term) => <option key={term} value={term}>ภาคเรียน {term}</option>)}</NativeSelect></FormField>
         <FormField label="สัปดาห์ *"><NativeSelect data-workspace-field="scope.week" value={payload.scope.week} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, week: event.target.value } }))}><option value="">เลือกสัปดาห์</option>{Array.from({ length: 20 }, (_, index) => index + 1).map((week) => <option key={week} value={week}>สัปดาห์ {week}</option>)}</NativeSelect></FormField>
-        <FormField label="วันที่สอน *"><Input data-workspace-field="scope.date" type="date" value={payload.scope.date} onChange={(event) => markChanged((current) => ({ ...current, scope: { ...current.scope, date: event.target.value } }))} /></FormField>
       </fieldset>
       <div className="mt-4 border-t pt-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -912,6 +912,72 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
               )
             })}
           </div>
+        </div>
+      </div>
+      <div className="mt-4 border-t pt-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-foreground">วันที่สอนแต่ละระดับชั้น *</span>
+          {selectedTeachingLevels(payload).length > 1 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs text-primary hover:text-primary"
+              onClick={() => {
+                const baseDate = payload.levels[payload.active_level_code]?.date || payload.scope.date || ''
+                if (!baseDate) return
+                markChanged((current) => {
+                  const nextLevels = { ...current.levels }
+                  ;(current.enabled_level_codes || ['1', '2', '3']).forEach((code) => {
+                    if (nextLevels[code as LevelCode]) {
+                      nextLevels[code as LevelCode] = { ...nextLevels[code as LevelCode], date: baseDate }
+                    }
+                  })
+                  return { ...current, levels: nextLevels, scope: { ...current.scope, date: baseDate } }
+                })
+              }}
+            >
+              ใช้วันที่เดียวกันทุกระดับ
+            </Button>
+          )}
+        </div>
+        <div className={cn(
+          'grid min-w-0 gap-4',
+          selectedTeachingLevels(payload).length === 1 ? 'grid-cols-1 sm:max-w-xs' : selectedTeachingLevels(payload).length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'
+        )}>
+          {selectedTeachingLevels(payload).map((lvl) => {
+            const levelValue = payload.levels[lvl.code]
+            const currentDate = levelValue?.date || payload.scope.date || ''
+            return (
+              <FormField key={lvl.code} label={`วันที่สอน (${lvl.shortName}) *`}>
+                <Input
+                  data-workspace-field={`scope.date_${lvl.code}`}
+                  type="date"
+                  value={currentDate}
+                  onChange={(event) => {
+                    const newDate = event.target.value
+                    markChanged((current) => {
+                      const nextLevels = {
+                        ...current.levels,
+                        [lvl.code]: {
+                          ...current.levels[lvl.code],
+                          date: newDate,
+                        },
+                      }
+                      return {
+                        ...current,
+                        levels: nextLevels,
+                        scope: {
+                          ...current.scope,
+                          date: lvl.code === current.active_level_code ? newDate : (current.scope.date || newDate),
+                        },
+                      }
+                    })
+                  }}
+                />
+              </FormField>
+            )
+          })}
         </div>
       </div>
       </CardContent>

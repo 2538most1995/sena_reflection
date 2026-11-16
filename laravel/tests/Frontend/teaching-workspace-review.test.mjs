@@ -182,3 +182,24 @@ test('draft level readiness and review issues guard against null and undefined p
   assert.doesNotThrow(() => reviewIssues(payload, []))
   assert.doesNotThrow(() => teachingSaveSummary(payload, []))
 })
+
+test('each teaching level can select independent teaching dates in the shared card', () => {
+  const payload = fixture()
+  payload.enabled_level_codes = ['1', '2', '3']
+  payload.scope.date = '2026-11-01'
+  payload.levels['1'].date = '2026-11-01'
+  payload.levels['2'] = { ...fixture().levels['1'], date: '2026-11-02' }
+  payload.levels['3'] = { ...fixture().levels['1'], date: '2026-11-03' }
+
+  const summary = teachingSaveSummary(payload, [])
+  assert.equal(summary.find(s => s.code === '1').date, '2026-11-01')
+  assert.equal(summary.find(s => s.code === '2').date, '2026-11-02')
+  assert.equal(summary.find(s => s.code === '3').date, '2026-11-03')
+  assert.deepEqual(reviewIssues(payload, []), [])
+
+  // Missing level date and missing scope date flags date
+  payload.scope.date = ''
+  payload.levels['1'].date = ''
+  const issues = reviewIssues(payload, [])
+  assert.ok(issues.some(issue => issue.levelCode === '1' && issue.field === 'scope.date_1'))
+})
