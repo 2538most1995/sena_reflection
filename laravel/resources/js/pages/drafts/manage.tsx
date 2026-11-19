@@ -6,6 +6,7 @@ import { useRef, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
 import { AppLink } from '@/components/app-link'
 import { FlashMessages } from '@/components/flash-messages'
+import { DeleteDraftButton } from '@/components/delete-draft-button'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { actionAlert } from '@/lib/action-alert'
@@ -61,7 +62,11 @@ export default function ManageDrafts({ drafts: initial }: { drafts: Draft[] }) {
       <div className="flex items-start justify-between gap-3"><h2 className="font-semibold">สัปดาห์ที่ {draft.scope.week || 'ยังไม่ระบุ'}</h2><Badge variant={draft.status === 'active' ? 'default' : 'outline'}>{draft.status === 'active' ? 'กำลังใช้งาน' : 'พักไว้'}</Badge></div>
       <p className="mt-2 text-sm text-muted-foreground">ภาคเรียน {draft.scope.semester || '—'}/{draft.scope.year || '—'} · {draft.images_count} รูป{draft.source_record_id ? ' · ร่างแก้ไขบันทึกเดิม' : ' · ร่างบันทึกใหม่'}</p>
       <p className="mt-1 text-xs text-muted-foreground">บันทึกล่าสุด {saved(draft.last_saved_at)}</p>
-      <div className="mt-5 flex flex-wrap gap-2">{draft.status === 'active' && <Button asChild size="sm" disabled={busy}><AppLink href={`/records/create?draft=${encodeURIComponent(draft.id)}`} onClick={event => { if (busy) event.preventDefault() }}><FileText size={17} />เปิดแก้ไข</AppLink></Button>}<Button size="sm" variant="outline" disabled={busy} onClick={() => setReview(draft)}>{draft.status === 'active' ? <Pause size={17} /> : <Play size={17} />}{draft.status === 'active' ? 'พักร่าง' : 'นำร่างกลับมาแก้ไข'}</Button></div>
+      <div className="mt-5 flex flex-wrap gap-2">
+        {draft.status === 'active' && <Button asChild size="sm" disabled={busy}><AppLink href={`/records/create?draft=${encodeURIComponent(draft.id)}`} onClick={event => { if (busy) event.preventDefault() }}><FileText size={17} />เปิดแก้ไข</AppLink></Button>}
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => setReview(draft)}>{draft.status === 'active' ? <Pause size={17} /> : <Play size={17} />}{draft.status === 'active' ? 'พักร่าง' : 'นำร่างกลับมาแก้ไข'}</Button>
+        <DeleteDraftButton draft={draft} disabled={busy} onRefresh={() => void reload()} onDeleted={id => setDrafts(current => current.filter(item => item.id !== id))} />
+      </div>
     </article>)}</div> : <div className="rounded-xl border border-dashed p-10 text-center"><FileText className="mx-auto text-muted-foreground" size={30} /><p className="mt-3 font-semibold">ไม่มีร่างที่กำลังใช้งานหรือพักไว้</p><p className="mt-2 text-sm text-muted-foreground">ร่างที่ยืนยันแล้วเปิดได้จากรายการบันทึกในภาพรวม</p></div>}
     <Dialog.Root open={Boolean(review)} onOpenChange={open => { if (!open) setReview(null) }}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-40 bg-foreground/35 backdrop-blur-sm" /><Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90dvh] w-[min(94vw,500px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl outline-none sm:p-6">
       <div className="flex items-start justify-between gap-3"><Dialog.Title className="text-lg font-semibold">{review?.status === 'active' ? 'พักร่างนี้ไว้ก่อน?' : 'นำร่างกลับมาแก้ไข?'}</Dialog.Title><Dialog.Close asChild><Button size="icon" variant="ghost" className="size-8" aria-label="ปิดหน้าตรวจร่าง"><X size={19} /></Button></Dialog.Close></div>

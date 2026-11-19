@@ -16,6 +16,7 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/teaching-drafts/{teachingDraft}/resume', [DraftLifecycleController::class, 'resume'])->name('teaching-drafts.resume');
     Route::get('/teaching-drafts/{teachingDraft}', [TeachingDraftController::class, 'show'])->name('teaching-drafts.show');
     Route::patch('/teaching-drafts/{teachingDraft}', [TeachingDraftController::class, 'update'])->name('teaching-drafts.update');
+    Route::delete('/teaching-drafts/{teachingDraft}', [DraftLifecycleController::class, 'destroy'])->name('teaching-drafts.destroy');
     Route::post('/teaching-drafts/{teachingDraft}/preview', [TeachingDraftController::class, 'preview'])->middleware('throttle:document-previews')->name('teaching-drafts.preview');
     Route::post('/teaching-drafts/{teachingDraft}/finalize', [TeachingDraftController::class, 'finalize'])->name('teaching-drafts.finalize');
 

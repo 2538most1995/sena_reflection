@@ -64,12 +64,68 @@ class DraftLifecycleTest extends TestCase
         foreach ([$this->user('other-owner'), $this->user('district-admin', 'district')] as $other) {
             $this->actingAs($other)->postJson(route('teaching-drafts.pause', $draft->id), ['lock_version' => 1])->assertNotFound();
             $this->postJson(route('teaching-drafts.resume', $draft->id), ['lock_version' => 1])->assertNotFound();
+            $this->deleteJson(route('teaching-drafts.destroy', $draft->id), ['lock_version' => 1])->assertNotFound();
             $this->getJson(route('teaching-drafts.manage'))->assertOk()->assertJsonCount(0, 'drafts')->assertDontSee('private-content-marker');
         }
         $this->assertDatabaseHas('teaching_drafts', ['id' => $draft->id, 'status' => 'active', 'lock_version' => 1]);
         auth()->logout();
         $this->getJson(route('teaching-drafts.manage'))->assertUnauthorized();
         $this->postJson(route('teaching-drafts.pause', $draft->id), ['lock_version' => 1])->assertUnauthorized();
+        $this->deleteJson(route('teaching-drafts.destroy', $draft->id), ['lock_version' => 1])->assertUnauthorized();
+    }
+
+    public function test_deleting_an_edit_draft_removes_its_private_files_and_preserves_the_saved_record(): void
+    {
+        $record = $this->record();
+        $draft = $this->draft(['source_record_id' => $record->id]);
+        $other = $this->draft();
+        $path = "teaching-drafts/{$this->owner->id}/{$draft->id}/photo.png";
+        $otherPath = "teaching-drafts/{$this->owner->id}/{$other->id}/photo.png";
+        Storage::disk('local')->put($path, 'draft image');
+        Storage::disk('local')->put($otherPath, 'other draft image');
+        $image = $draft->images()->create([
+            'level_code' => '1', 'storage_disk' => 'local', 'storage_path' => $path, 'original_name' => 'photo.png',
+            'mime_type' => 'image/png', 'width' => 200, 'height' => 200, 'size_bytes' => 11, 'sort_order' => 0,
+        ]);
+        Storage::disk('public')->put('records/original.png', 'saved record image');
+        $record->images()->create(['id' => 101, 'file_path' => 'storage/records/original.png']);
+        $documentData = ['user_id' => $this->owner->id, 'title' => 'เอกสาร', 'content_json' => [], 'page_settings_json' => [], 'objects_json' => []];
+        $sourceDocument = Document::query()->create([...$documentData, 'binding_key' => "record:{$record->id}"]);
+        $draftDocument = Document::query()->create([...$documentData, 'binding_key' => "draft:{$draft->id}:1"]);
+        $file = "documents/{$draftDocument->id}/photo.png";
+        Storage::disk('local')->put($file, 'draft document image');
+        Storage::disk('local')->put("documents/{$sourceDocument->id}/photo.png", 'saved document image');
+        $asset = $draftDocument->assets()->create(['name' => 'photo.png', 'storage_path' => $file, 'mime' => 'image/png', 'size' => 20, 'width' => 200, 'height' => 200]);
+        $version = $draftDocument->versions()->create(['user_id' => $this->owner->id, 'revision' => 1, 'snapshot_json' => ['title' => 'เอกสาร']]);
+
+        $this->deleteJson(route('teaching-drafts.destroy', $draft->id), ['lock_version' => 1])->assertOk()->assertJsonPath('deleted', true);
+
+        $this->assertModelMissing($draft);
+        $this->assertModelMissing($image);
+        $this->assertModelMissing($draftDocument);
+        $this->assertModelMissing($asset);
+        $this->assertModelMissing($version);
+        $this->assertModelExists($other);
+        $this->assertModelExists($sourceDocument);
+        $this->assertDatabaseHas('records', ['id' => $record->id, 'result' => 'ข้อความไทยต้นฉบับ']);
+        $this->assertDatabaseHas('record_images', ['record_id' => $record->id]);
+        Storage::disk('local')->assertMissing([$path, $file]);
+        Storage::disk('local')->assertExists([$otherPath, "documents/{$sourceDocument->id}/photo.png"]);
+        Storage::disk('public')->assertExists('records/original.png');
+        $this->getJson(route('teaching-drafts.show', $draft->id))->assertNotFound();
+    }
+
+    public function test_deletion_rejects_stale_and_finalized_drafts_and_allows_paused_drafts(): void
+    {
+        $draft = $this->draft(['status' => 'paused', 'lock_version' => 2]);
+        $finalized = $this->draft(['status' => 'finalized']);
+        $this->deleteJson(route('teaching-drafts.destroy', $draft->id))->assertUnprocessable()->assertJsonValidationErrors('lock_version');
+        $this->deleteJson(route('teaching-drafts.destroy', $draft->id), ['lock_version' => 1])->assertConflict()->assertJsonPath('code', 'draft_version_conflict');
+        $this->assertModelExists($draft);
+        $this->deleteJson(route('teaching-drafts.destroy', $finalized->id), ['lock_version' => 1])->assertUnprocessable()->assertJsonValidationErrors('draft');
+        $this->assertModelExists($finalized);
+        $this->deleteJson(route('teaching-drafts.destroy', $draft->id), ['lock_version' => 2])->assertOk();
+        $this->assertModelMissing($draft);
     }
 
     public function test_manage_list_contains_only_minimal_current_owner_metadata_without_per_draft_queries(): void

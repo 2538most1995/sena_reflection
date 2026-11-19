@@ -33,4 +33,12 @@ class DraftLifecycleController extends Controller
 
         return response()->json(['draft' => $lifecycle->summary($draft)]);
     }
+
+    public function destroy(Request $request, TeachingDraft $teachingDraft, DraftLifecycleService $lifecycle): JsonResponse
+    {
+        $validated = $request->validate(['lock_version' => ['required', 'integer', 'min:1']]);
+        $lifecycle->delete($request->user(), $teachingDraft, (int) $validated['lock_version']);
+
+        return response()->json(['deleted' => true]);
+    }
 }

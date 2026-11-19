@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Exceptions\DraftVersionConflictException;
+use App\Models\Document;
 use App\Models\TeachingDraft;
 use App\Models\TeachingRecord;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class DraftLifecycleService
@@ -45,14 +47,43 @@ class DraftLifecycleService
         return $this->change($user, $draft, $lockVersion, 'paused', 'active');
     }
 
+    public function delete(User $user, TeachingDraft|string $draft, int $lockVersion): void
+    {
+        DB::transaction(function () use ($user, $draft, $lockVersion): void {
+            $owned = $this->lockOwned($user, $draft, $lockVersion);
+            if (! in_array($owned->status, ['active', 'paused'], true)) {
+                $this->fail('ลบได้เฉพาะฉบับร่างที่ยังไม่ได้ยืนยันเป็นบันทึก');
+            }
+
+            $draftId = $owned->id;
+            $keys = array_map(fn ($code): string => "draft:{$draftId}:{$code}", array_keys(EducationLevelService::NAMES));
+            $documents = Document::query()->where('user_id', $user->id)->whereIn('binding_key', $keys)
+                ->orderBy('id')->lockForUpdate()->pluck('id');
+            if ($documents->isNotEmpty()) {
+                Document::query()->whereKey($documents->all())->delete();
+            }
+            $owned->delete();
+
+            DB::afterCommit(function () use ($user, $draftId, $documents): void {
+                $disk = Storage::disk('local');
+                $directories = ["teaching-drafts/{$user->id}/{$draftId}", ...$documents->map(fn ($id): string => "documents/{$id}")->all()];
+                foreach ($directories as $directory) {
+                    try {
+                        if (! $disk->deleteDirectory($directory)) {
+                            report(new \RuntimeException('Draft storage cleanup failed.'));
+                        }
+                    } catch (\Throwable $exception) {
+                        report($exception);
+                    }
+                }
+            });
+        }, 3);
+    }
+
     private function change(User $user, TeachingDraft|string $draft, int $lockVersion, string $from, string $to): TeachingDraft
     {
         return DB::transaction(function () use ($user, $draft, $lockVersion, $from, $to): TeachingDraft {
-            $id = $draft instanceof TeachingDraft ? $draft->id : $draft;
-            $owned = TeachingDraft::query()->whereKey($id)->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
-            if ($owned->lock_version !== $lockVersion) {
-                throw new DraftVersionConflictException($owned);
-            }
+            $owned = $this->lockOwned($user, $draft, $lockVersion);
             if ($owned->status !== $from) {
                 $this->fail($owned->status === 'finalized' ? 'ร่างนี้ยืนยันเป็นบันทึกแล้ว จึงพักหรือนำกลับไม่ได้' : 'สถานะร่างเปลี่ยนไปแล้ว กรุณาโหลดรายการใหม่');
             }
@@ -63,6 +94,17 @@ class DraftLifecycleService
 
             return $owned;
         }, 3);
+    }
+
+    private function lockOwned(User $user, TeachingDraft|string $draft, int $lockVersion): TeachingDraft
+    {
+        $id = $draft instanceof TeachingDraft ? $draft->id : $draft;
+        $owned = TeachingDraft::query()->whereKey($id)->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
+        if ($owned->lock_version !== $lockVersion) {
+            throw new DraftVersionConflictException($owned);
+        }
+
+        return $owned;
     }
 
     private function assertCanResume(User $user, TeachingDraft $draft): void

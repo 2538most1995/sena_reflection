@@ -5,6 +5,7 @@ import { Head, usePage } from '@inertiajs/react'
 import { ArrowRight, Books, CalendarBlank, CaretDown, CaretUp, CheckCircle, ClockCounterClockwise, Eye, FilePdf, Funnel, MagnifyingGlass, NotePencil, Printer, Trash, UsersThree, X } from '@phosphor-icons/react'
 import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
 import { AppShell, PageHeader } from '@/components/app-shell'
+import { DeleteDraftButton } from '@/components/delete-draft-button'
 import { AcademicTermNotice, type ActiveAcademicTerm } from '@/components/academic-term-notice'
 import { FlashMessages } from '@/components/flash-messages'
 import { ExportPanel } from '@/components/export-panel'
@@ -23,6 +24,7 @@ import { teachingLevelReady } from '@/components/teaching-workspace/review-state
 
 type DraftSummary = {
   id: string
+  lock_version: number
   last_saved_at: string | null
   payload?: TeachingDraftPayload
   scope?: TeachingDraftPayload['scope']
@@ -95,6 +97,7 @@ function DraftWorkList({ drafts }: { drafts?: Props['drafts'] }) {
   }, [drafts])
 
   if (!items.length) return null
+  const refreshDrafts = () => router.reload({ only: ['drafts'] })
 
   const completedLevels = (payload?: TeachingDraftPayload | null) => {
     if (!payload || !payload.levels || typeof payload.levels !== 'object') return 0
@@ -152,11 +155,17 @@ function DraftWorkList({ drafts }: { drafts?: Props['drafts'] }) {
           <span>{scope.date || 'ยังไม่เลือกวันที่'}</span>
           <span>{draft.images_count || 0} รูป</span>
         </div>
-        <Button asChild variant="outline" size="sm" className="mt-3.5 h-9 w-full rounded-lg text-xs font-medium">
-          <Link href={`/records/create?draft=${encodeURIComponent(draft.id)}`}>
-            ทำต่อจากร่างนี้<ArrowRight size={15} />
-          </Link>
-        </Button>
+        <div className="mt-3.5 flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline" size="sm" className="flex-1">
+            <Link href={`/records/create?draft=${encodeURIComponent(draft.id)}`}>
+              ทำต่อจากร่างนี้<ArrowRight size={15} />
+            </Link>
+          </Button>
+          <DeleteDraftButton draft={{ ...draft, scope }} onRefresh={refreshDrafts} onDeleted={id => {
+            setItems(current => current.filter(item => item.id !== id))
+            refreshDrafts()
+          }} />
+        </div>
       </article>
     })}</div>
   </section>
