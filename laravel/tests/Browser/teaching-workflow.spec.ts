@@ -491,7 +491,7 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     await expect(page.frameLocator('iframe[data-document-print-frame]').locator('body')).toContainText('กลุ่มพระดาบส / กลุ่มบ้านแพน')
   })
 
-  test('the weekly list opens a prefilled form to save another group at the same level', async ({ page }) => {
+  test('aligned group and subject cards let the weekly list save another catalogue group', async ({ page }, testInfo) => {
     test.setTimeout(60_000)
     await page.goto('/records/create?year=2569&semester=2&week=19&level=1')
     await expect(page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true })).toHaveValue('19')
@@ -513,10 +513,47 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     await expect(page.getByRole('switch', { name: 'สอนระดับประถมศึกษา', exact: true })).toBeChecked()
     await expect(page.getByRole('switch', { name: 'สอนระดับมัธยมศึกษาตอนต้น', exact: true })).not.toBeChecked()
 
-    await page.getByRole('button', { name: 'กรอกรหัสกลุ่ม', exact: true }).click()
-    await page.getByPlaceholder('เช่น 210007', { exact: true }).fill('SECOND-GROUP')
-    await page.getByPlaceholder('ชื่อกลุ่มเรียน', { exact: true }).fill('กลุ่มที่สอง')
-    await page.getByRole('button', { name: 'ระบุยอดรวมแทนรายชื่อ', exact: true }).click()
+    await page.route('**/record-options/workspace?**', route => route.fulfill({ json: {
+      status: 'success', data: {
+        groups: [{ group_code: 'SECOND-GROUP', class_name: 'กลุ่มที่สอง', level: '1' }],
+        subjects: [], subject_source: 'sdl', subject_term: '2/2569',
+      },
+    } }))
+    await page.route('**/record-options/students?**', route => route.fulfill({ json: {
+      status: 'success', data: { items: [{ student_id: 'SECOND-1', full_name: 'นักศึกษากลุ่มที่สอง', group_code: 'SECOND-GROUP', class_name: 'กลุ่มที่สอง', present: false }] },
+    } }))
+    await page.getByRole('button', { name: 'อัปเดตรายวิชา', exact: true }).click()
+    await closeActionNotice(page, 'อัปเดตรายวิชาจากระบบเรียบร้อยแล้ว')
+    const groupCard = page.getByRole('region', { name: 'กลุ่มเรียน', exact: true })
+    const subjectCard = page.getByRole('region', { name: 'รายวิชา', exact: true })
+    const groupPicker = groupCard.getByRole('combobox', { name: 'เลือกกลุ่มเรียน', exact: true })
+    const subjectPicker = subjectCard.getByRole('button', { name: 'เลือกรายวิชา', exact: true })
+    await expect(groupCard.getByRole('button', { name: 'กรอกรหัสกลุ่ม', exact: true })).toHaveCount(0)
+    await expect(groupCard.getByRole('textbox')).toHaveCount(0)
+    await groupPicker.selectOption({ label: 'กลุ่มที่สอง (SECOND-GROUP)' })
+    await expect(page.getByRole('checkbox', { name: /นักศึกษากลุ่มที่สอง/ })).toBeVisible()
+    await subjectPicker.click()
+    await page.getByRole('option', { name: 'ปฐมนิเทศ', exact: true }).click()
+    const groupBox = (await groupCard.boundingBox())!
+    const subjectBox = (await subjectCard.boundingBox())!
+    expect(groupBox.width).toBeCloseTo(subjectBox.width, 0)
+    expect(groupBox.height).toBeCloseTo(subjectBox.height, 0)
+    const groupControl = (await groupPicker.boundingBox())!
+    const subjectControl = (await subjectPicker.boundingBox())!
+    expect(groupControl.y).toBeCloseTo(subjectControl.y, 0)
+    expect(groupControl.height).toBeCloseTo(subjectControl.height, 0)
+
+    const cards = groupCard.locator('..')
+    await cards.screenshot({ path: testInfo.outputPath('group-subject-desktop.png') })
+    await page.setViewportSize({ width: 390, height: 844 })
+    const stackedGroup = (await groupCard.boundingBox())!
+    const stackedSubject = (await subjectCard.boundingBox())!
+    expect(stackedSubject.y).toBeGreaterThanOrEqual(stackedGroup.y + stackedGroup.height)
+    expect(stackedGroup.width).toBeCloseTo(stackedSubject.width, 0)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await cards.screenshot({ path: testInfo.outputPath('group-subject-mobile.png') })
+    await page.setViewportSize({ width: 1440, height: 1000 })
+
     const manualSubject = page.getByRole('button', { name: 'กรอกรายวิชาเอง', exact: true })
     if (await manualSubject.isVisible()) await manualSubject.click()
     await page.getByRole('textbox', { name: 'ชื่อรายวิชา *', exact: true }).fill('บันทึกกลุ่มสอง')

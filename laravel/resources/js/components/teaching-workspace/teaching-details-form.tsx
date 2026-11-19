@@ -59,12 +59,17 @@ export function TeachingDetailsForm({
   onRefreshSubjects,
 }: Props) {
   const level = teachingLevels.find((item) => item.code === levelCode) ?? teachingLevels[0]
-  const catalogueGroups = useMemo(() => groups.filter((group) => !group.level || group.level === levelCode), [groups, levelCode])
+  const catalogueGroups = useMemo(() => {
+    const options = groups.filter(group => group.group_code && (!group.level || group.level === levelCode))
+    return new Map(options.map(group => [group.group_code, group]))
+  }, [groups, levelCode])
   const savedGroups = selectedTeachingGroups(value)
-  const groupInCatalogue = savedGroups.every(saved => catalogueGroups.some(group => group.group_code === saved.group_code && group.class_name === saved.class_name))
-  const levelGroups = useMemo(() => {
-    return [...catalogueGroups, ...savedGroups.filter(saved => !catalogueGroups.some(group => group.group_code === saved.group_code)).map(saved => ({ ...saved, level: levelCode, level_name: level.name, district_id: '', district_name: '' }))]
-  }, [catalogueGroups, level.name, levelCode, JSON.stringify(savedGroups)])
+  const levelGroups = [
+    ...catalogueGroups.values(),
+    ...savedGroups.filter(saved => !catalogueGroups.has(saved.group_code))
+      .map(saved => ({ ...saved, level: levelCode, level_name: level.name, district_id: '', district_name: '' })),
+  ]
+  const selectableGroups = levelGroups.filter(group => group.group_code)
   const catalogueSubjects = useMemo(() => subjects.filter(subject => subject.source !== 'history'), [subjects])
   const levelSubjects = useMemo(() => subjectsForLevel(catalogueSubjects, levelCode, level.name), [catalogueSubjects, level.name, levelCode])
   const [showAllSubjects, setShowAllSubjects] = useState(false)
@@ -74,11 +79,13 @@ export function TeachingDetailsForm({
 
   const groupIndex = levelGroups.findIndex((group) => group.group_code === value.class_group_code)
   const subjectIndex = selectableSubjects.findIndex((subject) => subject.subject === value.subject && subject.subject_code === value.subject_code)
-  const [manualGroup, setManualGroup] = useState(Boolean(savedGroups.length <= 1 && (value.class_group_code || value.class_name) && !groupInCatalogue))
   const [multipleGroups, setMultipleGroups] = useState(savedGroups.length > 1)
-  const [pendingGroupCodes, setPendingGroupCodes] = useState(savedGroups.map(group => group.group_code))
+  const [pendingGroupCodes, setPendingGroupCodes] = useState(savedGroups.map(group => group.group_code).filter(Boolean))
   const savedGroupKey = JSON.stringify(savedGroups)
-  useEffect(() => { setPendingGroupCodes(savedGroups.map(group => group.group_code)); if (savedGroups.length > 1) setMultipleGroups(true) }, [savedGroupKey])
+  useEffect(() => {
+    setPendingGroupCodes(savedGroups.map(group => group.group_code).filter(Boolean))
+    if (savedGroups.length > 1) setMultipleGroups(true)
+  }, [savedGroupKey])
   const [manualSubject, setManualSubject] = useState(Boolean(value.subject && subjectIndex < 0))
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [openUpwards, setOpenUpwards] = useState(false)
@@ -143,68 +150,75 @@ export function TeachingDetailsForm({
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [dropdownOpen])
-  const editGroup = (patch: Partial<Pick<TeachingLevelDraft, 'class_group_code' | 'class_name'>>) => onChange({ ...value, ...patch, class_groups: [], attendance: [], attendance_reviewed: false, total: 0, present: 0 })
-  const selectedGroup: GroupOption = levelGroups[groupIndex] || { group_code: value.class_group_code, class_name: value.class_name, level: levelCode, level_name: level.name, district_id: '', district_name: '' }
-  const selectedGroups = savedGroups.map(group => levelGroups.find(option => option.group_code === group.group_code) || { ...selectedGroup, ...group })
+  const selectedGroups = savedGroups.flatMap(saved => {
+    const group = selectableGroups.find(option => option.group_code === saved.group_code)
+    return group ? [group] : []
+  })
+  const pendingGroups = selectableGroups.filter(group => pendingGroupCodes.includes(group.group_code))
 
   return <div className="grid gap-7">
     <section className="grid gap-4" aria-labelledby={`teaching-basics-${levelCode}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-secondary text-primary"><BookOpen size={21} /></span><div><h2 id={`teaching-basics-${levelCode}`} className="text-lg font-semibold tracking-[-.02em]">{level.name}</h2><p className="text-xs text-muted-foreground">เลือกกลุ่มและวิชาจากข้อมูลที่มีอยู่ หรือกรอกเองเมื่อจำเป็น</p></div></div>
+        <div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-secondary text-primary"><BookOpen size={21} /></span><div><h2 id={`teaching-basics-${levelCode}`} className="text-lg font-semibold tracking-[-.02em]">{level.name}</h2><p className="text-xs text-muted-foreground">เลือกกลุ่มเรียนและรายวิชาสำหรับบันทึกนี้</p></div></div>
         <Badge variant="outline"><Database size={14} />{sourceLabel}{value.attendance.length > 0 && value.attendance_term ? ` · ${value.attendance_term}` : ''}</Badge>
       </div>
 
-      <div className="grid gap-4 rounded-xl border bg-muted/15 p-4 md:grid-cols-2">
-        <div className="grid content-start gap-3">
-          <div className="flex items-center justify-between gap-2">
-            <b className="text-sm">กลุ่มเรียน</b>
-            <Button type="button" variant="ghost" size="sm" onClick={() => { setManualGroup(false); setMultipleGroups(current => !current) }}>{multipleGroups ? 'เลือกกลุ่มเดียว' : 'เลือกหลายกลุ่ม'}</Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setManualGroup((current) => !current)}>
-              {manualGroup ? 'เลือกจากระบบ' : 'กรอกรหัสกลุ่ม'}
+      <div className="grid gap-4 md:grid-cols-2">
+        <section aria-labelledby={`teaching-group-${levelCode}`} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/15 p-4">
+          <div className="flex min-h-9 items-center justify-between gap-2">
+            <h3 id={`teaching-group-${levelCode}`} className="text-sm font-semibold">กลุ่มเรียน</h3>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loadState.loading || (!multipleGroups && selectableGroups.length < 2)}
+              onClick={() => {
+                setPendingGroupCodes(savedGroups.map(group => group.group_code).filter(Boolean))
+                setMultipleGroups(current => !current)
+              }}
+            >
+              {multipleGroups ? 'เลือกกลุ่มเดียว' : 'เลือกหลายกลุ่ม'}
             </Button>
           </div>
-          {!manualGroup && !multipleGroups && <p className="text-xs text-muted-foreground">เลือกหนึ่งกลุ่มเพื่อบันทึกแยก หรือกดเลือกหลายกลุ่มเพื่อรวมเป็นบันทึกเดียว</p>}
-          {manualGroup ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <FormField label="รหัสกลุ่ม">
-                <Input data-workspace-field="group" maxLength={50} value={value.class_group_code} onChange={(event) => editGroup({ class_group_code: event.target.value })} placeholder="เช่น 210007" />
-              </FormField>
-              <FormField label="ชื่อกลุ่มเรียน">
-                <Input maxLength={255} value={value.class_name} onChange={(event) => editGroup({ class_name: event.target.value })} placeholder="ชื่อกลุ่มเรียน" />
-              </FormField>
-            </div>
-          ) : multipleGroups ? (
+          {multipleGroups ? (
             <div className="grid gap-3" data-workspace-field="group">
               <fieldset className="max-h-60 overflow-y-auto rounded-lg border bg-card p-2" disabled={loadState.loading}>
                 <legend className="px-1 text-xs font-medium">เลือกกลุ่มเรียนที่จะรวมในบันทึกเดียว</legend>
-                {levelGroups.map(group => <label key={group.group_code} className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-2.5 text-sm hover:bg-muted/40"><input type="checkbox" className="mt-1 size-4 shrink-0 accent-primary" checked={pendingGroupCodes.includes(group.group_code)} onChange={event => setPendingGroupCodes(current => event.target.checked ? [...current, group.group_code] : current.filter(code => code !== group.group_code))} /><span>{group.class_name} <small className="text-muted-foreground">({group.group_code})</small></span></label>)}
+                {selectableGroups.map(group => <label key={group.group_code} className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-2.5 text-sm hover:bg-muted/40"><input type="checkbox" className="mt-1 size-4 shrink-0 accent-primary" checked={pendingGroupCodes.includes(group.group_code)} onChange={event => setPendingGroupCodes(current => event.target.checked ? [...current, group.group_code] : current.filter(code => code !== group.group_code))} /><span className="min-w-0 break-words">{group.class_name || group.group_code} {group.class_name && <small className="text-muted-foreground">({group.group_code})</small>}</span></label>)}
               </fieldset>
-              <Button type="button" variant="outline" disabled={loadState.loading || !pendingGroupCodes.length} onClick={() => void onSelectGroup(levelGroups.filter(group => pendingGroupCodes.includes(group.group_code)))}>ใช้กลุ่มที่เลือกและรวมรายชื่อ ({pendingGroupCodes.length})</Button>
-              <p className="text-xs text-muted-foreground">ใช้รายวิชา เนื้อหา และภาพชุดเดียวกัน รวมรายชื่อไม่ซ้ำ และเช็กชื่อแยกแต่ละคน</p>
+              <Button type="button" variant="outline" className="h-auto min-h-10 whitespace-normal py-2 text-center" disabled={loadState.loading || !pendingGroups.length} onClick={() => void onSelectGroup(pendingGroups)}>ใช้กลุ่มที่เลือกและรวมรายชื่อ ({pendingGroups.length})</Button>
             </div>
           ) : (
             <FormField label="เลือกกลุ่มเรียน">
-              <NativeSelect data-workspace-field="group" value={savedGroups.length === 1 && groupIndex >= 0 ? String(groupIndex) : ''} onChange={(event) => { if (!event.target.value) return; const group = levelGroups[Number(event.target.value)]; if (group) void onSelectGroup([group]) }}>
-                <option value="">{levelGroups.length ? 'เลือกกลุ่มเรียน' : 'ไม่พบกลุ่ม กรอกรหัสกลุ่มได้ด้านบน'}</option>
-                {levelGroups.map((group, index) => <option key={`${group.group_code}|${group.class_name}`} value={index}>{group.class_name} ({group.group_code})</option>)}
+              <NativeSelect
+                data-workspace-field="group"
+                className="truncate"
+                disabled={loadState.loading || !levelGroups.length}
+                value={savedGroups.length === 1 && groupIndex >= 0 ? String(groupIndex) : ''}
+                onChange={(event) => {
+                  if (!event.target.value) return
+                  const group = levelGroups[Number(event.target.value)]
+                  if (group?.group_code) void onSelectGroup([group])
+                }}
+              >
+                <option value="" disabled>{levelGroups.length ? 'เลือกกลุ่มเรียน' : 'ไม่พบกลุ่มเรียนในระดับนี้'}</option>
+                {levelGroups.map((group, index) => <option key={`${group.group_code}|${group.class_name}`} value={index}>{group.class_name && group.group_code ? `${group.class_name} (${group.group_code})` : group.class_name || group.group_code}</option>)}
               </NativeSelect>
             </FormField>
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            {value.class_group_code && (
-              <Button type="button" variant="outline" size="sm" disabled={loadState.loading} onClick={() => void onSelectGroup(selectedGroups)} className="gap-1.5 text-xs">
-                <UsersThree size={14} />
-                {loadState.loading ? 'กำลังโหลดรายชื่อ...' : savedGroups.length > 1 ? `อัปเดตรายชื่อจาก ${savedGroups.length} กลุ่ม` : value.attendance.length ? 'อัปเดตรายชื่อจากกลุ่มนี้' : 'ดึงรายชื่อจากรหัสกลุ่มนี้'}
-              </Button>
-            )}
-          </div>
           {savedGroups.length > 1 && <div className="flex flex-wrap gap-2" aria-label="กลุ่มที่ใช้ในบันทึก">{savedGroups.map(group => <Badge key={group.group_code} variant="secondary">{group.class_name || group.group_code}</Badge>)}</div>}
-        </div>
+          <div className="mt-auto flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={loadState.loading || !selectedGroups.length} onClick={() => void onSelectGroup(selectedGroups)}>
+              <UsersThree size={14} />
+              {loadState.loading ? 'กำลังโหลดรายชื่อ...' : savedGroups.length > 1 ? `อัปเดตรายชื่อจาก ${savedGroups.length} กลุ่ม` : value.attendance.length ? 'อัปเดตรายชื่อจากกลุ่มนี้' : 'อัปเดตรายชื่อ'}
+            </Button>
+          </div>
+        </section>
 
-        <div className="grid content-start gap-3">
-          <div className="flex items-center justify-between gap-2">
-            <b className="text-sm">รายวิชา</b>
-            <Button type="button" variant="ghost" size="sm" onClick={() => manualSubject ? setManualSubject(false) : startManualSubject()}>
+        <section aria-labelledby={`teaching-subject-${levelCode}`} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/15 p-4">
+          <div className="flex min-h-9 items-center justify-between gap-2">
+            <h3 id={`teaching-subject-${levelCode}`} className="text-sm font-semibold">รายวิชา</h3>
+            <Button type="button" variant="outline" size="sm" onClick={() => manualSubject ? setManualSubject(false) : startManualSubject()}>
               {manualSubject ? 'เลือกจากระบบ' : 'กรอกรายวิชาเอง'}
             </Button>
           </div>
@@ -385,7 +399,7 @@ export function TeachingDetailsForm({
               </div>
             </FormField>
           )}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="mt-auto flex flex-wrap items-center gap-2">
             {onRefreshSubjects && (
               <Button
                 type="button"
@@ -415,7 +429,7 @@ export function TeachingDetailsForm({
               <span className="text-xs text-muted-foreground">แสดงวิชาทั้งหมด {selectableSubjects.length} วิชา</span>
             )}
           </div>
-        </div>
+        </section>
         {subjectError && (
           <div role="status" className="col-span-full flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
             <WarningCircle size={15} className="shrink-0" />
