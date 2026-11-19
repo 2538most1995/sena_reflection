@@ -65,8 +65,15 @@ class DraftService
             }
 
             $sourceRecords = $this->sourceRecordsForDraft($source);
+            $sourceRecordOnly = $sourceRecords->count() !== $sourceRecords->pluck('level')->unique()->count();
+            if ($sourceRecordOnly) {
+                $sourceRecords = $sourceRecords->where('id', $source->id)->values();
+            }
             $payload = $this->payloadFromRecord($source, $sourceRecords);
             $payload['source_fingerprint'] = $this->fingerprintRecords($sourceRecords);
+            if ($sourceRecordOnly) {
+                $payload['source_record_only'] = true;
+            }
         } else {
             $source = null;
             $payload = $this->normalizePayload($data['payload'] ?? [], $user);
@@ -104,9 +111,7 @@ class DraftService
         }
 
         $normalized = $this->normalizePayload($payload, $user);
-        if (isset($owned->payload['source_fingerprint'])) {
-            $normalized['source_fingerprint'] = $owned->payload['source_fingerprint'];
-        }
+        $normalized += array_intersect_key($owned->payload, array_flip(['source_fingerprint', 'source_record_only']));
         $scope = $normalized['scope'];
         $updated = TeachingDraft::query()
             ->whereKey($owned->id)
@@ -439,7 +444,7 @@ class DraftService
         $teacherName = $user->name;
         if ($owned->source_record_id) {
             $source = TeachingRecord::query()->visibleTo($user)->find($owned->source_record_id);
-            $sourceLevel = $source?->weekly_submission_id
+            $sourceLevel = $source?->weekly_submission_id && empty($owned->payload['source_record_only'])
                 ? TeachingRecord::query()->where('weekly_submission_id', $source->weekly_submission_id)
                     ->where('level', EducationLevelService::NAMES[$levelCode])->first()
                 : $source;
@@ -551,7 +556,7 @@ class DraftService
         if (! $source) {
             return [];
         }
-        $names = $source->weekly_submission_id
+        $names = $source->weekly_submission_id && empty($draft->payload['source_record_only'])
             ? TeachingRecord::query()->where('weekly_submission_id', $source->weekly_submission_id)->pluck('level')->all()
             : [$source->level];
 
@@ -638,13 +643,13 @@ class DraftService
         ];
     }
 
-    public function sourceFingerprint(TeachingRecord $source): string
+    public function sourceFingerprint(TeachingRecord $source, bool $recordOnly = false): string
     {
         $records = TeachingRecord::query()
-            ->when($source->weekly_submission_id,
+            ->when($source->weekly_submission_id && ! $recordOnly,
                 fn ($query) => $query->where('weekly_submission_id', $source->weekly_submission_id),
                 fn ($query) => $query->whereKey($source->id))
-            ->with(['attendance', 'images', 'documentLayout'])->orderBy('id')->get();
+            ->with(['attendance', 'images', 'documentLayout'])->orderBy('id')->lockForUpdate()->get();
 
         return $this->fingerprintRecords($records);
     }

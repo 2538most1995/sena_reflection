@@ -106,7 +106,12 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const district = auth.user?.role === 'district'
   const fallbackPayload = useMemo(() => {
     const value = emptyTeachingDraft(defaults)
-    value.scope.tambon = auth.user?.tambon || ''
+    value.scope.tambon = auth.user?.tambon || defaults.tambon || ''
+    value.scope.week = defaults.week ?? ''
+    if (defaults.levelCode) {
+      value.enabled_level_codes = [defaults.levelCode]
+      value.active_level_code = defaults.levelCode
+    }
     return value
   }, [auth.user?.tambon, defaults])
   const initialDraft = workspace?.draft || null
@@ -116,7 +121,7 @@ export function TeachingWorkspace({ mode, groups, subjects, tambonOptions, stude
   const [payload, setPayload] = useState<TeachingDraftPayload>(() => normalizeDraftPayload(initialDraft?.payload, fallbackPayload))
   const [draft, setDraft] = useState<TeachingDraft | null>(initialDraft)
   const [images, setImages] = useState<TeachingDraftImage[]>(initialDraft?.images || [])
-  const [activeLevel, setActiveLevelState] = useState<LevelCode>(initialDraft?.payload.active_level_code || '1')
+  const [activeLevel, setActiveLevelState] = useState<LevelCode>(() => payload.active_level_code)
   const [editorMode, setEditorMode] = useState<'edit' | 'review'>(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('review') === '1' ? 'review' : 'edit')
   const [loadStates, setLoadStates] = useState<Record<LevelCode, WorkspaceLoadState>>({
     '1': { loading: false, error: null, source: studentSource },

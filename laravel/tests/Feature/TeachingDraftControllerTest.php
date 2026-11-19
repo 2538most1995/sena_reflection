@@ -148,6 +148,81 @@ class TeachingDraftControllerTest extends TestCase
         $this->assertDatabaseHas('teaching_drafts', ['id' => $id, 'status' => 'active']);
     }
 
+    public function test_separate_groups_share_a_week_and_reopen_and_retry_by_record_id(): void
+    {
+        $this->actingAs($this->createTeacher('u1', 't1'));
+        $payload = $this->draftPayload();
+        $payload['enabled_level_codes'] = ['1'];
+        $payload['levels']['1']['attendance_mode'] = 'roster';
+        $payload['levels']['1']['attendance'] = [['student_id' => 'FIRST-1', 'full_name' => 'นักศึกษากลุ่มหนึ่ง', 'group_code' => 'G1', 'present' => true]];
+        $firstDraft = $this->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->json('data.draft.id');
+        $firstRequest = ['lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true];
+        $first = $this->postJson(route('teaching-drafts.finalize', $firstDraft), $firstRequest)->assertOk()->json('data.record_ids.0');
+        $openBeforeSecond = $this->postJson(route('teaching-drafts.store'), ['source_record_id' => $first])->assertCreated()->json('data.draft.id');
+
+        $payload['levels']['1'] = [...$payload['levels']['1'], 'class_group_code' => 'G2', 'class_name' => 'กลุ่มที่สอง', 'subject' => 'คณิตศาสตร์', 'date' => '2026-11-14'];
+        $payload['levels']['1']['attendance'] = [['student_id' => 'SECOND-1', 'full_name' => 'นักศึกษากลุ่มสอง', 'group_code' => 'G2', 'present' => false]];
+        $secondDraft = $this->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->json('data.draft.id');
+        $second = $this->postJson(route('teaching-drafts.finalize', $secondDraft), [
+            'lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true,
+        ])->assertOk()->assertJsonCount(1, 'data.record_ids')->json('data.record_ids.0');
+        $this->assertNotSame($first, $second);
+        $this->assertDatabaseCount('weekly_submissions', 1);
+        $this->postJson(route('teaching-drafts.finalize', $firstDraft), $firstRequest)->assertOk()->assertJsonPath('data.record_ids', [$first]);
+        $this->postJson(route('teaching-drafts.finalize', $openBeforeSecond), $firstRequest)->assertConflict()->assertJsonPath('code', 'source_record_conflict');
+
+        $editing = $this->postJson(route('teaching-drafts.store'), ['source_record_id' => $second])->assertCreated()
+            ->assertJsonPath('data.draft.payload.levels.1.class_group_code', 'G2')
+            ->assertJsonPath('data.draft.payload.levels.1.date', '2026-11-14');
+        $editId = $editing->json('data.draft.id');
+        $edited = $editing->json('data.draft.payload');
+        $edited['levels']['1']['result'] = 'แก้ไขเฉพาะกลุ่มที่สอง';
+        $this->patchJson(route('teaching-drafts.update', $editId), ['lock_version' => 1, 'payload' => $edited])->assertOk();
+        $this->postJson(route('teaching-drafts.finalize', $editId), [
+            'lock_version' => 2, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true,
+        ])->assertOk()->assertJsonPath('data.record_ids', [$second]);
+
+        $this->assertDatabaseCount('records', 2);
+        $this->assertDatabaseHas('records', ['id' => $first, 'class_group_code' => 'G1', 'subject' => 'ภาษาไทย']);
+        $this->assertDatabaseHas('records', ['id' => $second, 'subject' => 'คณิตศาสตร์', 'result' => 'แก้ไขเฉพาะกลุ่มที่สอง']);
+        $this->assertDatabaseHas('record_attendance', ['record_id' => $first, 'student_id' => 'FIRST-1', 'present' => true]);
+        $this->assertDatabaseHas('record_attendance', ['record_id' => $second, 'student_id' => 'SECOND-1', 'present' => false]);
+    }
+
+    public function test_group_already_in_a_combined_record_cannot_be_saved_again_in_the_same_week(): void
+    {
+        $this->actingAs($this->createTeacher('u1', 't1'));
+        $payload = $this->draftPayload();
+        $payload['enabled_level_codes'] = ['1'];
+        $payload['levels']['1']['attendance_mode'] = 'counts';
+        $payload['levels']['1']['class_groups'] = [
+            ['group_code' => 'G1', 'class_name' => 'กลุ่มที่หนึ่ง'],
+            ['group_code' => 'G2', 'class_name' => 'กลุ่มที่สอง'],
+        ];
+        $combined = $this->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->json('data.draft.id');
+        $this->postJson(route('teaching-drafts.finalize', $combined), [
+            'lock_version' => 1, 'idempotency_key' => (string) Str::uuid(), 'confirmed' => true,
+        ])->assertOk();
+
+        unset($payload['levels']['1']['class_groups']);
+        $payload['levels']['1']['class_group_code'] = 'G2';
+        $payload['levels']['1']['class_name'] = 'กลุ่มที่สอง';
+        $key = (string) Str::uuid();
+        $separate = $this->postJson(route('teaching-drafts.store'), ['payload' => $payload])->assertCreated()->json('data.draft.id');
+        $this->postJson(route('teaching-drafts.finalize', $separate), [
+            'lock_version' => 1, 'idempotency_key' => $key, 'confirmed' => true,
+        ])->assertUnprocessable()->assertJsonValidationErrors('payload.scope.week');
+        $this->assertDatabaseCount('records', 1);
+        $this->assertDatabaseHas('teaching_drafts', ['id' => $separate, 'status' => 'active']);
+
+        $payload['scope']['week']++;
+        $this->patchJson(route('teaching-drafts.update', $separate), ['lock_version' => 1, 'payload' => $payload])->assertOk();
+        $this->postJson(route('teaching-drafts.finalize', $separate), [
+            'lock_version' => 2, 'idempotency_key' => $key, 'confirmed' => true,
+        ])->assertOk();
+        $this->assertDatabaseCount('records', 2);
+    }
+
     public function test_duplicate_group_codes_are_rejected_before_saving_a_draft(): void
     {
         $user = $this->createTeacher('u1', 't1');
@@ -572,11 +647,10 @@ class TeachingDraftControllerTest extends TestCase
         $editPayload['scope']['week'] = 11;
         $this->patchJson(route('teaching-drafts.update', $editId), ['lock_version' => 1, 'payload' => $editPayload])->assertOk();
 
-        $rejected = $this->postJson(route('teaching-drafts.finalize', $editId), [
+        $this->postJson(route('teaching-drafts.finalize', $editId), [
             'lock_version' => 2, 'confirmed' => true, 'idempotency_key' => (string) Str::uuid(),
         ])->assertUnprocessable()->assertJsonValidationErrors('payload.scope.week');
 
-        $this->assertSame('ระดับชั้นที่เลือกมีบันทึกในสัปดาห์นี้แล้ว กรุณาเปิดรายการเดิมเพื่อแก้ไข', $rejected->json('errors')['payload.scope.week'][0]);
         $this->assertDatabaseCount('records', 2);
         $this->assertDatabaseCount('weekly_submissions', 1);
         $this->assertSame($sourceFingerprint, app(DraftService::class)->sourceFingerprint($source->fresh()));

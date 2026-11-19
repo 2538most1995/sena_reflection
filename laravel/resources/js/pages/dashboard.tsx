@@ -352,6 +352,17 @@ function Filters({ filters, weeks, tambons, district, current }: { filters: Prop
   )
 }
 
+function AddGroupRecord({ group }: { group: WeekGroup }) {
+  if (group.week < 1 || group.week > 20 || !/^25\d{2}$/.test(group.year) || !['1', '2', '3'].includes(group.semester)) return null
+  const query = new URLSearchParams({ year: group.year, semester: group.semester, week: String(group.week), tambon: group.tambon })
+  const level = group.records[0]?.level
+  if (level && group.records.every(record => record.level === level)) query.set('level', level)
+
+  return <Button asChild variant="outline" size="sm">
+    <Link href={`/records/create?${query}`}>เพิ่มบันทึกกลุ่มในสัปดาห์นี้</Link>
+  </Button>
+}
+
 function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
   const { auth } = usePage<SharedProps>().props
   const district = auth?.user?.role === 'district'
@@ -404,7 +415,7 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
     <>
       <div className="mb-3.5 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <div>
-          แสดงรายการรายสัปดาห์: <b className="font-semibold text-foreground">{groups.length}</b> สัปดาห์ (บันทึกรวม <b className="font-semibold text-foreground">{recordList.length}</b> ระดับชั้น)
+          แสดงรายการรายสัปดาห์: <b className="font-semibold text-foreground">{groups.length}</b> สัปดาห์ (รวม <b className="font-semibold text-foreground">{recordList.length}</b> บันทึก)
         </div>
         <Button
           type="button"
@@ -464,13 +475,13 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                     <td className="px-4 py-3.5 text-xs text-foreground font-medium">{group.tambonName}</td>
                     <td className="px-4 py-3.5">
                       <div className="flex flex-wrap items-center gap-1">
-                        {group.records.map((r) => (
-                          <Badge key={r.id} variant="secondary" className="px-2 py-0.5 text-xs font-normal">
-                            {r.level || '-'}
+                        {[...new Set(group.records.map(record => record.level || '-'))].map(level => (
+                          <Badge key={level} variant="secondary" className="px-2 py-0.5 text-xs font-normal">
+                            {level}
                           </Badge>
                         ))}
                         <span className="ml-1 text-[11px] text-muted-foreground">
-                          ({group.records.length} ระดับ)
+                          ({group.records.length} บันทึก)
                         </span>
                       </div>
                     </td>
@@ -536,12 +547,10 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                                 สัปดาห์ที่ {group.week}
                               </span>
                               <span className="text-xs font-semibold text-foreground">
-                                รายละเอียดระดับชั้น ({group.records.length} ระดับชั้น)
+                                รายการบันทึก ({group.records.length})
                               </span>
                             </div>
-                            <span className="text-xs text-muted-foreground">
-                              {group.tambonName} {group.date ? `· วันที่ ${thaiDate(group.date)}` : ''}
-                            </span>
+                            <AddGroupRecord group={group} />
                           </div>
                           <div className="overflow-x-auto rounded-lg border border-border bg-background">
                             <table className="w-full text-left text-sm border-collapse">
@@ -571,6 +580,7 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                                         <small className="block truncate text-[11px] text-muted-foreground">
                                           {record.subject_code || 'ไม่ระบุรหัสวิชา'}
                                         </small>
+                                        <small className="block text-[11px] text-muted-foreground">{record.class_name || record.class_group_code}</small>
                                       </td>
                                       <td className="px-3.5 py-2.5 whitespace-nowrap text-xs">
                                         <b className="font-semibold text-foreground">{number(record.present)}/{number(record.total)}</b>
@@ -742,8 +752,9 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
               {isExpanded && (
                 <div className="mt-3.5 space-y-2.5 border-t border-border/60 pt-3">
                   <h4 className="text-xs font-semibold text-muted-foreground">
-                    ระดับชั้นที่บันทึกไว้ ({group.records.length} ระดับชั้น)
+                    รายการบันทึก ({group.records.length})
                   </h4>
+                  <AddGroupRecord group={group} />
                   {group.records.map((record) => {
                     const canDelete = district || (record.tambon && record.tambon === auth?.user?.tambon)
                     return (
@@ -753,6 +764,7 @@ function RecordsList({ records }: { records?: Paginated<RecordRow> | null }) {
                             <Badge variant="outline" className="mb-1 text-[11px] font-medium">{record.level}</Badge>
                             <b className="block truncate text-sm font-semibold text-foreground">{record.subject}</b>
                             <small className="block truncate text-xs text-muted-foreground">{record.subject_code || 'ไม่ระบุรหัสวิชา'}</small>
+                            <small className="block text-xs text-muted-foreground">{record.class_name || record.class_group_code}</small>
                           </div>
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">

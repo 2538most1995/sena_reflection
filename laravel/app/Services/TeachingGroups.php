@@ -36,6 +36,23 @@ class TeachingGroups
         return array_values(array_filter(array_column(self::selected($entry), 'group_code'), static fn (string $code): bool => $code !== ''));
     }
 
+    public static function overlap(array $left, array $right): bool
+    {
+        foreach (self::selected($left) as $first) {
+            foreach (self::selected($right) as $second) {
+                if ($first['group_code'] !== '' && $second['group_code'] !== '') {
+                    if (mb_strtolower($first['group_code']) === mb_strtolower($second['group_code'])) {
+                        return true;
+                    }
+                } elseif ($first['class_name'] !== '' && mb_strtolower($first['class_name']) === mb_strtolower($second['class_name'])) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public static function normalize(array $entry, string $path): array
     {
         if (empty($entry['class_groups'])) {

@@ -72,7 +72,7 @@ class DraftLifecycleService
             if (! $source) {
                 $this->fail('บันทึกต้นฉบับยังไม่พร้อมใช้งาน หากเก็บภาคเรียนไปแล้ว ให้นำชุดสำรองกลับก่อนนำร่างกลับมาแก้ไข');
             }
-            if (! hash_equals((string) ($draft->payload['source_fingerprint'] ?? ''), $this->drafts->sourceFingerprint($source))) {
+            if (! hash_equals((string) ($draft->payload['source_fingerprint'] ?? ''), $this->drafts->sourceFingerprint($source, ! empty($draft->payload['source_record_only'])))) {
                 throw new DraftVersionConflictException($draft, 'ต้นฉบับเปลี่ยนหลังเปิดร่างนี้ ร่างที่พักไว้ยังอยู่ กรุณาเปิดบันทึกฉบับล่าสุดก่อนแก้ไข', 'source_record_conflict');
             }
 

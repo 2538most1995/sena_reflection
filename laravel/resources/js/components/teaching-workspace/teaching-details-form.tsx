@@ -163,6 +163,7 @@ export function TeachingDetailsForm({
               {manualGroup ? 'เลือกจากระบบ' : 'กรอกรหัสกลุ่ม'}
             </Button>
           </div>
+          {!manualGroup && !multipleGroups && <p className="text-xs text-muted-foreground">เลือกหนึ่งกลุ่มเพื่อบันทึกแยก หรือกดเลือกหลายกลุ่มเพื่อรวมเป็นบันทึกเดียว</p>}
           {manualGroup ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <FormField label="รหัสกลุ่ม">
@@ -183,7 +184,7 @@ export function TeachingDetailsForm({
             </div>
           ) : (
             <FormField label="เลือกกลุ่มเรียน">
-              <NativeSelect data-workspace-field="group" value={groupIndex >= 0 ? String(groupIndex) : ''} onChange={(event) => { if (!event.target.value) return; const group = levelGroups[Number(event.target.value)]; if (group) void onSelectGroup([group]) }}>
+              <NativeSelect data-workspace-field="group" value={savedGroups.length === 1 && groupIndex >= 0 ? String(groupIndex) : ''} onChange={(event) => { if (!event.target.value) return; const group = levelGroups[Number(event.target.value)]; if (group) void onSelectGroup([group]) }}>
                 <option value="">{levelGroups.length ? 'เลือกกลุ่มเรียน' : 'ไม่พบกลุ่ม กรอกรหัสกลุ่มได้ด้านบน'}</option>
                 {levelGroups.map((group, index) => <option key={`${group.group_code}|${group.class_name}`} value={index}>{group.class_name} ({group.group_code})</option>)}
               </NativeSelect>

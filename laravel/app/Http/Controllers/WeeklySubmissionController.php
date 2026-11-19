@@ -97,7 +97,11 @@ class WeeklySubmissionController extends Controller
                         'year' => $validated['year'],
                         'created_by' => $user->id,
                     ];
-                    $record = $submission->records()->where('level', $entry['level'])->oldest('created_at')->first();
+                    $records = $submission->records()->where('level', $entry['level'])->limit(2)->lockForUpdate()->get();
+                    if ($records->count() > 1) {
+                        throw ValidationException::withMessages(['week' => 'ระดับนี้มีหลายบันทึก กรุณาเปิดบันทึกของกลุ่มที่ต้องการแก้ไข']);
+                    }
+                    $record = $records->first();
                     if ($record) {
                         $record->update($recordData);
                     } else {

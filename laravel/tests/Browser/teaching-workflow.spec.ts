@@ -491,4 +491,45 @@ test.describe('Simplified teaching workflow with its own SQLite and private stor
     await expect(page.frameLocator('iframe[data-document-print-frame]').locator('body')).toContainText('กลุ่มพระดาบส / กลุ่มบ้านแพน')
   })
 
+  test('the weekly list opens a prefilled form to save another group at the same level', async ({ page }) => {
+    test.setTimeout(60_000)
+    await page.goto('/records/create?year=2569&semester=2&week=19&level=1')
+    await expect(page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true })).toHaveValue('19')
+    await fillLevel(page, '1', 'บันทึกกลุ่มแรก')
+    const save = async () => {
+      await page.getByRole('button', { name: 'บันทึก 1 ระดับ', exact: true }).last().click()
+      const confirmation = page.getByRole('dialog', { name: 'ยืนยันบันทึกประจำสัปดาห์', exact: true })
+      const complete = page.waitForResponse(response => /\/teaching-drafts\/[^/]+\/finalize$/.test(new URL(response.url()).pathname))
+      await confirmation.getByRole('button', { name: 'ยืนยันบันทึก 1 ระดับ', exact: true }).click()
+      expect((await complete).status()).toBe(200)
+      await expect.poll(() => new URL(page.url()).searchParams.get('week')).toBe('19')
+      await closeActionNotice(page, 'บันทึกหลังสอนแล้ว')
+      await page.getByRole('button', { name: /^ดูระดับชั้น/ }).click({ timeout: 8000 })
+    }
+    await save()
+    const first = fixture.records().find(record => record.subject === 'บันทึกกลุ่มแรก')!
+    await page.getByRole('link', { name: 'เพิ่มบันทึกกลุ่มในสัปดาห์นี้', exact: true }).click()
+    await expect(page.getByRole('combobox', { name: 'สัปดาห์ *', exact: true })).toHaveValue('19')
+    await expect(page.getByRole('switch', { name: 'สอนระดับประถมศึกษา', exact: true })).toBeChecked()
+    await expect(page.getByRole('switch', { name: 'สอนระดับมัธยมศึกษาตอนต้น', exact: true })).not.toBeChecked()
+
+    await page.getByRole('button', { name: 'กรอกรหัสกลุ่ม', exact: true }).click()
+    await page.getByPlaceholder('เช่น 210007', { exact: true }).fill('SECOND-GROUP')
+    await page.getByPlaceholder('ชื่อกลุ่มเรียน', { exact: true }).fill('กลุ่มที่สอง')
+    await page.getByRole('button', { name: 'ระบุยอดรวมแทนรายชื่อ', exact: true }).click()
+    const manualSubject = page.getByRole('button', { name: 'กรอกรายวิชาเอง', exact: true })
+    if (await manualSubject.isVisible()) await manualSubject.click()
+    await page.getByRole('textbox', { name: 'ชื่อรายวิชา *', exact: true }).fill('บันทึกกลุ่มสอง')
+    await page.getByRole('textbox', { name: 'ผลการจัดการเรียนรู้ *', exact: true }).fill('รายละเอียดของกลุ่มที่สอง')
+    await save()
+    const visibleList = page.locator('table:visible').filter({ hasText: 'บันทึกกลุ่มสอง' }).last()
+    await expect(visibleList).toContainText('บันทึกกลุ่มแรก')
+    await expect(visibleList).toContainText('กลุ่มที่สอง')
+    const second = fixture.records().find(record => record.subject === 'บันทึกกลุ่มสอง')!
+    expect(second.id).not.toBe(first.id)
+    await page.goto(`/records/${second.id}/edit`)
+    await expect(page.getByRole('textbox', { name: 'ผลการจัดการเรียนรู้ *', exact: true })).toHaveValue('รายละเอียดของกลุ่มที่สอง')
+    expect(fixture.records().find(record => record.id === first.id)).toEqual(first)
+  })
+
 })

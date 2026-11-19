@@ -55,6 +55,7 @@ class FinalizeTeachingSubmission
                     throw ValidationException::withMessages(['draft' => $lockedDraft->status === 'paused' ? 'ร่างนี้พักไว้ กรุณานำกลับจากหน้าจัดการร่างก่อนยืนยัน' : 'ร่างนี้ยืนยันแล้ว']);
                 }
                 $payload = $lockedDraft->payload;
+                $sourceRecordOnly = ! empty($payload['source_record_only']);
                 $scope = $payload['scope'] ?? [];
                 Validator::make(['payload' => ['scope' => $scope]], [
                     'payload.scope.week' => ['required', 'integer', 'between:1,20'],
@@ -115,7 +116,7 @@ class FinalizeTeachingSubmission
                 }
                 if ($lockedDraft->source_record_id && (! $sourceRecord || ! hash_equals(
                     (string) ($payload['source_fingerprint'] ?? ''),
-                    $this->drafts->sourceFingerprint($sourceRecord),
+                    $this->drafts->sourceFingerprint($sourceRecord, $sourceRecordOnly),
                 ))) {
                     throw new DraftVersionConflictException(
                         $lockedDraft,
@@ -153,17 +154,35 @@ class FinalizeTeachingSubmission
                 }
 
                 $enabledNames = collect($enabledCodes)->map(fn ($c) => EducationLevelService::NAMES[$c])->all();
-                if ($sourceSubmission && $submission->records()->whereNotIn('level', $enabledNames)->exists()) {
+                if (($sourceRecord && ! in_array($sourceRecord->level, $enabledNames, true))
+                    || ($sourceSubmission && ! $sourceRecordOnly && $submission->records()->whereNotIn('level', $enabledNames)->exists())) {
                     throw ValidationException::withMessages(['payload.enabled_level_codes' => 'ไม่สามารถปิดระดับชั้นที่มีบันทึกเดิมได้ ข้อมูลเดิมจะไม่ถูกลบ']);
                 }
-                if (! $sourceRecord && $submission->records()->whereIn('level', $enabledNames)->exists()) {
-                    throw ValidationException::withMessages(['payload.scope.week' => 'ระดับชั้นที่เลือกมีบันทึกในสัปดาห์นี้แล้ว กรุณาเปิดรายการเดิมเพื่อแก้ไข']);
-                }
+                $weekRecords = TeachingRecord::query()->where([
+                    'tambon' => $tambon, 'year' => $scope['year'],
+                    'semester' => $scope['semester'], 'week' => $scope['week'],
+                ])->whereIn('level', $enabledNames)->orderBy('id')->lockForUpdate()
+                    ->get(['id', 'weekly_submission_id', 'level', 'class_group_code', 'class_name', 'class_groups', 'created_by'])
+                    ->groupBy('level');
 
                 $recordIds = [];
                 foreach ($enabledCodes as $levelCode) {
                     $levelName = EducationLevelService::NAMES[$levelCode];
                     $entry = $entries[$levelCode];
+                    $sameLevel = $weekRecords->get($levelName, collect());
+                    $record = null;
+                    if ($sourceRecord && $sourceRecord->level === $levelName) {
+                        $record = $sourceRecord;
+                    } elseif ($sourceSubmission && ! $sourceRecordOnly) {
+                        $record = $sameLevel->firstWhere('weekly_submission_id', $sourceSubmission->id);
+                    }
+                    $conflict = $sameLevel->contains(fn (TeachingRecord $saved): bool => $saved->id !== $record?->id
+                        && TeachingGroups::overlap($entry, $saved->attributesToArray()));
+                    if ($conflict) {
+                        throw ValidationException::withMessages([
+                            'payload.scope.week' => "กลุ่มเรียนที่เลือกระดับ{$levelName} มีบันทึกในสัปดาห์นี้แล้ว กรุณาเปิดรายการเดิมเพื่อแก้ไข หรือเลือกเฉพาะกลุ่มที่ยังไม่ได้บันทึก",
+                        ]);
+                    }
                     $reviewedSettings = $confirmed && $reviewedLevelCodes === null
                         ? null : Cache::get(DraftService::reviewCacheKey($lockedDraft->id, $lockVersion, $levelCode));
                     if ($reviewedLevelCodes !== null && ! is_array($reviewedSettings)) {
@@ -193,10 +212,6 @@ class FinalizeTeachingSubmission
                         'supervisor_comment' => (string) ($entry['supervisor_comment'] ?? ''),
                         'created_by' => $user->id,
                     ];
-                    $record = $submission->records()->where('level', $levelName)->oldest('created_at')->first();
-                    if (! $record && $sourceRecord && ! $sourceRecord->weekly_submission_id && $sourceRecord->level === $levelName) {
-                        $record = $sourceRecord;
-                    }
                     if (count($entry['class_groups'] ?? []) > 1 || $record?->class_groups !== null) {
                         $recordData['class_groups'] = count($entry['class_groups'] ?? []) > 1 ? $entry['class_groups'] : null;
                     }
@@ -269,6 +284,7 @@ class FinalizeTeachingSubmission
 
                 $submission->update(['status' => 'complete', 'submitted_by' => $user->id]);
                 $lockedDraft->update([
+                    'payload' => [...$payload, 'finalized_record_ids' => $recordIds],
                     'status' => 'finalized',
                     'finalize_key' => $idempotencyKey,
                     'finalized_submission_id' => $submission->id,
@@ -388,10 +404,24 @@ class FinalizeTeachingSubmission
     private function result(TeachingDraft $draft): array
     {
         $submission = WeeklySubmission::query()->whereKey($draft->finalized_submission_id)->firstOrFail();
+        $recordIds = $draft->payload['finalized_record_ids'] ?? null;
+        if ($recordIds === null) {
+            $legacyRecords = $submission->records()->get(['id', 'level', 'class_group_code', 'class_name', 'class_groups'])->groupBy('level');
+            $recordIds = [];
+            foreach (EducationLevelService::enabledCodes($draft->payload) as $code) {
+                $records = $legacyRecords->get(EducationLevelService::NAMES[$code], collect());
+                $record = $records->count() === 1 ? $records->first() : $records->first(
+                    fn (TeachingRecord $candidate): bool => TeachingGroups::overlap($draft->payload['levels'][$code] ?? [], $candidate->attributesToArray()),
+                );
+                if ($record) {
+                    $recordIds[] = $record->id;
+                }
+            }
+        }
 
         return [
             'submission_id' => $submission->id,
-            'record_ids' => $submission->records()->whereIn('level', array_map(fn ($code) => EducationLevelService::NAMES[$code], EducationLevelService::enabledCodes($draft->payload)))->orderBy('level')->pluck('id')->all(),
+            'record_ids' => $recordIds,
             'redirect_url' => route('dashboard', [
                 'year' => $submission->year,
                 'semester' => $submission->semester,

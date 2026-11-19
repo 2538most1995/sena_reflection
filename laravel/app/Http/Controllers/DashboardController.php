@@ -53,7 +53,7 @@ class DashboardController extends Controller
             ->count(DB::raw('TRIM(student_id)'));
 
         $records = (clone $base)
-            ->select(['id', 'weekly_submission_id', 'tambon', 'week', 'date', 'level', 'semester', 'year', 'subject', 'subject_code', 'total', 'present', 'created_by', 'created_at'])
+            ->select(['id', 'weekly_submission_id', 'tambon', 'week', 'date', 'level', 'semester', 'year', 'subject', 'subject_code', 'class_group_code', 'class_name', 'total', 'present', 'created_by', 'created_at'])
             ->with(['tambonRelation:id,name'])
             ->withCount('images')
             ->orderByDesc('date')

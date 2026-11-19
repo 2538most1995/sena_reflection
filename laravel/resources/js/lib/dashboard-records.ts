@@ -38,9 +38,7 @@ export function groupRecordsByWeek(recordsInput: unknown): WeekGroup[] {
   for (const record of records) {
     if (!record || typeof record !== 'object') continue
 
-    const key = record.weekly_submission_id
-      ? `sub-${record.weekly_submission_id}`
-      : `${record.year ?? ''}-${record.semester ?? ''}-${record.week ?? ''}-${record.tambon ?? ''}`
+    const key = `${record.year ?? ''}-${record.semester ?? ''}-${record.week ?? ''}-${record.tambon ?? ''}`
 
     let group = groupMap.get(key)
     if (!group) {

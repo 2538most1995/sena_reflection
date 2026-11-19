@@ -34,6 +34,12 @@ class RecordCreateController extends Controller
             $draft = $drafts->resource($owned->load('images'));
         }
 
+        $week = $draft ? null : (filter_var($request->query('week'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 20]]) ?: null);
+        $levelCode = $week && is_string($request->query('level')) ? $levels->code($request->query('level')) : null;
+        $tambon = null;
+        if ($week && $request->user()->isDistrict() && is_string($request->query('tambon'))) {
+            $tambon = Tambon::query()->whereKey($request->query('tambon'))->value('id');
+        }
         $optionsQuery = $request->query();
         $optionsScope = $draft ? $draft['scope'] : [];
         if ($request->user()->isDistrict()) {
@@ -56,7 +62,7 @@ class RecordCreateController extends Controller
             'tambonOptions' => $request->user()->isDistrict() ? Tambon::query()->orderBy('name')->get(['id', 'name']) : [],
             'studentSource' => $data['source'],
             'studentError' => $data['error_code'] ? $options['message'] : null,
-            'defaults' => [...$terms->defaults($defaultTerm), 'date' => now()->format('Y-m-d')],
+            'defaults' => [...$terms->defaults($defaultTerm), 'date' => now()->format('Y-m-d'), 'week' => $week, 'tambon' => $tambon, 'levelCode' => $levelCode],
             'workspace' => [
                 'mode' => $draft && $draft['source_record_id'] ? 'edit' : 'create',
                 'draft' => $draft,

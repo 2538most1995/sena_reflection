@@ -113,7 +113,7 @@ export type TeachingWorkspaceProps = {
   subjectSource?: string
   subjectError?: string | null
   subjectTerm?: string | null
-  defaults: { year: string; semester: string; date: string }
+  defaults: { year: string; semester: string; date: string; week?: number | null; tambon?: string | null; levelCode?: LevelCode | null }
   workspace?: TeachingWorkspaceBootstrap | null
   sourceRecord?: RecordRow | null
 }
